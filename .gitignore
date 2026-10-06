@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+.pnp.*
+
+# Next.js build output and deployment state
+.next/
+out/
+build/
+.vercel/
+next-env.d.ts
+*.tsbuildinfo
+
+# Local Convex state (keep convex/_generated/ tracked)
+.convex/
+
+# Environment variables and secrets for Next.js, Convex, Clerk, and Polar
+.env*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+
+# Test output and logs
+coverage/
+*.log
+
+# OS metadata
+.DS_Store
+Thumbs.db
