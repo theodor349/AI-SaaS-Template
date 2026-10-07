@@ -9,7 +9,7 @@ export default function Layout() {
       <StickyHeader className="p-2">Sticky header</StickyHeader>
       {/* For Footer to appear below the fold, the subtrahend
         inside calc() must be the same height as the header */}
-      <main className="min-h-[calc(100vh-(2.5rem+1px))]">
+      <main className="min-h-layout-content">
         <Paragraph>Main content</Paragraph>
         <FakeParagraphs words={80} count={5} />
       </main>

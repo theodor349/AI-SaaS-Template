@@ -1,18 +1,29 @@
 "use client"
 
 import * as React from "react"
+import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "cn"
 import { ScrollArea as ScrollAreaPrimitive } from "radix-ui"
 
+const scrollAreaVariants = cva("relative", {
+  variants: {
+    size: {
+      full: "h-full",
+    },
+  },
+})
+
 function ScrollArea({
   className,
+  size,
   children,
   ...props
-}: React.ComponentProps<typeof ScrollAreaPrimitive.Root>) {
+}: React.ComponentProps<typeof ScrollAreaPrimitive.Root> &
+  VariantProps<typeof scrollAreaVariants>) {
   return (
     <ScrollAreaPrimitive.Root
       data-slot="scroll-area"
-      className={cn("relative", className)}
+      className={cn(scrollAreaVariants({ size }), className)}
       {...props}
     >
       <ScrollAreaPrimitive.Viewport

@@ -10,7 +10,7 @@ export default function Layout() {
     <div className="flex flex-col h-screen max-h-screen">
       <div className="border-b backdrop-blur p-2">Sticky header</div>
       <div className="flex-grow flex min-h-0">
-        <aside className="overflow-y-scroll min-w-[240px]">
+        <aside className="overflow-y-scroll min-w-60">
           <div>Sticky sidebar</div>
           <FakeWordList count={20} length={[4, 15]} />
         </aside>

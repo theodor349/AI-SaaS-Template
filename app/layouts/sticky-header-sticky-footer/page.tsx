@@ -10,7 +10,7 @@ export default function Layout() {
       {/* For Footer to appear at the bottom, and the page
         to not have unnecessary scrollbar, the subtrahend
         inside calc() must be the same height as the header + footer */}
-      <main className="min-h-[calc(100vh-(5rem+2px))]">
+      <main className="min-h-layout-framed-content">
         <Paragraph>Main content</Paragraph>
         <FakeParagraphs words={80} count={5} />
       </main>

@@ -66,9 +66,9 @@ function SignedInContent() {
   if (viewer === undefined || numbers === undefined) {
     return (
       <>
-        <Skeleton className="h-5 w-full" />
-        <Skeleton className="h-5 w-full" />
-        <Skeleton className="h-5 w-full" />
+        <Skeleton size="line" />
+        <Skeleton size="line" />
+        <Skeleton size="line" />
       </>
     );
   }

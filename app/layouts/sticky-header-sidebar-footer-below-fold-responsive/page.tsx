@@ -19,19 +19,21 @@ export default function Layout() {
   );
   return (
     <>
-      <StickyHeader className="p-2 flex items-center justify-between h-[3.25rem]">
+      <StickyHeader className="p-2 flex items-center justify-between h-13">
         Sticky header
-        <ResponsiveSidebarButton className="sm:hidden">
-          <div className="sm:hidden fixed bg-background w-screen top-[calc(3.25rem+1px)] h-[calc(100vh-(3.25rem+1px))]">
-            <ScrollArea className="h-full">{sidebar}</ScrollArea>
-          </div>
-        </ResponsiveSidebarButton>
+        <div className="sm:hidden">
+          <ResponsiveSidebarButton>
+            <div className="sm:hidden fixed bg-background w-screen top-layout-mobile-header h-layout-mobile-content">
+              <ScrollArea size="full">{sidebar}</ScrollArea>
+            </div>
+          </ResponsiveSidebarButton>
+        </div>
       </StickyHeader>
-      <div className="container sm:grid grid-cols-[240px_minmax(0,1fr)]">
-        <StickySidebar className="hidden sm:block top-[calc(3.25rem+1px)] h-[calc(100vh-(3.25rem+1px))]">
+      <div className="container sm:grid grid-cols-layout-sidebar">
+        <StickySidebar className="hidden sm:block top-layout-mobile-header h-layout-mobile-content">
           {sidebar}
         </StickySidebar>
-        <main className="min-h-[calc(100vh-(3.25rem+1px))]">
+        <main className="min-h-layout-mobile-content">
           <Paragraph>Main content</Paragraph>
           <FakeParagraphs words={80} count={5} />
         </main>

@@ -10,13 +10,13 @@ export default function Layout() {
     <>
       <StickyHeader className="p-2">Sticky header</StickyHeader>
       {/* Remove `container` if you want full-page width layout */}
-      <div className="container grid grid-cols-[240px_minmax(0,1fr)]">
-        <StickySidebar className="top-[calc(2.5rem+1px)] h-[calc(100vh-(2.5rem+1px))]">
+      <div className="container grid grid-cols-layout-sidebar">
+        <StickySidebar className="top-layout-header h-layout-content">
           <div>Sticky sidebar</div>
           <FakeWordList count={3} length={[4, 15]} />
         </StickySidebar>
         <main>
-          <div className="min-h-[calc(100vh-2.5rem)]">
+          <div className="min-h-layout-inner-content">
             <Paragraph>Main content</Paragraph>
             <FakeParagraphs words={80} count={5} />
           </div>

@@ -12,8 +12,8 @@ export default function Layout() {
       {/* For Footer to appear at the bottom, and the page
         to not have unnecessary scrollbar, the subtrahend
         inside calc() must be the same height as the header + footer */}
-      <div className="container grid grid-cols-[240px_minmax(0,1fr)]">
-        <StickySidebar className="top-[calc(2.5rem+1px)] h-[calc(100vh-(5rem+2px))]">
+      <div className="container grid grid-cols-layout-sidebar">
+        <StickySidebar className="top-layout-header h-layout-framed-content">
           <div>Sticky sidebar</div>
           <FakeWordList count={60} length={[4, 15]} />
         </StickySidebar>

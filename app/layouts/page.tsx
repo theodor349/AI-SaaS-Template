@@ -8,9 +8,9 @@ export default function Layouts() {
         Sticky header, sticky footer
         <div className="pt-2">
           <div className="border-2 border-primary">
-            <div className="h-4 w-full bg-red-400"></div>
-            <div className="h-32 w-full bg-blue-400"></div>
-            <div className="h-4 w-full bg-yellow-400"></div>
+            <div className="h-4 w-full bg-layout-header"></div>
+            <div className="h-32 w-full bg-layout-content"></div>
+            <div className="h-4 w-full bg-layout-footer"></div>
           </div>
         </div>
       </Link>
@@ -19,10 +19,10 @@ export default function Layouts() {
         Sticky header, footer below fold
         <div className="pt-2">
           <div className="border-2 border-primary">
-            <div className="h-4 w-full bg-red-400"></div>
-            <div className="h-32 w-full bg-blue-400"></div>
+            <div className="h-4 w-full bg-layout-header"></div>
+            <div className="h-32 w-full bg-layout-content"></div>
           </div>
-          <div className="h-4 w-full bg-yellow-400"></div>
+          <div className="h-4 w-full bg-layout-footer"></div>
         </div>
       </Link>
 
@@ -30,13 +30,13 @@ export default function Layouts() {
         Sticky header, sticky sidebar, footer below fold
         <div className="pt-2">
           <div className="border-2 border-primary">
-            <div className="h-4 w-full bg-red-400"></div>
+            <div className="h-4 w-full bg-layout-header"></div>
             <div className="flex">
-              <div className="h-32 w-20 bg-green-400"></div>
-              <div className="h-32 w-full bg-blue-400"></div>
+              <div className="h-32 w-20 bg-layout-sidebar"></div>
+              <div className="h-32 w-full bg-layout-content"></div>
             </div>
           </div>
-          <div className="h-4 w-full bg-yellow-400"></div>
+          <div className="h-4 w-full bg-layout-footer"></div>
         </div>
       </Link>
 
@@ -44,15 +44,15 @@ export default function Layouts() {
         Sticky header, sticky sidebar, footer inside & below fold
         <div className="pt-2">
           <div className="border-2 border-primary">
-            <div className="h-4 w-full bg-red-400"></div>
+            <div className="h-4 w-full bg-layout-header"></div>
             <div className="flex">
-              <div className="h-32 w-20 bg-green-400"></div>
-              <div className="h-32 w-full bg-blue-400"></div>
+              <div className="h-32 w-20 bg-layout-sidebar"></div>
+              <div className="h-32 w-full bg-layout-content"></div>
             </div>
           </div>
           <div className="flex">
-            <div className="w-[82px]"></div>
-            <div className="h-4 w-full bg-yellow-400"></div>
+            <div className="w-20.5"></div>
+            <div className="h-4 w-full bg-layout-footer"></div>
           </div>
         </div>
       </Link>
@@ -61,12 +61,12 @@ export default function Layouts() {
         Sticky header, sticky sidebar, sticky footer
         <div className="pt-2">
           <div className="border-2 border-primary">
-            <div className="h-4 w-full bg-red-400"></div>
+            <div className="h-4 w-full bg-layout-header"></div>
             <div className="flex">
-              <div className="h-32 w-20 bg-green-400"></div>
-              <div className="h-32 w-full bg-blue-400"></div>
+              <div className="h-32 w-20 bg-layout-sidebar"></div>
+              <div className="h-32 w-full bg-layout-content"></div>
             </div>
-            <div className="h-4 w-full bg-yellow-400"></div>
+            <div className="h-4 w-full bg-layout-footer"></div>
           </div>
         </div>
       </Link>
@@ -75,14 +75,14 @@ export default function Layouts() {
         Sticky header & sidebar & footer, full-screen content
         <div className="pt-2">
           <div className="border-2 border-primary">
-            <div className="h-4 w-full bg-red-400"></div>
+            <div className="h-4 w-full bg-layout-header"></div>
             <div className="flex">
-              <div className="h-32 w-20 bg-green-400"></div>
-              <div className="h-32 w-full bg-blue-400 p-2">
-                <div className="h-full w-full bg-blue-200"></div>
+              <div className="h-32 w-20 bg-layout-sidebar"></div>
+              <div className="h-32 w-full bg-layout-content p-2">
+                <div className="h-full w-full bg-layout-content-detail"></div>
               </div>
             </div>
-            <div className="h-4 w-full bg-yellow-400"></div>
+            <div className="h-4 w-full bg-layout-footer"></div>
           </div>
         </div>
       </Link>
@@ -91,50 +91,50 @@ export default function Layouts() {
         Sticky header & sidebar & footer, full-screen content (simple)
         <div className="pt-2">
           <div className="border-2 border-primary">
-            <div className="h-4 w-full bg-red-400"></div>
+            <div className="h-4 w-full bg-layout-header"></div>
             <div className="flex">
-              <div className="h-32 w-20 bg-green-400"></div>
-              <div className="h-32 w-full bg-blue-400 p-2">
-                <div className="h-full w-full bg-blue-200"></div>
+              <div className="h-32 w-20 bg-layout-sidebar"></div>
+              <div className="h-32 w-full bg-layout-content p-2">
+                <div className="h-full w-full bg-layout-content-detail"></div>
               </div>
             </div>
-            <div className="h-4 w-full bg-yellow-400"></div>
+            <div className="h-4 w-full bg-layout-footer"></div>
           </div>
         </div>
       </Link>
 
       <Link href="/layouts/sticky-header-sidebar-footer-below-fold-responsive">
         Sticky header & sidebar, footer below fold, responsive
-        <div className="pt-2 grid grid-cols-[4rem,4rem,1fr] gap-2">
+        <div className="pt-2 grid grid-cols-layout-preview gap-2">
           <div>
             <div className="border-2 border-primary">
-              <div className="h-4 w-full bg-red-400 flex items-center justify-end p-1">
-                <div className="h-2 w-2 bg-red-200" />
+              <div className="h-4 w-full bg-layout-header flex items-center justify-end p-1">
+                <div className="h-2 w-2 bg-layout-header-detail" />
               </div>
               <div className="flex">
-                <div className="h-32 w-full bg-blue-400"></div>
+                <div className="h-32 w-full bg-layout-content"></div>
               </div>
             </div>
           </div>
           <div>
             <div className="border-2 border-primary">
-              <div className="h-4 w-full bg-red-400 flex items-center justify-end p-1">
-                <div className="h-2 w-2 bg-red-200" />
+              <div className="h-4 w-full bg-layout-header flex items-center justify-end p-1">
+                <div className="h-2 w-2 bg-layout-header-detail" />
               </div>
               <div className="flex">
-                <div className="h-32 w-full bg-green-400"></div>
+                <div className="h-32 w-full bg-layout-sidebar"></div>
               </div>
             </div>
           </div>
           <div>
             <div className="border-2 border-primary">
-              <div className="h-4 w-full bg-red-400"></div>
+              <div className="h-4 w-full bg-layout-header"></div>
               <div className="flex">
-                <div className="h-32 w-20 bg-green-400"></div>
-                <div className="h-32 w-full bg-blue-400"></div>
+                <div className="h-32 w-20 bg-layout-sidebar"></div>
+                <div className="h-32 w-full bg-layout-content"></div>
               </div>
             </div>
-            <div className="h-4 w-full bg-yellow-400"></div>
+            <div className="h-4 w-full bg-layout-footer"></div>
           </div>
         </div>
       </Link>
