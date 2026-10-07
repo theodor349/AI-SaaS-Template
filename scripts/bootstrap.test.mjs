@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { once } from "node:events";
 import { createServer } from "node:net";
+import { createServer as createHttpServer } from "node:http";
 import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { parseEnv } from "node:util";
+import * as bootstrap from "./bootstrap.mjs";
 import {
   assertPortsAvailable,
   childEnvironment,
@@ -80,6 +84,150 @@ test("an occupied port fails instead of choosing a different worktree URL", asyn
   }
 });
 
+test("wildcard listeners are rejected on every service port", async (t) => {
+  for (const host of ["0.0.0.0", "::"]) {
+    for (const service of ["next", "convex", "site"]) {
+      await t.test(`${service} on ${host}`, async () => {
+        const server = createServer((socket) => socket.end());
+        server.listen(0, host);
+        await once(server, "listening");
+        const port = server.address().port;
+        try {
+          await assert.rejects(assertPortsAvailable({ [service]: port }), new RegExp(`${service} port ${port} is occupied`));
+          assert.equal(server.listening, true);
+        } finally {
+          server.close();
+          await once(server, "close");
+        }
+        await assertPortsAvailable({ [service]: port });
+      });
+    }
+  }
+});
+
+test("readiness waits for a successful HTTP response", async () => {
+  let status = 503;
+  const server = createHttpServer((request, response) => {
+    response.writeHead(status).end();
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const controller = new AbortController();
+  let ready = false;
+  try {
+    const pending = bootstrap.waitForServer(`http://127.0.0.1:${server.address().port}/`, controller.signal)
+      .then(() => { ready = true; });
+    await once(server, "request");
+    assert.equal(ready, false);
+    status = 200;
+    await pending;
+    assert.equal(ready, true);
+  } finally {
+    controller.abort();
+    server.closeAllConnections();
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("a Convex backend crash aborts supervision even when its CLI remains alive", { timeout: 10000 }, async () => {
+  const server = createHttpServer((request, response) => response.end("version"));
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const url = `http://127.0.0.1:${server.address().port}/version`;
+  const controller = new AbortController();
+  try {
+    const monitoring = bootstrap.superviseConvex(url, controller);
+    await delay(100);
+    assert.equal(controller.signal.aborted, false);
+    server.closeAllConnections();
+    server.close();
+    await once(server, "close");
+    await monitoring;
+    assert.equal(controller.signal.aborted, true);
+    assert.match(controller.signal.reason.message, /Convex backend.*unavailable/);
+  } finally {
+    controller.abort();
+    if (server.listening) {
+      server.closeAllConnections();
+      server.close();
+      await once(server, "close");
+    }
+  }
+});
+
+test("stopping active backend supervision preserves the shutdown reason", async () => {
+  const server = createHttpServer((request, response) => response.end("version"));
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const controller = new AbortController();
+  const reason = new Error("Bootstrap stopped.");
+  try {
+    const monitoring = bootstrap.superviseConvex(`http://127.0.0.1:${server.address().port}/version`, controller);
+    await once(server, "request");
+    controller.abort(reason);
+    await monitoring;
+    assert.equal(controller.signal.reason, reason);
+  } finally {
+    controller.abort();
+    server.closeAllConnections();
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("an unhealthy or unresponsive backend aborts supervision", { timeout: 10000 }, async (t) => {
+  for (const status of [503, null]) {
+    await t.test(status ? "HTTP failure" : "request timeout", async () => {
+      const server = createHttpServer((request, response) => {
+        if (status) response.writeHead(status).end();
+      });
+      server.listen(0, "127.0.0.1");
+      await once(server, "listening");
+      const controller = new AbortController();
+      try {
+        await bootstrap.superviseConvex(`http://127.0.0.1:${server.address().port}/version`, controller);
+        assert.equal(controller.signal.aborted, true);
+        assert.match(controller.signal.reason.message, /Convex backend.*unavailable/);
+      } finally {
+        controller.abort();
+        server.closeAllConnections();
+        server.close();
+        await once(server, "close");
+      }
+    });
+  }
+});
+
+test("Next monitoring allows brief listener restarts and stops cleanly on shutdown", { timeout: 10000 }, async () => {
+  const server = createServer((socket) => socket.end());
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const port = server.address().port;
+  const controller = new AbortController();
+  const reason = new Error("Bootstrap stopped.");
+  const monitoring = bootstrap.superviseNext(`http://127.0.0.1:${port}`, controller);
+  try {
+    await once(server, "connection");
+    server.close();
+    await once(server, "close");
+    await delay(1500);
+    assert.equal(controller.signal.aborted, false);
+    server.listen(port, "127.0.0.1");
+    await once(server, "connection");
+    controller.abort(reason);
+    await monitoring;
+    assert.equal(controller.signal.reason, reason);
+  } finally {
+    controller.abort(reason);
+    await monitoring;
+    if (server.listening) {
+      server.close();
+      await once(server, "close");
+    }
+  }
+});
+
 test("shutdown includes detached grandchildren and excludes unrelated agents", () => {
   const groups = descendantProcessGroups([10], `
     9 1 9
@@ -87,9 +235,26 @@ test("shutdown includes detached grandchildren and excludes unrelated agents", (
     11 10 10
     20 11 20
     21 20 20
+    22 20 0
     30 21 30
     40 9 40
     41 40 40
   `);
   assert.deepEqual(groups, [10, 20, 30]);
+});
+
+test("process group signalling ignores missing groups and rejects special group IDs", (t) => {
+  t.mock.method(process, "kill", () => { throw Object.assign(new Error("gone"), { code: "ESRCH" }); });
+  assert.equal(bootstrap.signalProcessGroup(2147483647, "SIGTERM"), false);
+  for (const group of [0, 1, -1, NaN]) assert.throws(() => bootstrap.signalProcessGroup(group, "SIGTERM"), /Invalid process group/);
+});
+
+test("macOS zombie-only groups cannot interrupt cleanup, while live permission errors still fail", { skip: process.platform !== "darwin" }, (t) => {
+  const error = Object.assign(new Error("permission denied"), { code: "EPERM" });
+  t.mock.method(process, "kill", () => { throw error; });
+  // A vanished group has no live members, just like a group containing only zombies.
+  assert.equal(bootstrap.signalProcessGroup(2147483647, 0), false);
+  assert.equal(bootstrap.signalProcessGroup(2147483647, "SIGTERM"), false);
+  const ownGroup = Number(execFileSync("ps", ["-o", "pgid=", "-p", String(process.pid)], { encoding: "utf8" }).trim());
+  assert.throws(() => bootstrap.signalProcessGroup(ownGroup, "SIGTERM"), (actual) => actual === error);
 });

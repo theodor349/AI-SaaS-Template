@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "bootstrap": "node scripts/bootstrap.mjs",
-    "test:bootstrap": "node --test scripts/bootstrap.test.mjs",
+    "test:bootstrap": "node --test scripts/*.test.mjs",
     "dev": "convex dev --start 'next dev'",
     "typecheck": "tsc --noEmit",
     "build": "pnpm run typecheck && next build",

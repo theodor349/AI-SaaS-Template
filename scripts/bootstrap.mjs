@@ -77,11 +77,77 @@ export function environmentFile(values) {
 
 export async function assertPortsAvailable(ports) {
   for (const [service, port] of Object.entries(ports)) {
+    const occupied = () => new Error(`${service} port ${port} is occupied. Stop the other process or use a different worktree path.`);
+    // macOS can allow a loopback bind beside an existing wildcard listener.
+    // Connect first so we cannot take over that listener's traffic.
+    await new Promise((resolvePort, reject) => {
+      const socket = createConnection({ host: "127.0.0.1", port });
+      socket.setTimeout(2000, () => socket.destroy(new Error(`Timed out checking ${service} port ${port}.`)));
+      socket.once("connect", () => { socket.destroy(); reject(occupied()); });
+      socket.once("error", (error) => error.code === "ECONNREFUSED" ? resolvePort() : reject(error));
+    });
     await new Promise((resolvePort, reject) => {
       const server = createServer();
-      server.once("error", () => reject(new Error(`${service} port ${port} is occupied. Stop the other process or use a different worktree path.`)));
+      server.once("error", () => reject(occupied()));
       server.listen(port, "127.0.0.1", () => server.close(resolvePort));
     });
+  }
+}
+
+export async function waitForServer(url, signal) {
+  const deadline = Date.now() + 180000;
+  while (Date.now() < deadline) {
+    signal.throwIfAborted();
+    try {
+      const response = await fetch(url, { signal: AbortSignal.any([signal, AbortSignal.timeout(30000)]) });
+      await response.body?.cancel();
+      if (response.ok) return;
+    } catch {
+      signal.throwIfAborted();
+    }
+    await delay(250, undefined, { signal });
+  }
+  throw new Error(`Timed out waiting for ${url}.`);
+}
+
+export async function superviseConvex(url, controller) {
+  const { signal } = controller;
+  try {
+    while (!signal.aborted) {
+      const response = await fetch(url, { signal: AbortSignal.any([signal, AbortSignal.timeout(2000)]) });
+      await response.body?.cancel();
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      await delay(1000, undefined, { signal });
+    }
+  } catch (error) {
+    if (!signal.aborted) controller.abort(new Error(`Convex backend is unavailable at ${url}: ${error.message}`, { cause: error }));
+  }
+}
+
+export async function superviseNext(url, controller) {
+  const { hostname, port } = new URL(url);
+  const { signal } = controller;
+  let unavailableSince;
+  while (!signal.aborted) {
+    try {
+      // Check the listener, so compilation errors and slow pages do not stop development.
+      await new Promise((resolveConnection, reject) => {
+        const socket = createConnection({ host: hostname, port: Number(port), signal });
+        socket.setTimeout(2000, () => socket.destroy(new Error("Connection timed out.")));
+        socket.once("error", reject);
+        socket.once("connect", () => { socket.destroy(); resolveConnection(); });
+      });
+      unavailableSince = undefined;
+    } catch {
+      if (signal.aborted) return;
+      unavailableSince ??= Date.now();
+      // Next briefly closes its listener when restarting after config changes.
+      if (Date.now() - unavailableSince >= 5000) {
+        controller.abort(new Error(`Next server is unavailable at ${url}.`));
+        return;
+      }
+    }
+    await delay(1000, undefined, { signal }).catch(() => {});
   }
 }
 
@@ -95,7 +161,28 @@ export function descendantProcessGroups(pids, processTable) {
       if (descendants.has(parent)) descendants.add(pid);
     }
   } while (descendants.size !== previousSize);
-  return [...new Set([...pids, ...rows.filter(([pid]) => descendants.has(pid)).map(([, , group]) => group)])];
+  return [...new Set([...pids, ...rows.filter(([pid]) => descendants.has(pid)).map(([, , group]) => group)])]
+    .filter((group) => Number.isInteger(group) && group > 1);
+}
+
+export function signalProcessGroup(group, signal) {
+  if (!Number.isInteger(group) || group <= 1) throw new Error(`Invalid process group ${group}.`);
+  try {
+    process.kill(process.platform === "win32" ? group : -group, signal);
+    return true;
+  } catch (error) {
+    if (error.code === "ESRCH") return false;
+    if (process.platform === "darwin" && error.code === "EPERM") {
+      // macOS returns EPERM for groups with only zombies. They need no signals.
+      const rows = execFileSync("ps", ["-eo", "pgid=,stat="], { encoding: "utf8" }).trim().split("\n");
+      const live = rows.some((row) => {
+        const [id, state] = row.trim().split(/\s+/);
+        return Number(id) === group && state && !state.startsWith("Z");
+      });
+      if (!live) return false;
+    }
+    throw error;
+  }
 }
 
 function readEnvironment(file) {
@@ -154,6 +241,7 @@ async function bootstrap() {
   let serviceGroups = [];
   let stopping = false;
   let configured = false;
+  const supervision = [];
   const restoreLocalSelection = () => {
     // The self-hosted watcher removes this selector once during startup.
     if (configured && !readEnvironment(localFile).CONVEX_DEPLOYMENT) {
@@ -167,9 +255,12 @@ async function bootstrap() {
 
   function start(command, commandArgs, persistent = false, capture = false) {
     controller.signal.throwIfAborted();
+    // Polar prints its signing secret during startup. Capture only --print-secret;
+    // discard other Polar output, including stderr, to keep credentials private.
+    const quiet = command === "pnpm" && commandArgs[0] === "exec" && commandArgs[1] === "polar";
     const child = spawn(command, commandArgs, {
       cwd: root, env, detached: process.platform !== "win32",
-      stdio: ["ignore", capture ? "pipe" : "inherit", "inherit"],
+      stdio: ["ignore", capture ? "pipe" : quiet ? "ignore" : "inherit", quiet ? "ignore" : "inherit"],
     });
     let output = "";
     if (capture) child.stdout.on("data", (chunk) => { output += chunk; });
@@ -193,31 +284,6 @@ async function bootstrap() {
       throw new Error(`pnpm ${commandArgs.slice(0, 3).join(" ")} failed${result.error ? `: ${result.error.message}` : ` (exit ${result.code})`}.`);
     }
     return result.output;
-  }
-
-  async function waitForServer(url, tcp = false) {
-    const deadline = Date.now() + 180000;
-    while (Date.now() < deadline) {
-      controller.signal.throwIfAborted();
-      try {
-        if (tcp) {
-          const address = new URL(url);
-          await new Promise((resolveConnection, reject) => {
-            const socket = createConnection({ host: address.hostname, port: Number(address.port), signal: controller.signal });
-            socket.setTimeout(2000, () => socket.destroy(new Error("Connection timed out.")));
-            socket.once("error", reject);
-            socket.once("connect", () => { socket.destroy(); resolveConnection(); });
-          });
-          return;
-        }
-        const response = await fetch(url, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(30000)]) });
-        if (response.ok) return;
-      } catch {
-        controller.signal.throwIfAborted();
-      }
-      await delay(250, undefined, { signal: controller.signal });
-    }
-    throw new Error(`Timed out waiting for ${url}.`);
   }
 
   try {
@@ -253,7 +319,9 @@ async function bootstrap() {
     // anonymous CLI's extra dashboard server, whose port cannot be configured.
     const watchCommand = `pnpm exec convex dev --env-file .env.convex-watch.local --start "pnpm exec next dev --hostname 127.0.0.1 --port ${config.ports.next}"`;
     start("pnpm", ["exec", "convex", "dev", "--until-success", "--tail-logs", "disable", "--run-sh", watchCommand, "--local-cloud-port", String(config.ports.convex), "--local-site-port", String(config.ports.site)], true);
-    await waitForServer(`${config.env.NEXT_PUBLIC_CONVEX_URL}/version`);
+    const backendHealthUrl = `${config.env.NEXT_PUBLIC_CONVEX_URL}/version`;
+    await waitForServer(backendHealthUrl, controller.signal);
+    supervision.push(superviseConvex(backendHealthUrl, controller));
     saveWatchEnvironment();
     await run(["exec", "convex", "env", "set", "--from-file", backendEnvFile, "--force"]);
     if (polar) {
@@ -261,11 +329,12 @@ async function bootstrap() {
       start("pnpm", ["exec", "polar", "listen", config.env.POLAR_WEBHOOK_URL, ...orgArgs], true);
       console.log(`Polar sandbox webhooks: ${config.env.POLAR_WEBHOOK_URL}`);
     }
-    await waitForServer(config.env.APP_URL, true);
+    await waitForServer(config.env.APP_URL, controller.signal);
     if (process.platform !== "win32") {
       serviceGroups = descendantProcessGroups(children.filter(({ persistent }) => persistent).map(({ child }) => child.pid),
         execFileSync("ps", ["-eo", "pid=,ppid=,pgid="], { encoding: "utf8" }));
     }
+    supervision.push(superviseNext(config.env.APP_URL, controller));
     restoreLocalSelection();
     console.log(`Ready: ${config.env.APP_URL} (Ctrl+C stops all services)`);
     await new Promise((resolveStop) => {
@@ -277,24 +346,16 @@ async function bootstrap() {
     throw controller.signal.aborted ? controller.signal.reason : error;
   } finally {
     stopping = true;
+    controller.abort(new Error("Bootstrap stopped."));
+    await Promise.all(supervision);
     const pids = children.filter(({ child, persistent }) => child.pid && (persistent || (child.exitCode === null && child.signalCode === null))).map(({ child }) => child.pid);
     const groups = process.platform === "win32" ? pids : [...new Set([...serviceGroups, ...descendantProcessGroups(pids,
       execFileSync("ps", ["-eo", "pid=,ppid=,pgid="], { encoding: "utf8" }))])];
-    const kill = (group, signal) => {
-      try {
-        process.kill(process.platform === "win32" ? group : -group, signal);
-      } catch (error) {
-        if (error.code !== "ESRCH") throw error;
-      }
-    };
-    const running = (group) => {
-      try { process.kill(process.platform === "win32" ? group : -group, 0); return true; }
-      catch (error) { if (error.code === "ESRCH") return false; throw error; }
-    };
-    for (const group of groups) kill(group, "SIGTERM");
+    const running = (group) => signalProcessGroup(group, 0);
+    for (const group of groups) signalProcessGroup(group, "SIGTERM");
     const deadline = Date.now() + 5000;
     while (Date.now() < deadline && groups.some(running)) await delay(50);
-    for (const group of groups) if (running(group)) kill(group, "SIGKILL");
+    for (const group of groups) if (running(group)) signalProcessGroup(group, "SIGKILL");
     await Promise.all(children.map(({ done }) => done));
     restoreLocalSelection();
     process.removeListener("SIGINT", signalHandler);

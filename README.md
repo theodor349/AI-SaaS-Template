@@ -48,9 +48,17 @@ Bootstrap writes private, ignored `.env.local`, `.env.convex.local`, and
 `.env.convex-watch.local` files. It preserves the original `.env.local` once as
 `.env.before-bootstrap.local`. Convex data stays in that checkout's `.convex`
 directory, and Next.js output stays in `.next`. Ctrl+C or a service failure stops
-the managed processes; local data remains available on the next run. Cloud Convex
+the managed processes, including when a Next listener or Convex backend exits
+while its CLI remains running. Next listener monitoring allows five seconds for
+configuration restarts. Bootstrap reports ready only after the app returns a
+successful HTTP response. Local data remains available on the next run. Cloud Convex
 deploy keys are removed from child environments, and Polar commands always use
 the sandbox environment.
+
+Polar CLI output is suppressed because it prints the webhook signing secret.
+Bootstrap reports the forwarding URL and stops the stack if the listener exits.
+Keep authentication diagnostics limited to status codes and test outcomes; never
+print cookies, tokens, redirect query parameters, or environment file contents.
 
 Polar events are forwarded to the worktree's Convex HTTP server at
 `/webhooks/polar`; the billing feature must implement that endpoint with signature
