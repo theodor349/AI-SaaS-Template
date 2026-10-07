@@ -20,6 +20,12 @@ export default defineConfig([
     plugins: { shadcn },
     // Add chosen shadcn rules here. Installing the plugin enables no rules.
     rules: {
+      "shadcn/no-restyle": "error",
+      "shadcn/no-raw-colors": "error",
+      "shadcn/no-arbitrary-values": "error",
+      "shadcn/no-inline-styles": "error",
+      "shadcn/no-unknown-classes": "error",
+      "shadcn/require-static-classes": "error",
       "@typescript-eslint/no-unused-vars": [
         "warn",
         { varsIgnorePattern: "^_", argsIgnorePattern: "^_" },
