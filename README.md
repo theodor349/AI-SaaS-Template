@@ -2,16 +2,22 @@
 
 Next.js, Convex, Clerk, and Shadcn UI, using pnpm.
 
-The goal of this template is to enable agents to develop and test new features in isolation and parallel. We therefore work using git worktrees through [T3 Code](https://github.com/pingdotgg/t3code). 
+This template supports agents developing and testing features in parallel using Git worktrees through [T3 Code](https://github.com/pingdotgg/t3code).
 
 ## Development
 
-1. Run `pnpm install`.
-2. Copy `.env.example` to `.env.local` and fill in your Clerk API keys.
-3. Follow the [Convex Clerk setup](https://docs.convex.dev/auth/clerk) and set
-   `CLERK_JWT_ISSUER_DOMAIN` on your Convex deployment.
-4. Run `pnpm dev`. Convex will configure your deployment and write
-   `NEXT_PUBLIC_CONVEX_URL` before starting Next.js.
+Use Node.js 24 LTS and pnpm.
+
+1. In the main checkout, copy `.env.bootstrap.example` to `.env.bootstrap.local`
+   and add Clerk development keys and a Polar sandbox organization access token.
+2. Configure the Clerk application's `convex` JWT template following the
+   [Convex Clerk setup](https://docs.convex.dev/auth/clerk).
+3. In your worktree, run `pnpm bootstrap` in a persistent terminal. It installs
+   missing dependencies and starts Next.js, local Convex, and Polar forwarding.
+4. Wait for `Ready:` and open the printed app URL. Ctrl+C stops the stack.
+
+Use `pnpm bootstrap --no-polar` when billing is outside the task; no Polar token
+is needed. Agent guidance lives in [AGENTS.md](AGENTS.md).
 
 ## Commands
 
@@ -24,7 +30,7 @@ The goal of this template is to enable agents to develop and test new features i
 - `pnpm test:e2e` - test Clerk authentication, Convex identity, reactive UI writes, and persistence in Chromium.
 - `pnpm inspect` - open the running worktree for manual browser inspection.
 - `pnpm polar:trigger` - send a labeled Polar sandbox sample event to organization listeners.
-- `pnpm dev` - start Convex and Next.js.
+- `pnpm dev` - start Convex and Next.js using the regular deployment setup.
 - `pnpm typecheck` - check TypeScript.
 - `pnpm lint` - check TypeScript and run ESLint.
 - `pnpm build` - build for production.

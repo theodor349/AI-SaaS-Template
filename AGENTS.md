@@ -1,8 +1,9 @@
 # AI SaaS Template
 
-This is a template that will be used by multiple downstream projects. This project acts as a starting point for new projects. It includes an agent friendly enviroment along with default patterns and architecute, which will help agents in new projects work as intended. Changes to this repo will eventually be included in downstream projects. 
+This template provides shared architecture, UI patterns, and an agent-friendly development environment for downstream projects. Changes here may be carried into those projects.
 
-## Techstack
+## Tech stack
+
 - Next.js
 - Convex
 - Polar
@@ -10,29 +11,18 @@ This is a template that will be used by multiple downstream projects. This proje
 - Shadcn
 - Tailwind
 
-## What makes this project special?
+## Principles
 
-### 1. Tailored Taste
-This project aligns with how Theodor Risager likes to build. The architecture, dependencies etc. are choosen so that Theodor can easilly inspect the project.
-
-### 2. Performance without compromise
-
-Lots of apps have gotten bogged down with bad tech decisions and "slop". We have not, and we're proud of the performance of T3 Code. We regularly audit for performance regressions, often caused by sending too much data over websockets, css animations causing gpu spikes, lists being hard to render, and more. Make sure all changes are considerate of performance impact.
-
-### 3. Agent friendly 
-This project aims to make it as easy as possible for you the agent to develop in it. This means that you are able to work in parallel with other agents without intereferring with them and vice versa. This also means that if you stumble upon changes or improves we can make to the setup, that will improve your ability to work on it, please elevate it to a human.
+- Choose architecture and dependencies that Theodor and the maintainers can readily inspect and understand.
+- Consider the performance impact of data subscriptions, rendering, and animations when making changes.
+- Support agents working in parallel without interfering with each other. Report useful improvements to the development setup to a maintainer.
 
 ## A small glossary
 
-We need to be on the same page with terminology. When communicating, use this language:
-
-- **you** means the agent reading this file and changing the Code.
-- **we, us, and maintainers** mean Theodor and the other people building it. These are who you are talking to now.
-- **user** means the person using not the template but the project using the template to. E.g. a calendar or ride sharing app.
-- **agent** means the coding agent a user runs spins up to work on the project. Depending on context, that may also include you.
-- **client** means the web UI.
-- **environment** means one running server (next.js and convex) and the machine, filesystem, provider credentials, and state it owns.
-- **project** refers to this template project.
+- **maintainer** means Theodor or another person developing the project and directing the agent.
+- **user** means a person using an application built from this template.
+- **agent** means a coding agent working on the project, including you.
+- **environment** means a worktree's running Next.js and Convex services and local state. The machine and hosted provider resources may be shared.
 
 ## The ways to hurt yourself
 
@@ -40,6 +30,7 @@ We need to be on the same page with terminology. When communicating, use this la
 
 ## Worktree development
 
+- Use pnpm for all package management and scripts.
 - `pnpm bootstrap` starts Next.js, local Convex, and Polar sandbox forwarding, installing missing dependencies along the way. Run it in a persistent terminal and wait for `Ready:` before opening the printed app URL. This is the worktree entry point instead of `pnpm dev`.
 - Ports and `WORKTREE_ID` derive from the worktree path and stay stable across restarts. `pnpm bootstrap --print` shows them without starting anything. Occupied ports cause a startup error.
 - Local database state lives in the worktree's gitignored `.convex`; Next.js output lives in `.next`. Restarting bootstrap keeps the database. Each worktree gets its own generated environment files.
@@ -58,7 +49,7 @@ We need to be on the same page with terminology. When communicating, use this la
 ## Pull requests
 
 - Never make a PR unless the developer explicitly asks you to do so.
-- Conventional commit titles, plain language: `fix(web): correctly handle Polar subcription events`.
+- Conventional commit titles, plain language: `fix(web): correctly handle Polar subscription events`.
 - Body: the problem in a sentence or two, then how you fixed it. End with the model and harness that did the work.
 - UI changes need before/after images. Motion or timing needs a short video.
 - Upload PR evidence to GitHub. Never commit PR-only screenshots or assets such as `.github/pr-assets/`.
@@ -80,6 +71,7 @@ Most code changes do not need an internal documentation change. Agents can read 
 
 ## Taste
 
+- Use existing Shadcn components when available. Install missing components with `pnpm dlx shadcn@latest add <component>` and follow the existing preset, theme tokens, and component patterns.
 - `components/ui` exports own their look. Pick a `variant` or `size`; do not restyle one with `className`. If none fits and the look is a generic concept, add a variant to the component; a look that belongs to one feature stays in that feature's own component, not in `components/ui`. Layout classes (width, flex, margin, position) belong on the parent. `shadcn/no-restyle` fails lint on violations.
 - Inferred types over annotations. `any` is the enemy.
 - Comments describe how a thing is used, and move when the code moves. To be used mostly to describe functions, not to annotate every line of behavior.
@@ -88,6 +80,6 @@ Most code changes do not need an internal documentation change. Agents can read 
 
 ## Additional tips
 
-- Don't verify with browsers or computer use unless the user explicitly agrees or requests it.
+- Automated browser tests and capturing required PR evidence are part of verification. Interactive browser or computer use requires the maintainer's explicit request or agreement.
 - Security is important, but should not be over-indexed on.
 - When working on Convex code, **always read `convex/_generated/ai/guidelines.md` first** for important guidelines on how to correctly use Convex APIs and patterns. The file contains rules that override what you may have learned about Convex from training data.
