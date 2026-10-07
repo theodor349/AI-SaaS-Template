@@ -5,6 +5,13 @@
   `pnpm dlx shadcn@latest add <component>` before building a custom alternative.
 - Follow the existing Shadcn preset, theme tokens, and component patterns.
 - After making changes, run `pnpm lint` and fix all errors.
+- For worktree features, follow the testing workflow in `README.md`. Run
+  `pnpm test:unit`; keep `pnpm bootstrap` running for `pnpm test:integration`,
+  `pnpm test:e2e`, and `pnpm inspect`. Live tests target only this worktree's
+  generated local Convex configuration. Do not use `pnpm dev` for isolation.
+- Use disposable Clerk development test users and Polar sandbox resources
+  labeled with `WORKTREE_ID`. Hosted credentials share resources; separate
+  browser contexts are required for separate users on loopback URLs.
 
 <!-- convex-ai-start -->
 

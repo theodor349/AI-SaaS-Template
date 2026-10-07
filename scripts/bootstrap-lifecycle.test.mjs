@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { copyFile, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { assertPortsAvailable, descendantProcessGroups, signalProcessGroup, worktreeConfig } from "./bootstrap.mjs";
+import { assertPortsAvailable, descendantProcessGroups, environmentFile, signalProcessGroup, worktreeConfig } from "./bootstrap.mjs";
 
 test("killing only the Next listener shuts down Convex, the watcher, and Polar", { timeout: 20000 }, async () => {
   const fixture = await mkdtemp(join(tmpdir(), "bootstrap lifecycle with spaces "));
@@ -18,13 +18,20 @@ test("killing only the Next listener shuts down Convex, the watcher, and Polar",
   let groups = [];
   try {
     execFileSync("git", ["init", "--quiet", fixture]);
-    const root = execFileSync("git", ["-C", fixture, "rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
+    const root = realpathSync(execFileSync("git", ["-C", fixture, "rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim());
     const config = worktreeConfig(root);
     await assertPortsAvailable(config.ports);
     await mkdir(join(fixture, "node_modules/convex"), { recursive: true });
     await mkdir(join(fixture, "node_modules/@polar-sh/cli"), { recursive: true });
     await mkdir(join(fixture, "bin"));
     await copyFile(fileURLToPath(new URL("./bootstrap.mjs", import.meta.url)), join(fixture, "bootstrap.mjs"));
+    // A previous run's derived issuer must not block a different app's key override.
+    await writeFile(join(fixture, ".env.local"), environmentFile({
+      ...config.env,
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: `pk_test_${Buffer.from("previous.clerk.accounts.dev$").toString("base64")}`,
+      CLERK_SECRET_KEY: "sk_test_previous",
+      CLERK_JWT_ISSUER_DOMAIN: "https://previous.clerk.accounts.dev",
+    }), { mode: 0o600 });
     await writeFile(join(fixture, ".env.bootstrap.local"), [
       `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_${Buffer.from("example.clerk.accounts.dev$").toString("base64")}`,
       "CLERK_SECRET_KEY=sk_test_example", "POLAR_ACCESS_TOKEN=polar_oat_example",

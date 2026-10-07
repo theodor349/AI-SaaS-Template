@@ -5,6 +5,12 @@
   "scripts": {
     "bootstrap": "node scripts/bootstrap.mjs",
     "test:bootstrap": "node --test scripts/*.test.mjs",
+    "test": "pnpm test:unit",
+    "test:unit": "pnpm test:bootstrap && vitest run",
+    "test:integration": "node --test tests/integration/*.test.mjs",
+    "test:e2e": "playwright test",
+    "inspect": "node scripts/inspect.mjs",
+    "polar:trigger": "node scripts/polar-trigger.mjs",
     "dev": "convex dev --start 'next dev'",
     "typecheck": "tsc --noEmit",
     "build": "pnpm run typecheck && next build",
@@ -46,17 +52,23 @@
   },
   "packageManager": "pnpm@10.12.4",
   "devDependencies": {
+    "@clerk/testing": "^2.2.43",
+    "@edge-runtime/vm": "^5.0.0",
+    "@playwright/test": "^1.63.0",
     "@polar-sh/cli": "^2.0.1",
     "@shadcn/lint": "^0.2.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^26.6.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "convex-test": "^0.0.60",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.3.8",
     "postcss": "^8.5.28",
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.71.0"
+    "typescript-eslint": "^8.71.0",
+    "vite": "^8.3.3",
+    "vitest": "^5.0.3"
   }
 }

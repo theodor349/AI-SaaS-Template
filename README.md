@@ -17,6 +17,11 @@ Next.js, Convex, Clerk, and Shadcn UI, using pnpm.
 - `pnpm bootstrap --print` - print path-derived ports and URLs without starting services.
 - `pnpm bootstrap --no-polar` - run Next.js and local Convex without billing.
 - `pnpm test:bootstrap` - test worktree configuration and startup safeguards.
+- `pnpm test:unit` (or `pnpm test`) - run bootstrap checks and fast Convex behavior tests.
+- `pnpm test:integration` - exercise the running worktree's real local backend and frontend.
+- `pnpm test:e2e` - test Clerk authentication, Convex identity, reactive UI writes, and persistence in Chromium.
+- `pnpm inspect` - open the running worktree for manual browser inspection.
+- `pnpm polar:trigger` - send a labeled Polar sandbox sample event to organization listeners.
 - `pnpm dev` - start Convex and Next.js.
 - `pnpm typecheck` - check TypeScript.
 - `pnpm lint` - check TypeScript and run ESLint.
@@ -26,7 +31,7 @@ Next.js, Convex, Clerk, and Shadcn UI, using pnpm.
 
 ## Agent worktrees
 
-Use Node.js 22 or newer. In the main checkout, copy `.env.bootstrap.example` to
+Use Node.js 24 LTS (or Node.js 22.12+). In the main checkout, copy `.env.bootstrap.example` to
 `.env.bootstrap.local` and add Clerk **development** keys and a Polar **sandbox**
 organization access token. Then run `pnpm bootstrap` in any T3 Code worktree.
 The script installs missing dependencies with `pnpm install --frozen-lockfile`.
@@ -73,6 +78,65 @@ Clerk development application and Polar sandbox organization in each worktree's
 `.env.bootstrap.local`; otherwise handlers must ignore events belonging to other
 worktrees. Those hosted credentials cannot be derived from a filesystem path.
 Vercel access is only needed for hosted previews or deployment.
+
+## Testing a feature in a worktree
+
+The [two-worktree validation report](docs/worktree-validation.md) records the
+verified behavior and the remaining billing boundary.
+
+Start with `pnpm install --frozen-lockfile`, `pnpm test:unit`, and `pnpm lint`.
+These checks need no hosted credentials. Backend tests use Convex's recommended
+[convex-test](https://docs.convex.dev/testing/convex-test) mock, so also exercise
+new backend behavior against the real server.
+
+Run `pnpm bootstrap` in a persistent terminal, then in another terminal in the
+same worktree:
+
+```sh
+pnpm exec playwright install chromium
+pnpm test:integration
+pnpm test:e2e
+pnpm inspect
+```
+
+The live tests and inspector read bootstrap's generated local configuration.
+They refuse cloud deployments, a different worktree's URLs, and live Clerk keys.
+They do not start or stop the stack. Integration and browser tests add scratch
+numbers to this worktree's database; dispose of the worktree when those records
+are no longer needed. They never reset existing data.
+
+`pnpm inspect` signs in a temporary test user and opens Chromium with that
+session. Close the browser or press Ctrl+C to delete the user and private local
+session file. Use `pnpm inspect codegen` for Playwright's interactive recorder.
+Keep any generated test code free of cookies, tokens, and hosted session URLs.
+
+E2E uses [Clerk's official Playwright helpers](https://clerk.com/docs/guides/development/testing/playwright/test-helpers)
+and creates a temporary development user with a worktree label and a
+`+clerk_test` email address. It removes that user on completion, including test
+failures. The Clerk application must allow email users with first/last names,
+and its `convex` JWT template must provide the `name` claim for the existing
+demo query. A visible welcome message verifies the identity reached Convex.
+The test also checks the browser connects to this worktree's Convex URL,
+updates another tab after a mutation, and preserves the result after reload.
+
+Use separate browser contexts or profiles to compare worktrees as different
+users. Cookies belong to the hostname, so both `127.0.0.1` URLs share cookies
+within one profile even when their ports differ. Browser recordings are disabled
+for authenticated tests. Any inspector auth state stays under ignored
+`.playwright/`; do not share it or log session URLs and tokens.
+
+Polar startup verifies the sandbox credentials and establishes forwarding. A
+404 from `/webhooks/polar` verifies routing only. Signature verification,
+billing state updates, checkout flows, and cross-worktree event filtering need
+the billing implementation before they can have passing integration tests.
+Use `pnpm polar:trigger` against the running stack to send a labeled
+`customer.created` sample; this generates an event without creating a customer.
+The command loads sandbox credentials privately and prints only local delivery
+URLs and status. It currently exits unsuccessfully when the handler returns 404.
+All listeners in the shared organization may receive the event. The Polar CLI's
+shared delivery log can report another worktree's destination, so its output
+cannot prove delivery to each listener or isolation. Verify raw-body signatures
+and worktree filtering in handler tests once the billing feature exists.
 
 ## Shadcn
 
