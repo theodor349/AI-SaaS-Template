@@ -6,8 +6,6 @@ This template supports agents developing and testing features in parallel using 
 
 ## Development
 
-Use Node.js 24 LTS and pnpm.
-
 1. In the main checkout, copy `.env.bootstrap.example` to `.env.bootstrap.local`
    and add Clerk development keys and a Polar sandbox organization access token.
 2. Configure the Clerk application's `convex` JWT template following the
