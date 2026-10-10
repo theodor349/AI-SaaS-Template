@@ -25,9 +25,9 @@ is needed. Agent guidance lives in [AGENTS.md](AGENTS.md).
 - `pnpm bootstrap --print` - print path-derived ports and URLs without starting services.
 - `pnpm bootstrap --no-polar` - run Next.js and local Convex without billing.
 - `pnpm test:bootstrap` - test worktree configuration and startup safeguards.
-- `pnpm test:unit` (or `pnpm test`) - run bootstrap checks and fast Convex behavior tests.
-- `pnpm test:integration` - exercise the running worktree's real local backend and frontend.
-- `pnpm test:e2e` - test Clerk authentication, Convex identity, reactive UI writes, and persistence in Chromium.
+- `pnpm test:unit` (or `pnpm test`) - run bootstrap checks and any Convex behavior tests added to the app.
+- `pnpm test:integration` - check the running worktree's local backend and frontend.
+- `pnpm test:e2e` - test sign-in and sign-out with Clerk and Convex in Chromium.
 - `pnpm inspect` - open the running worktree for manual browser inspection.
 - `pnpm polar:trigger` - send a labeled Polar sandbox sample event to organization listeners.
 - `pnpm dev` - start Convex and Next.js using the regular deployment setup.

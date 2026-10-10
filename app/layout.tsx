@@ -9,8 +9,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
 export const metadata: Metadata = {
-  title: "My App Title",
-  description: "My app description",
+  title: "AI SaaS Template",
+  description: "A Next.js, Convex, and Clerk starter.",
 };
 
 export default function RootLayout({

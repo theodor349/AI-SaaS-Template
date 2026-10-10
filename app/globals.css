@@ -5,18 +5,6 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-    --color-layout-header: var(--color-red-400);
-    --color-layout-header-detail: var(--color-red-200);
-    --color-layout-sidebar: var(--color-green-400);
-    --color-layout-content: var(--color-blue-400);
-    --color-layout-content-detail: var(--color-blue-200);
-    --color-layout-footer: var(--color-yellow-400);
-    --spacing-layout-header: calc(var(--spacing) * 10 + 1px);
-    --spacing-layout-mobile-header: calc(var(--spacing) * 13 + 1px);
-    --spacing-layout-content: calc(100vh - var(--spacing-layout-header));
-    --spacing-layout-mobile-content: calc(100vh - var(--spacing-layout-mobile-header));
-    --spacing-layout-framed-content: calc(100vh - var(--spacing-layout-header) * 2);
-    --spacing-layout-inner-content: calc(100vh - var(--spacing) * 10);
     --font-heading: var(--font-sans);
     --font-sans: var(--font-sans);
     --color-sidebar-ring: var(--sidebar-ring);
@@ -57,14 +45,6 @@
     --radius-2xl: calc(var(--radius) * 1.8);
     --radius-3xl: calc(var(--radius) * 2.2);
     --radius-4xl: calc(var(--radius) * 2.6);
-}
-
-@utility grid-cols-layout-sidebar {
-    grid-template-columns: calc(var(--spacing) * 60) minmax(0, 1fr);
-}
-
-@utility grid-cols-layout-preview {
-    grid-template-columns: calc(var(--spacing) * 16) calc(var(--spacing) * 16) minmax(0, 1fr);
 }
 
 :root {
