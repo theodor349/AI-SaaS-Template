@@ -49,6 +49,7 @@ This template provides shared architecture, UI patterns, and an agent-friendly d
 ## Pull requests
 
 - Never make a PR unless the developer explicitly asks you to do so.
+- Invoking [$implement](.agents/skills/implement/SKILL.md) with an issue, problem, or feature is an explicit request to implement it in the current T3-assigned worktree, open one PR, and handle bot feedback before asking the maintainer to review. Example: `$implement issue #123`. Do not create another worktree. Follow the skill's completion gates; do not merge the PR.
 - Conventional commit titles, plain language: `fix(web): correctly handle Polar subscription events`.
 - Body: the problem in a sentence or two, then how you fixed it. End with the model and harness that did the work.
 - UI changes need before/after images. Motion or timing needs a short video.
