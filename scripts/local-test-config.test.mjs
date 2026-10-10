@@ -17,6 +17,7 @@ test("local tests reject missing, cloud, and mismatched targets without exposing
       CONVEX_DEPLOYMENT: "local:anonymous-agent",
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: `pk_test_${Buffer.from("local-tests.accounts.dev$").toString("base64")}`,
       CLERK_SECRET_KEY: "sk_test_private-placeholder",
+      CLERK_WEBHOOK_SIGNING_SECRET: `whsec_${Buffer.from("local test signing secret").toString("base64")}`,
     };
     const save = (changes = {}) => writeFileSync(join(root, ".env.local"), environmentFile({ ...values, ...changes }));
     save();
@@ -27,6 +28,8 @@ test("local tests reject missing, cloud, and mismatched targets without exposing
       { CONVEX_DEPLOYMENT: "dev:cloud" },
       { CONVEX_DEPLOY_KEY: "private-cloud-placeholder" },
       { CLERK_SECRET_KEY: "sk_live_private-placeholder" },
+      { CLERK_WEBHOOK_SIGNING_SECRET: "" },
+      { CLERK_WEBHOOK_SIGNING_SECRET: "bad_private-placeholder" },
     ]) {
       save(changes);
       assert.throws(() => resolveLocalTestConfig(root), (error) => {

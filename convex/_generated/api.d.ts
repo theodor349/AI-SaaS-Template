@@ -8,9 +8,16 @@
  * @module
  */
 
+import type * as accountLifecycle from "../accountLifecycle.js";
 import type * as auth from "../auth.js";
+import type * as clerkWebhooks from "../clerkWebhooks.js";
+import type * as crons from "../crons.js";
+import type * as http from "../http.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_clerk from "../lib/clerk.js";
 import type * as myFunctions from "../myFunctions.js";
+import type * as users from "../users.js";
+import type * as webhooks from "../webhooks.js";
 
 import type {
   ApiFromModules,
@@ -19,9 +26,16 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  accountLifecycle: typeof accountLifecycle;
   auth: typeof auth;
+  clerkWebhooks: typeof clerkWebhooks;
+  crons: typeof crons;
+  http: typeof http;
   "lib/auth": typeof lib_auth;
+  "lib/clerk": typeof lib_clerk;
   myFunctions: typeof myFunctions;
+  users: typeof users;
+  webhooks: typeof webhooks;
 }>;
 
 /**
