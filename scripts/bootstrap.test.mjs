@@ -258,3 +258,10 @@ test("macOS zombie-only groups cannot interrupt cleanup, while live permission e
   const ownGroup = Number(execFileSync("ps", ["-o", "pgid=", "-p", String(process.pid)], { encoding: "utf8" }).trim());
   assert.throws(() => bootstrap.signalProcessGroup(ownGroup, "SIGTERM"), (actual) => actual === error);
 });
+
+test("Clerk webhook secrets are validated and available without Polar forwarding", () => {
+  const secret = `whsec_${Buffer.from("local test secret").toString("base64")}`;
+  assert.equal(developmentCredentials({ ...credentials, CLERK_WEBHOOK_SIGNING_SECRET: secret }, false).CLERK_WEBHOOK_SIGNING_SECRET, secret);
+  assert.match(developmentCredentials(credentials, false).CLERK_WEBHOOK_SIGNING_SECRET, /^whsec_/);
+  assert.throws(() => developmentCredentials({ ...credentials, CLERK_WEBHOOK_SIGNING_SECRET: "bad secret" }, false), /Svix/);
+});

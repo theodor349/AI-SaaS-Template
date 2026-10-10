@@ -1,5 +1,5 @@
 import { spawn, execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, realpathSync, writeFileSync, chmodSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
@@ -47,7 +47,15 @@ export function developmentCredentials(values, polar = true) {
   if (polar && !values.POLAR_ACCESS_TOKEN) {
     throw new Error("POLAR_ACCESS_TOKEN is required. Add a sandbox token to .env.bootstrap.local, or use --no-polar.");
   }
-  return { ...values, CLERK_JWT_ISSUER_DOMAIN: issuer };
+  if (values.CLERK_WEBHOOK_SIGNING_SECRET &&
+      !/^whsec_[A-Za-z0-9+/]+={0,2}$/.test(values.CLERK_WEBHOOK_SIGNING_SECRET)) {
+    throw new Error("CLERK_WEBHOOK_SIGNING_SECRET must be a Svix signing secret (whsec_...).");
+  }
+  // Local signed HTTP tests need a secret even without a public Clerk endpoint.
+  // The generated value stays in this worktree and survives bootstrap restarts.
+  return { ...values, CLERK_JWT_ISSUER_DOMAIN: issuer,
+    CLERK_WEBHOOK_SIGNING_SECRET: values.CLERK_WEBHOOK_SIGNING_SECRET || `whsec_${randomBytes(32).toString("base64")}`,
+  };
 }
 
 export function childEnvironment(config, credentials, inherited = process.env) {
@@ -218,7 +226,7 @@ async function bootstrap() {
   // Existing development keys remain usable; never copy another checkout's URLs or cloud target.
   const mainKeys = readEnvironment(join(mainRoot, ".env.local"));
   if (mainKeys.WORKTREE_ID === worktreeConfig(realpathSync(mainRoot)).id) delete mainKeys.CLERK_JWT_ISSUER_DOMAIN;
-  const providerNames = ["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "CLERK_SECRET_KEY", "CLERK_JWT_ISSUER_DOMAIN", "POLAR_ACCESS_TOKEN", "POLAR_ORGANIZATION_ID"];
+  const providerNames = ["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET", "CLERK_JWT_ISSUER_DOMAIN", "POLAR_ACCESS_TOKEN", "POLAR_ORGANIZATION_ID"];
   const providerKeys = Object.fromEntries(Object.entries(mainKeys).filter(([key]) => providerNames.includes(key)));
   const localKeys = readEnvironment(localFile);
   // Re-derive generated issuers after a worktree overrides its Clerk key pair.
@@ -306,7 +314,7 @@ async function bootstrap() {
     saveEnvironment(localFile, fileEnv);
     configured = true;
     const backendEnv = Object.fromEntries(Object.entries(fileEnv).filter(([key]) =>
-      ["WORKTREE_ID", "APP_URL", "CLERK_JWT_ISSUER_DOMAIN", "CLERK_SECRET_KEY", "POLAR_ACCESS_TOKEN", "POLAR_ENVIRONMENT", "POLAR_WEBHOOK_SECRET", "POLAR_SUCCESS_URL", "POLAR_ORGANIZATION_ID"].includes(key)));
+      ["WORKTREE_ID", "APP_URL", "CLERK_JWT_ISSUER_DOMAIN", "CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET", "POLAR_ACCESS_TOKEN", "POLAR_ENVIRONMENT", "POLAR_WEBHOOK_SECRET", "POLAR_SUCCESS_URL", "POLAR_ORGANIZATION_ID"].includes(key)));
     const backendEnvFile = join(root, ".env.convex.local");
     saveEnvironment(backendEnvFile, backendEnv);
     const watchEnvFile = join(root, ".env.convex-watch.local");
