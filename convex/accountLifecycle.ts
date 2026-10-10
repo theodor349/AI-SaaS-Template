@@ -128,8 +128,19 @@ export const beginErasure = internalMutation({
     const user = await ctx.db.get("users", request.userId);
     if (!user || user.lifecycle === "active") throw new Error("Deletion not committed");
     // External cleanup is confirmed. Reconciliation must not refill cached history.
-    await ctx.db.patch("accountLifecycleRequests", requestId, { erasing: true });
+    await ctx.db.patch("accountLifecycleRequests", requestId, { erasing: true, attempts: 0, failureCode: undefined });
     return true;
+  },
+});
+export const continueErasure = internalMutation({
+  args: { requestId: v.id("accountLifecycleRequests"), lease: v.number() }, returns: v.null(),
+  handler: async (ctx, { requestId, lease }) => {
+    const request = await ctx.db.get("accountLifecycleRequests", requestId);
+    if (!request || request.status !== "pending" || !request.erasing || request.leaseUntil !== lease) return null;
+    // A successful batch is progress, including recovery from an earlier exception.
+    await ctx.db.patch("accountLifecycleRequests", requestId, { leaseUntil: 0, nextAttemptAt: Date.now(), attempts: 0, failureCode: undefined });
+    await ctx.scheduler.runAfter(0, internal.accountLifecycle.process, { requestId });
+    return null;
   },
 });
 export const erase = internalMutation({
@@ -163,7 +174,7 @@ export const process = internalAction({
       if (claimed.request.erasing) {
         const complete = await ctx.runMutation(internal.accountLifecycle.erase, { requestId, lease: claimed.lease });
         if (complete) return null;
-        await ctx.runMutation(internal.accountLifecycle.finishAttempt, { requestId, lease: claimed.lease, success: false, finalizing: true });
+        await ctx.runMutation(internal.accountLifecycle.continueErasure, { requestId, lease: claimed.lease });
         return null;
       }
       const billing = await ctx.runAction(internal.polar.cleanupAccount, { userId: claimed.user._id });
@@ -181,7 +192,8 @@ export const process = internalAction({
         if (!erasing) return null;
         const complete = await ctx.runMutation(internal.accountLifecycle.erase, { requestId, lease: claimed.lease });
         if (complete) return null;
-        success = false;
+        await ctx.runMutation(internal.accountLifecycle.continueErasure, { requestId, lease: claimed.lease });
+        return null;
       }
     } catch { success = false; }
     await ctx.runMutation(internal.accountLifecycle.finishAttempt, { requestId, lease: claimed.lease, success, finalizing: claimed.finalizing });
