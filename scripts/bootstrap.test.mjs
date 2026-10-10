@@ -59,6 +59,7 @@ test("child processes cannot inherit a cloud deployment or production Polar envi
     CONVEX_SELF_HOSTED_ADMIN_KEY: "secret",
     CONVEX_DEPLOYMENT_TOKEN: "secret",
     POLAR_ENVIRONMENT: "production",
+    TAILSCALE_HOSTNAME: "stale.example.ts.net",
     PORT: "3000",
   });
   assert.equal(env.PATH, "/bin");
@@ -66,7 +67,7 @@ test("child processes cannot inherit a cloud deployment or production Polar envi
   assert.equal(env.CONVEX_AGENT_MODE, "anonymous");
   assert.equal(env.POLAR_ENVIRONMENT, "sandbox");
   assert.equal(env.PORT, String(config.ports.next));
-  for (const key of ["CONVEX_DEPLOY_KEY", "CONVEX_SELF_HOSTED_URL", "CONVEX_SELF_HOSTED_ADMIN_KEY", "CONVEX_DEPLOYMENT_TOKEN"]) {
+  for (const key of ["CONVEX_DEPLOY_KEY", "CONVEX_SELF_HOSTED_URL", "CONVEX_SELF_HOSTED_ADMIN_KEY", "CONVEX_DEPLOYMENT_TOKEN", "TAILSCALE_HOSTNAME"]) {
     assert.equal(env[key], undefined);
   }
 });
