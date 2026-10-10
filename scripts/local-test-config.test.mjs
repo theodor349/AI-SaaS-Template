@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { environmentFile, worktreeConfig } from "./bootstrap.mjs";
+import { tailscaleConfig } from "./bootstrap-tailscale.mjs";
 import { resolveLocalTestConfig } from "./local-test-config.mjs";
 
 test("local tests reject missing, cloud, and mismatched targets without exposing credentials", () => {
@@ -22,6 +23,11 @@ test("local tests reject missing, cloud, and mismatched targets without exposing
     const save = (changes = {}) => writeFileSync(join(root, ".env.local"), environmentFile({ ...values, ...changes }));
     save();
     assert.equal(resolveLocalTestConfig(root).config.id, values.WORKTREE_ID);
+    const remote = tailscaleConfig(worktreeConfig(root), "agent.example.ts.net");
+    save(remote.env);
+    assert.equal(resolveLocalTestConfig(root).config.env.APP_URL, remote.env.APP_URL);
+    save({ ...remote.env, NEXT_PUBLIC_CONVEX_URL: "https://agent.example.ts.net:12345" });
+    assert.throws(() => resolveLocalTestConfig(root), /does not match/);
     for (const changes of [
       { APP_URL: "http://127.0.0.1:3000" },
       { NEXT_PUBLIC_CONVEX_URL: "https://example.convex.cloud" },

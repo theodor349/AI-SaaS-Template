@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "bootstrap": "node scripts/bootstrap.mjs",
+    "bootstrap:tailscale": "node scripts/bootstrap-tailscale.mjs",
     "test:bootstrap": "node --test scripts/*.test.mjs",
     "test": "pnpm test:unit",
     "test:unit": "pnpm test:bootstrap && vitest run",

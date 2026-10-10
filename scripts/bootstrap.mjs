@@ -228,7 +228,17 @@ export function worktreeCredentials(root, mainRoot, polar = true, inherited = pr
   }, polar);
 }
 
-async function bootstrap() {
+async function processTable() {
+  try { return execFileSync("ps", ["-eo", "pid=,ppid=,pgid="], { encoding: "utf8" }); }
+  catch (error) {
+    // A terminal Ctrl+C can also interrupt the process inspection started during cleanup.
+    if (!["SIGINT", "SIGTERM"].includes(error.signal)) throw error;
+    await delay(50);
+    return execFileSync("ps", ["-eo", "pid=,ppid=,pgid="], { encoding: "utf8" });
+  }
+}
+
+export async function bootstrap({ browserEnv = {}, onReady } = {}) {
   const args = process.argv.slice(2);
   if (args.includes("--help")) {
     console.log("pnpm bootstrap [--no-polar] [--print]\n\nStarts local Convex, Next.js, and Polar sandbox webhook forwarding.\n--no-polar  Start without billing credentials or webhook forwarding.\n--print     Print path-derived configuration without changing anything.");
@@ -249,8 +259,8 @@ async function bootstrap() {
   const mainRoot = dirname(commonGitDir);
   const localFile = join(root, ".env.local");
   const credentials = worktreeCredentials(root, mainRoot, polar);
-  const env = childEnvironment(config, credentials);
-  const fileEnv = childEnvironment(config, credentials, {});
+  const env = { ...childEnvironment(config, credentials), ...browserEnv };
+  const fileEnv = { ...childEnvironment(config, credentials, {}), ...browserEnv };
   const stateFile = join(root, ".convex/local/default/config.json");
   if (existsSync(stateFile)) {
     if (JSON.parse(readFileSync(stateFile, "utf8")).deploymentName !== "anonymous-agent") {
@@ -361,11 +371,14 @@ async function bootstrap() {
     }
     if (process.platform !== "win32") {
       serviceGroups = descendantProcessGroups(children.filter(({ persistent }) => persistent).map(({ child }) => child.pid),
-        execFileSync("ps", ["-eo", "pid=,ppid=,pgid="], { encoding: "utf8" }));
+        await processTable());
     }
     supervision.push(superviseNext(config.env.APP_URL, controller));
+    // The local Convex CLI rewrites its browser URLs during initial setup.
+    if (Object.keys(browserEnv).length) saveEnvironment(localFile, fileEnv);
     restoreLocalSelection();
-    console.log(`Ready: ${config.env.APP_URL} (Ctrl+C stops all services)`);
+    if (onReady) await onReady(controller.signal);
+    console.log(`Ready: ${env.APP_URL} (Ctrl+C stops all services)`);
     await new Promise((resolveStop) => {
       if (controller.signal.aborted) resolveStop();
       else controller.signal.addEventListener("abort", resolveStop, { once: true });
@@ -379,7 +392,7 @@ async function bootstrap() {
     await Promise.all(supervision);
     const pids = children.filter(({ child, persistent }) => child.pid && (persistent || (child.exitCode === null && child.signalCode === null))).map(({ child }) => child.pid);
     const groups = process.platform === "win32" ? pids : [...new Set([...serviceGroups, ...descendantProcessGroups(pids,
-      execFileSync("ps", ["-eo", "pid=,ppid=,pgid="], { encoding: "utf8" }))])];
+      await processTable())])];
     const running = (group) => signalProcessGroup(group, 0);
     for (const group of groups) signalProcessGroup(group, "SIGTERM");
     const deadline = Date.now() + 5000;

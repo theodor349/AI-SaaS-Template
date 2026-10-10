@@ -32,6 +32,7 @@ This template provides shared architecture, UI patterns, and an agent-friendly d
 
 - Use pnpm for all package management and scripts.
 - `pnpm bootstrap` starts Next.js, local Convex, and Polar sandbox forwarding, installing missing dependencies along the way. Run it in a persistent terminal and wait for `Ready:` before opening the printed app URL. This is the worktree entry point instead of `pnpm dev`.
+- For remote testing over Tailscale, use `pnpm bootstrap:tailscale` after stopping the current bootstrap in its owning terminal. It prints a private HTTPS URL and configures frontend/backend connections and checkout redirects. `--print` shows the URLs without starting services. Ctrl+C removes only the Tailscale proxies created by that run.
 - Ports and `WORKTREE_ID` derive from the worktree path and stay stable across restarts. `pnpm bootstrap --print` shows them without starting anything. Occupied ports cause a startup error.
 - Local database state lives in the worktree's gitignored `.convex`; Next.js output lives in `.next`. Restarting bootstrap keeps the database. Each worktree gets its own generated environment files.
 - Development credentials come from the main checkout's gitignored `.env.bootstrap.local`. Worktree files and process variables can override them. Bootstrap generates the local URLs, so there is no need to copy another checkout's environment files.

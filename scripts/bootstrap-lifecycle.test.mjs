@@ -68,6 +68,18 @@ test("killing only the Next listener shuts down Convex, the watcher, and Polar",
         }, 500);
       }
     `, { mode: 0o700 });
+    // A Ctrl+C can interrupt ps itself during cleanup; retry before signalling descendants.
+    await writeFile(join(fixture, "bin/ps"), `#!/usr/bin/env node
+      const { existsSync, writeFileSync } = require("node:fs");
+      const { execFileSync } = require("node:child_process");
+      if (existsSync("inspect-started") && !existsSync("inspect-interrupted")) {
+        writeFileSync("inspect-interrupted", "yes");
+        process.kill(process.pid, "SIGINT");
+      } else {
+        writeFileSync("inspect-started", "yes");
+        process.stdout.write(execFileSync("/usr/bin/ps", process.argv.slice(2)));
+      }
+    `, { mode: 0o700 });
     child = spawn(process.execPath, [join(root, "bootstrap.mjs")], {
       cwd: fixture, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env, PATH: `${join(fixture, "bin")}:${process.env.PATH}` },
@@ -93,6 +105,7 @@ test("killing only the Next listener shuts down Convex, the watcher, and Polar",
       timeout.abort();
     }
     assert.equal(code, 1, output);
+    assert.ok(existsSync(join(fixture, "inspect-interrupted")), "Cleanup survives interrupted process inspection");
     assert.match(output, /Next.*unavailable/);
     assert.doesNotMatch(output, /whsec_example|sk_test_example|polar_oat_example/);
     await assertPortsAvailable(config.ports);
