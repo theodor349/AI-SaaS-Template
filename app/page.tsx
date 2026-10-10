@@ -2,17 +2,17 @@
 
 import { Button } from "@/components/ui/button";
 import {
-  Authenticated,
-  Unauthenticated,
+  useConvexAuth,
   useMutation,
   useQuery,
 } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Code } from "@/components/typography/code";
 import { Link } from "@/components/typography/link";
-import { SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
+import { SignInButton, SignUpButton, UserButton, useAuth } from "@clerk/nextjs";
 import { StickyHeader } from "@/components/layout/sticky-header";
-import { Skeleton } from "@/components/ui/skeleton";
+import { AuthBoundary, AuthPending } from "@/components/auth/auth-boundary";
+import { AUTHENTICATED_DESTINATION } from "@/lib/auth";
 
 export default function Home() {
   return (
@@ -27,31 +27,40 @@ export default function Home() {
         <h1 className="text-4xl font-extrabold my-8 text-center">
           Convex + Next.js + Clerk Auth
         </h1>
-        <Authenticated>
+        <AuthBoundary signedOut={<p>Click one of the buttons in the top right corner to sign in.</p>}>
           <SignedInContent />
-        </Authenticated>
-        <Unauthenticated>
-          <p>Click one of the buttons in the top right corner to sign in.</p>
-        </Unauthenticated>
+        </AuthBoundary>
       </main>
     </>
   );
 }
 
 function SignInAndSignUpButtons() {
+  const { isLoaded, isSignedIn } = useAuth();
+  const { isAuthenticated, isLoading, isRefreshing } = useConvexAuth();
+  if (!isLoaded) return null;
   return (
     <div className="flex gap-4">
-      <Authenticated>
-        <UserButton />
-      </Authenticated>
-      <Unauthenticated>
-        <SignInButton mode="modal">
-          <Button variant="ghost">Sign in</Button>
-        </SignInButton>
-        <SignUpButton mode="modal">
-          <Button>Sign up</Button>
-        </SignUpButton>
-      </Unauthenticated>
+      {isSignedIn ? (
+        <>
+          {isAuthenticated && !isLoading && !isRefreshing && (
+            // Keep protected redirects out of the prefetch cache across sessions.
+            <Link href={AUTHENTICATED_DESTINATION} prefetch={false}>
+              Open application
+            </Link>
+          )}
+          <UserButton />
+        </>
+      ) : (
+        <>
+          <SignInButton mode="modal">
+            <Button variant="ghost">Sign in</Button>
+          </SignInButton>
+          <SignUpButton mode="modal">
+            <Button>Sign up</Button>
+          </SignUpButton>
+        </>
+      )}
     </div>
   );
 }
@@ -64,18 +73,13 @@ function SignedInContent() {
   const addNumber = useMutation(api.myFunctions.addNumber);
 
   if (viewer === undefined || numbers === undefined) {
-    return (
-      <>
-        <Skeleton size="line" />
-        <Skeleton size="line" />
-        <Skeleton size="line" />
-      </>
-    );
+    return <AuthPending message="Loading the public demo…" />;
   }
 
   return (
     <>
       <p>Welcome {viewer ?? "N/A"}!</p>
+      <p>This is a public demo: all visitors share the same numbers.</p>
       <p>
         Click the button below and open this page in another window - this data
         is persisted in the Convex cloud database!
