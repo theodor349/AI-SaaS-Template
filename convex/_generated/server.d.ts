@@ -30,9 +30,18 @@ import type { DataModel } from "./dataModel.js";
 type Env = {
   readonly CONVEX_CLOUD_URL: string;
   readonly CONVEX_SITE_URL: string;
+  readonly APP_URL: string;
   readonly CLERK_JWT_ISSUER_DOMAIN: string;
   readonly CLERK_SECRET_KEY: string | undefined;
   readonly CLERK_WEBHOOK_SIGNING_SECRET: string | undefined;
+  readonly POLAR_ACCESS_TOKEN: string | undefined;
+  readonly POLAR_ENVIRONMENT: "sandbox" | "production" | undefined;
+  readonly POLAR_ORGANIZATION_ID: string | undefined;
+  readonly POLAR_PRODUCT_LIFETIME: string | undefined;
+  readonly POLAR_PRODUCT_MONTHLY: string | undefined;
+  readonly POLAR_PRODUCT_YEARLY: string | undefined;
+  readonly POLAR_WEBHOOK_SECRET: string | undefined;
+  readonly WORKTREE_ID: string;
 };
 
 /**

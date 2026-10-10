@@ -6,6 +6,8 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { createRequire } from "node:module";
+const { WebSocket } = createRequire(import.meta.url)("next/dist/compiled/ws");
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
@@ -42,7 +44,7 @@ test("Next routes Clerk-style rewrites on the original loopback host", { timeout
     child = spawn(process.execPath, [join(root, "node_modules/next/dist/bin/next"), "dev", fixture,
       "--webpack", "--hostname", "127.0.0.1", "--port", String(port)], {
       detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" },
+      env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1", NEXT_PUBLIC_APP_URL: "https://agent.example.ts.net:54321" },
     });
     closed = once(child, "close");
     for (const stream of [child.stdout, child.stderr]) stream.on("data", (chunk) => { output += chunk; });
@@ -53,6 +55,15 @@ test("Next routes Clerk-style rewrites on the original loopback host", { timeout
     assert.equal(response.status, 200, output);
     assert.equal(await response.text(), "worktree");
     assert.doesNotMatch(output, /Failed to proxy/);
+    // A page can return 200 while hydration hangs on a rejected dev socket.
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/_next/hmr`, { origin: "https://agent.example.ts.net:54321" });
+    try {
+      await once(socket, "open", { signal: AbortSignal.timeout(5000) });
+    } finally { socket.terminate(); }
+    const blocked = await fetch(`http://127.0.0.1:${port}/_next/static/unconfigured.js`, {
+      headers: { origin: "https://another.example.ts.net" }, signal: AbortSignal.timeout(5000),
+    });
+    assert.equal(blocked.status, 403, "Unconfigured remote origins must remain blocked");
   } finally {
     if (child?.pid && child.exitCode === null && child.signalCode === null) {
       const kill = (signal) => process.platform === "win32" ? child.kill(signal) : process.kill(-child.pid, signal);

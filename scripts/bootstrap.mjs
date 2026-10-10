@@ -65,7 +65,7 @@ export function childEnvironment(config, credentials, inherited = process.env) {
     CONVEX_AGENT_MODE: "anonymous",
     CONVEX_ALLOW_ANONYMOUS: "true",
   };
-  for (const key of ["CONVEX_DEPLOY_KEY", "CONVEX_DEPLOYMENT_TOKEN", "CONVEX_SELF_HOSTED_URL", "CONVEX_SELF_HOSTED_ADMIN_KEY"]) {
+  for (const key of ["CONVEX_DEPLOY_KEY", "CONVEX_DEPLOYMENT_TOKEN", "CONVEX_SELF_HOSTED_URL", "CONVEX_SELF_HOSTED_ADMIN_KEY", "TAILSCALE_HOSTNAME"]) {
     delete env[key];
   }
   return env;
@@ -213,7 +213,7 @@ export function worktreeCredentials(root, mainRoot, polar = true, inherited = pr
   // Existing development keys remain usable; never copy another checkout's URLs or cloud target.
   const mainKeys = readEnvironment(join(mainRoot, ".env.local"));
   if (mainKeys.WORKTREE_ID === worktreeConfig(realpathSync(mainRoot)).id) delete mainKeys.CLERK_JWT_ISSUER_DOMAIN;
-  const providerNames = ["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET", "CLERK_JWT_ISSUER_DOMAIN", "POLAR_ACCESS_TOKEN", "POLAR_ORGANIZATION_ID"];
+  const providerNames = ["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET", "CLERK_JWT_ISSUER_DOMAIN", "POLAR_ACCESS_TOKEN", "POLAR_ORGANIZATION_ID", "POLAR_PRODUCT_MONTHLY", "POLAR_PRODUCT_YEARLY", "POLAR_PRODUCT_LIFETIME"];
   // A main checkout's .env.local may contain its generated test signing secret.
   // Share signing secrets only from explicit bootstrap settings, not that file.
   const providerKeys = Object.fromEntries(Object.entries(mainKeys).filter(([key]) =>
@@ -228,7 +228,17 @@ export function worktreeCredentials(root, mainRoot, polar = true, inherited = pr
   }, polar);
 }
 
-async function bootstrap() {
+async function processTable() {
+  try { return execFileSync("ps", ["-eo", "pid=,ppid=,pgid="], { encoding: "utf8" }); }
+  catch (error) {
+    // A terminal Ctrl+C can also interrupt the process inspection started during cleanup.
+    if (!["SIGINT", "SIGTERM"].includes(error.signal)) throw error;
+    await delay(50);
+    return execFileSync("ps", ["-eo", "pid=,ppid=,pgid="], { encoding: "utf8" });
+  }
+}
+
+export async function bootstrap({ browserEnv = {}, onReady } = {}) {
   const args = process.argv.slice(2);
   if (args.includes("--help")) {
     console.log("pnpm bootstrap [--no-polar] [--print]\n\nStarts local Convex, Next.js, and Polar sandbox webhook forwarding.\n--no-polar  Start without billing credentials or webhook forwarding.\n--print     Print path-derived configuration without changing anything.");
@@ -249,8 +259,8 @@ async function bootstrap() {
   const mainRoot = dirname(commonGitDir);
   const localFile = join(root, ".env.local");
   const credentials = worktreeCredentials(root, mainRoot, polar);
-  const env = childEnvironment(config, credentials);
-  const fileEnv = childEnvironment(config, credentials, {});
+  const env = { ...childEnvironment(config, credentials), ...browserEnv };
+  const fileEnv = { ...childEnvironment(config, credentials, {}), ...browserEnv };
   const stateFile = join(root, ".convex/local/default/config.json");
   if (existsSync(stateFile)) {
     if (JSON.parse(readFileSync(stateFile, "utf8")).deploymentName !== "anonymous-agent") {
@@ -327,7 +337,7 @@ async function bootstrap() {
     saveEnvironment(localFile, fileEnv);
     configured = true;
     const backendEnv = Object.fromEntries(Object.entries(fileEnv).filter(([key]) =>
-      ["WORKTREE_ID", "APP_URL", "CLERK_JWT_ISSUER_DOMAIN", "CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET", "POLAR_ACCESS_TOKEN", "POLAR_ENVIRONMENT", "POLAR_WEBHOOK_SECRET", "POLAR_SUCCESS_URL", "POLAR_ORGANIZATION_ID"].includes(key)));
+      ["WORKTREE_ID", "APP_URL", "CLERK_JWT_ISSUER_DOMAIN", "CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET", "POLAR_ACCESS_TOKEN", "POLAR_ENVIRONMENT", "POLAR_WEBHOOK_SECRET", "POLAR_SUCCESS_URL", "POLAR_ORGANIZATION_ID", "POLAR_PRODUCT_MONTHLY", "POLAR_PRODUCT_YEARLY", "POLAR_PRODUCT_LIFETIME"].includes(key)));
     const backendEnvFile = join(root, ".env.convex.local");
     saveEnvironment(backendEnvFile, backendEnv);
     const watchEnvFile = join(root, ".env.convex-watch.local");
@@ -354,14 +364,21 @@ async function bootstrap() {
       start("pnpm", ["exec", "polar", "listen", config.env.POLAR_WEBHOOK_URL, ...orgArgs], true);
       console.log(`Polar sandbox webhooks: ${config.env.POLAR_WEBHOOK_URL}`);
     }
+    // Next starts only after the initial Convex push, so its readiness also proves functions exist.
     await waitForServer(config.env.APP_URL, controller.signal);
+    if (polar && ["POLAR_PRODUCT_MONTHLY", "POLAR_PRODUCT_YEARLY", "POLAR_PRODUCT_LIFETIME"].every(key => credentials[key])) {
+      await run(["exec", "convex", "run", "--env-file", watchEnvFile, "polar:syncCatalog", "{}"]);
+    }
     if (process.platform !== "win32") {
       serviceGroups = descendantProcessGroups(children.filter(({ persistent }) => persistent).map(({ child }) => child.pid),
-        execFileSync("ps", ["-eo", "pid=,ppid=,pgid="], { encoding: "utf8" }));
+        await processTable());
     }
     supervision.push(superviseNext(config.env.APP_URL, controller));
+    // The local Convex CLI rewrites its browser URLs during initial setup.
+    if (Object.keys(browserEnv).length) saveEnvironment(localFile, fileEnv);
     restoreLocalSelection();
-    console.log(`Ready: ${config.env.APP_URL} (Ctrl+C stops all services)`);
+    if (onReady) await onReady(controller.signal);
+    console.log(`Ready: ${env.APP_URL} (Ctrl+C stops all services)`);
     await new Promise((resolveStop) => {
       if (controller.signal.aborted) resolveStop();
       else controller.signal.addEventListener("abort", resolveStop, { once: true });
@@ -375,7 +392,7 @@ async function bootstrap() {
     await Promise.all(supervision);
     const pids = children.filter(({ child, persistent }) => child.pid && (persistent || (child.exitCode === null && child.signalCode === null))).map(({ child }) => child.pid);
     const groups = process.platform === "win32" ? pids : [...new Set([...serviceGroups, ...descendantProcessGroups(pids,
-      execFileSync("ps", ["-eo", "pid=,ppid=,pgid="], { encoding: "utf8" }))])];
+      await processTable())])];
     const running = (group) => signalProcessGroup(group, 0);
     for (const group of groups) signalProcessGroup(group, "SIGTERM");
     const deadline = Date.now() + 5000;
