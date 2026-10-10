@@ -202,6 +202,12 @@ function saveEnvironment(file, values) {
   chmodSync(file, 0o600);
 }
 
+// A copied template's blank signing secret must not replace a persisted secret.
+function credentialOverrides(values) {
+  return Object.fromEntries(Object.entries(values).filter(([key, value]) =>
+    key !== "CLERK_WEBHOOK_SIGNING_SECRET" || value !== ""));
+}
+
 export function worktreeCredentials(root, mainRoot, polar = true, inherited = process.env) {
   const sharedKeys = readEnvironment(join(mainRoot, ".env.bootstrap.local"));
   // Existing development keys remain usable; never copy another checkout's URLs or cloud target.
@@ -217,8 +223,8 @@ export function worktreeCredentials(root, mainRoot, polar = true, inherited = pr
   if (localKeys.WORKTREE_ID === worktreeConfig(root).id) delete localKeys.CLERK_JWT_ISSUER_DOMAIN;
   return developmentCredentials({
     ...providerKeys, ...sharedKeys, ...localKeys,
-    ...readEnvironment(join(root, ".env.bootstrap.local")),
-    ...Object.fromEntries(Object.entries(inherited).filter(([key]) => providerNames.includes(key))),
+    ...credentialOverrides(readEnvironment(join(root, ".env.bootstrap.local"))),
+    ...credentialOverrides(Object.fromEntries(Object.entries(inherited).filter(([key]) => providerNames.includes(key)))),
   }, polar);
 }
 

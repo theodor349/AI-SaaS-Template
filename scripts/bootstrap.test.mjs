@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:net";
@@ -295,8 +295,16 @@ test("generated Clerk signing secrets stay local while explicit overrides can be
     writeFileSync(join(mainRoot, ".env.bootstrap.local"), environmentFile({ CLERK_WEBHOOK_SIGNING_SECRET: explicitSecret }));
     assert.equal(worktreeCredentials(secondRoot, mainRoot, false, {}).CLERK_WEBHOOK_SIGNING_SECRET, explicitSecret);
     assert.equal(worktreeCredentials(firstRoot, mainRoot, false, {}).CLERK_WEBHOOK_SIGNING_SECRET, first.CLERK_WEBHOOK_SIGNING_SECRET);
+    const copiedTemplate = { ...parseEnv(readFileSync(new URL("../.env.bootstrap.example", import.meta.url), "utf8")), ...credentials };
+    assert.equal(copiedTemplate.CLERK_WEBHOOK_SIGNING_SECRET, "");
+    writeFileSync(join(firstRoot, ".env.bootstrap.local"), environmentFile(copiedTemplate));
+    writeFileSync(join(secondRoot, ".env.bootstrap.local"), environmentFile(copiedTemplate));
+    assert.equal(worktreeCredentials(firstRoot, mainRoot, false, {}).CLERK_WEBHOOK_SIGNING_SECRET, first.CLERK_WEBHOOK_SIGNING_SECRET);
+    assert.equal(worktreeCredentials(firstRoot, mainRoot, false, { CLERK_WEBHOOK_SIGNING_SECRET: "" }).CLERK_WEBHOOK_SIGNING_SECRET, first.CLERK_WEBHOOK_SIGNING_SECRET);
+    assert.equal(worktreeCredentials(secondRoot, mainRoot, false, {}).CLERK_WEBHOOK_SIGNING_SECRET, explicitSecret);
     writeFileSync(join(firstRoot, ".env.bootstrap.local"), environmentFile({ CLERK_WEBHOOK_SIGNING_SECRET: overrideSecret }));
     assert.equal(worktreeCredentials(firstRoot, mainRoot, false, {}).CLERK_WEBHOOK_SIGNING_SECRET, overrideSecret);
+    assert.equal(worktreeCredentials(firstRoot, mainRoot, false, { CLERK_WEBHOOK_SIGNING_SECRET: "" }).CLERK_WEBHOOK_SIGNING_SECRET, overrideSecret);
     assert.equal(worktreeCredentials(firstRoot, mainRoot, false, { CLERK_WEBHOOK_SIGNING_SECRET: explicitSecret }).CLERK_WEBHOOK_SIGNING_SECRET, explicitSecret);
   } finally {
     rmSync(fixture, { recursive: true, force: true });
