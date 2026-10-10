@@ -5,6 +5,8 @@ import { api } from "./_generated/api";
 // Write your Convex functions in any file inside this directory (`convex`).
 // See https://docs.convex.dev/functions for more.
 
+// These number functions are intentionally public shared demos. Application
+// functions should use requireIdentity from ./lib/auth before accessing data.
 // You can read data from the database via a query:
 export const listNumbers = query({
   // Validators for arguments.

@@ -9,8 +9,12 @@ import { UserProvisioning } from "@/components/UserProvisioning";
 const convex = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
 export function ConvexClientProvider({ children }: { children: ReactNode }) {
+  const { sessionId, orgId, orgRole } = useAuth();
+  // Remount readiness and query consumers together so an identity change cannot
+  // render the previous scope while the SDK acquires and validates its next token.
+  const scope = JSON.stringify([sessionId, orgId, orgRole]);
   return (
-    <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
+    <ConvexProviderWithClerk key={scope} client={convex} useAuth={useAuth}>
       <UserProvisioning />
       {children}
     </ConvexProviderWithClerk>
