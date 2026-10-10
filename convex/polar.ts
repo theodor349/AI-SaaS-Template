@@ -201,8 +201,8 @@ export const reconcileCustomer = internalAction({
 // Account cleanup must check the stable provider identity even if customer
 // linkage or a creation webhook was missing. The caller retries false/throws.
 export const cleanupAccount = internalAction({
-  args: { userId: v.id("users") }, returns: v.object({ complete: v.boolean() }),
-  handler: async (ctx, { userId }): Promise<{ complete: boolean }> => {
+  args: { userId: v.id("users") }, returns: v.object({ complete: v.boolean(), progress: v.optional(v.boolean()) }),
+  handler: async (ctx, { userId }): Promise<{ complete: boolean; progress?: boolean }> => {
     const { user, account } = await ctx.runQuery(internal.billingState.cleanupContext, { userId });
     const p = client(); const externalId = externalCustomerId(user.tokenIdentifier);
     let customer: PolarModels.Customer;
@@ -212,22 +212,30 @@ export const cleanupAccount = internalAction({
       throw error;
     }
     belongs(customer, externalId);
-    if (user.lifecycle === "active") {
-      const subscriptions = await retry(() => bounded(p.subscriptions.iterList({ customer_id: customer.id, limit: 100 }), 100));
-      for (const sub of subscriptions) {
-        if (sub.customer_id !== customer.id) throw new Error("Subscription ownership conflict");
-        if (!["canceled", "unpaid"].includes(sub.status) && !sub.cancel_at_period_end) {
-          await retry(() => p.subscriptions.update(sub.id, { cancel_at_period_end: true }));
-        }
+    const cancelling = user.lifecycle === "active";
+    // Always take the first page of outstanding work. State-setting operations
+    // remove records from this filter, so retries advance without unstable offsets.
+    const outstanding = () => retry(() => p.subscriptions.list({ customer_id: customer.id, limit: 10,
+      status: ["active", "trialing", "past_due", "incomplete", "incomplete_expired", "paused"],
+      ...(cancelling ? { cancel_at_period_end: false } : {}) }));
+    const batch = await outstanding();
+    for (const sub of batch.items) {
+      if (sub.customer_id !== customer.id) throw new Error("Subscription ownership conflict");
+      if (cancelling) await retry(() => p.subscriptions.update(sub.id, { cancel_at_period_end: true }));
+      else await retry(() => p.subscriptions.revoke(sub.id));
+      const confirmed = await retry(() => p.subscriptions.get(sub.id));
+      if (confirmed.customer_id !== customer.id || (!["canceled", "unpaid"].includes(confirmed.status) && (!cancelling || !confirmed.cancel_at_period_end))) {
+        throw new Error("Subscription cleanup not confirmed");
       }
-      const confirmed = await retry(() => bounded(p.subscriptions.iterList({ customer_id: customer.id, limit: 100 }), 100));
-      if (confirmed.some(s => !["canceled", "unpaid"].includes(s.status) && !s.cancel_at_period_end)) return { complete: false };
+    }
+    if ((await outstanding()).items.length || (!cancelling && batch.items.length)) return { complete: false, progress: true };
+    if (cancelling) {
       await ctx.runMutation(internal.billingState.enqueue, { customerId: customer.id, externalId });
       await ctx.runAction(internal.polar.reconcileCustomer, { customerId: customer.id });
-      return { complete: true };
+    } else {
+      // Provider truth, rather than bounded cached history, gates identity erasure.
+      await ctx.runMutation(internal.billingState.confirmProviderCleanup, { userId });
     }
-    await ctx.runMutation(internal.billingState.enqueue, { customerId: customer.id, externalId });
-    await ctx.runAction(internal.polar.reconcileCustomer, { customerId: customer.id });
-    return ctx.runMutation(internal.billingState.cleanup, { userId });
+    return { complete: true };
   },
 });

@@ -215,7 +215,21 @@ export const saveCheckout = internalMutation({
     await ctx.db.patch("billingAccounts", account._id, args); return null;
   },
 });
-// Account lifecycle #5 can queue cleanup and poll until all resources are ended.
+// Called only after provider pages confirm that no live subscriptions remain.
+export const confirmProviderCleanup = internalMutation({
+  args: { userId: v.id("users") }, returns: v.null(), handler: async (ctx, { userId }) => {
+    const user = await ctx.db.get("users", userId);
+    if (!user || user.lifecycle === "active") throw new Error("Deletion must be committed first");
+    const account = await accountForUser(ctx, userId) ?? await ctx.db.query("billingAccounts")
+      .withIndex("by_externalId", q => q.eq("externalId", externalCustomerId(user.tokenIdentifier))).unique();
+    if (account?.userId && account.userId !== userId) throw new Error("Customer identity conflict");
+    if (account) await ctx.db.patch("billingAccounts", account._id, { userId, status: "ended", model: undefined,
+      subscriptionId: undefined, lifetimeOrderId: undefined, paidThrough: undefined, cancelAtPeriodEnd: false,
+      failureCode: undefined, reconciledAt: Date.now(), revision: account.revision + 1 });
+    return null;
+  },
+});
+// Legacy reconciliation callers can poll their already-bounded snapshot.
 export const cleanup = internalMutation({
   args: { userId: v.id("users") }, returns: v.object({ complete: v.boolean() }),
   handler: async (ctx, { userId }) => {

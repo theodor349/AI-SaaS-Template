@@ -132,11 +132,11 @@ export const beginErasure = internalMutation({
     return true;
   },
 });
-export const continueErasure = internalMutation({
+export const continueProcessing = internalMutation({
   args: { requestId: v.id("accountLifecycleRequests"), lease: v.number() }, returns: v.null(),
   handler: async (ctx, { requestId, lease }) => {
     const request = await ctx.db.get("accountLifecycleRequests", requestId);
-    if (!request || request.status !== "pending" || !request.erasing || request.leaseUntil !== lease) return null;
+    if (!request || request.status !== "pending" || request.leaseUntil !== lease) return null;
     // A successful batch is progress, including recovery from an earlier exception.
     await ctx.db.patch("accountLifecycleRequests", requestId, { leaseUntil: 0, nextAttemptAt: Date.now(), attempts: 0, failureCode: undefined });
     await ctx.scheduler.runAfter(0, internal.accountLifecycle.process, { requestId });
@@ -174,10 +174,14 @@ export const process = internalAction({
       if (claimed.request.erasing) {
         const complete = await ctx.runMutation(internal.accountLifecycle.erase, { requestId, lease: claimed.lease });
         if (complete) return null;
-        await ctx.runMutation(internal.accountLifecycle.continueErasure, { requestId, lease: claimed.lease });
+        await ctx.runMutation(internal.accountLifecycle.continueProcessing, { requestId, lease: claimed.lease });
         return null;
       }
       const billing = await ctx.runAction(internal.polar.cleanupAccount, { userId: claimed.user._id });
+      if (billing.progress) {
+        await ctx.runMutation(internal.accountLifecycle.continueProcessing, { requestId, lease: claimed.lease });
+        return null;
+      }
       success = billing.complete;
       if (success && claimed.finalizing) {
         const latest = await ctx.runQuery(internal.accountLifecycle.context, { requestId });
@@ -192,7 +196,7 @@ export const process = internalAction({
         if (!erasing) return null;
         const complete = await ctx.runMutation(internal.accountLifecycle.erase, { requestId, lease: claimed.lease });
         if (complete) return null;
-        await ctx.runMutation(internal.accountLifecycle.continueErasure, { requestId, lease: claimed.lease });
+        await ctx.runMutation(internal.accountLifecycle.continueProcessing, { requestId, lease: claimed.lease });
         return null;
       }
     } catch { success = false; }

@@ -11,7 +11,7 @@ const provider = vi.hoisted(() => ({
   products: { get: vi.fn() },
   checkouts: { list: vi.fn(), create: vi.fn() },
   customerSessions: { create: vi.fn() },
-  subscriptions: { iterList: vi.fn(), get: vi.fn(), update: vi.fn(), revoke: vi.fn() },
+  subscriptions: { list: vi.fn(), iterList: vi.fn(), get: vi.fn(), update: vi.fn(), revoke: vi.fn() },
   orders: { iterList: vi.fn() },
 }));
 vi.mock("@polar-sh/sdk/2026-10", async importOriginal => ({
@@ -74,6 +74,10 @@ beforeEach(() => {
     recurring_interval_count: id === "lifetime" ? null : 1,
     prices: [{ amount_type: "fixed", price_amount: 1000, price_currency: "usd", is_archived: false, tax_behavior: "exclusive" }] }));
   provider.subscriptions.iterList.mockImplementation(() => iterate(subscriptions));
+  provider.subscriptions.list.mockImplementation(async (query: { status: string[]; cancel_at_period_end?: boolean; limit: number }) => {
+    const outstanding = subscriptions.filter(s => query.status.includes(s.status) && (query.cancel_at_period_end === undefined || s.cancel_at_period_end === query.cancel_at_period_end));
+    return { items: outstanding.slice(0, query.limit), pagination: { total_count: outstanding.length, max_page: Math.ceil(outstanding.length / query.limit) } };
+  });
   provider.orders.iterList.mockImplementation(() => iterate(orders));
   provider.subscriptions.get.mockImplementation(async (id: string) => subscriptions.find(s => s.id === id));
   provider.subscriptions.update.mockImplementation(async (id: string, body: { product_id?: string; cancel_at_period_end?: boolean }) => {
@@ -320,7 +324,7 @@ test("two worktrees sharing a signed provider event can only enqueue their own s
 test("account cleanup reconciles a customer even when its creation delivery or local linkage was missing", async () => {
   const t = setup(); const userId = await provision(t);
   await t.run(ctx => ctx.db.patch("users", userId, { lifecycle: "deletion_requested" }));
-  expect(await t.action(internal.polar.cleanupAccount, { userId })).toEqual({ complete: false });
+  expect(await t.action(internal.polar.cleanupAccount, { userId })).toMatchObject({ complete: false });
   expect(provider.subscriptions.revoke).toHaveBeenCalledWith("sub-a");
   expect(await t.action(internal.polar.cleanupAccount, { userId })).toEqual({ complete: true });
 });
@@ -572,4 +576,31 @@ test("batched erasure survives reconciliation without refilling history or repea
   expect(fetchSpy).toHaveBeenCalledTimes(1);
   expect((await t.run(ctx => ctx.db.get("users", userId)))?.lifecycle).toBe("deleted");
   expect(await t.run(ctx => ctx.db.query("billingOrders").take(10))).toEqual([]);
+});
+
+test("deletion cancels and revokes every subscription across provider pages despite oversized cached history", async () => {
+  const t = setup(); const userId = await provision(t); await link(t); await reconcile(t);
+  subscriptions = Array.from({ length: 105 }, (_, i) => ({ ...sub(), id: `sub-${i}` }));
+  await t.run(async ctx => {
+    for (const s of subscriptions) await ctx.db.insert("billingSubscriptions", { customerId: customer.id, subscriptionId: s.id,
+      productId: s.product_id, superseded: false, status: s.status, paidThrough: end, cancelAtPeriodEnd: false, modifiedAt: start, periodStart: start });
+  });
+  await alice(t).mutation(api.accountLifecycle.requestDeletion, {});
+  const request = await deletionRequest(t);
+  for (let i = 0; i < 11; i++) await t.action(internal.accountLifecycle.process, { requestId: request._id });
+  expect(subscriptions.every(s => s.cancel_at_period_end)).toBe(true);
+  expect(provider.subscriptions.revoke).not.toHaveBeenCalled();
+  expect(await alice(t).query(api.accountLifecycle.current, {})).toMatchObject({ cancellationConfirmed: true, failure: false });
+  expect((await state(t))?.paidThrough).toBe(end);
+  vi.stubEnv("CLERK_SECRET_KEY", "key");
+  const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 200 }));
+  vi.setSystemTime(request.deleteAfter!);
+  for (let i = 0; i < 11; i++) await t.action(internal.accountLifecycle.process, { requestId: request._id });
+  expect(subscriptions.every(s => s.status === "canceled")).toBe(true);
+  expect(fetchSpy).not.toHaveBeenCalled();
+  expect((await t.query(internal.accountLifecycle.context, { requestId: request._id }))?.failureCode).toBeUndefined();
+  for (let i = 0; i < 3; i++) await t.action(internal.accountLifecycle.process, { requestId: request._id });
+  expect(fetchSpy).toHaveBeenCalledTimes(1);
+  expect((await t.run(ctx => ctx.db.get("users", userId)))?.lifecycle).toBe("deleted");
+  expect(await t.run(ctx => ctx.db.query("billingSubscriptions").take(200))).toEqual([]);
 });
