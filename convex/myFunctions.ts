@@ -1,23 +1,26 @@
 import { v } from "convex/values";
 import { query, mutation, action } from "./_generated/server";
+import { requirePro } from "./lib/billing";
 import { api } from "./_generated/api";
 
 // Write your Convex functions in any file inside this directory (`convex`).
 // See https://docs.convex.dev/functions for more.
 
-// These number functions are intentionally public shared demos. Application
-// functions should use requireIdentity from ./lib/auth before accessing data.
+// Application examples require confirmed paid access, including direct calls.
 // You can read data from the database via a query:
 export const listNumbers = query({
   // Validators for arguments.
   args: {
     count: v.number(),
   },
+  returns: v.object({ viewer: v.union(v.string(), v.null()), numbers: v.array(v.number()) }),
 
   // Query implementation.
   handler: async (ctx, args) => {
+    await requirePro(ctx);
     //// Read the database as many times as you need here.
     //// See https://docs.convex.dev/database/reading-data.
+    if (!Number.isInteger(args.count) || args.count < 0 || args.count > 100) throw new Error("Count must be between 0 and 100");
     const numbers = await ctx.db
       .query("numbers")
       // Ordered by _creationTime, return most recent
@@ -36,9 +39,11 @@ export const addNumber = mutation({
   args: {
     value: v.number(),
   },
+  returns: v.null(),
 
   // Mutation implementation.
   handler: async (ctx, args) => {
+    await requirePro(ctx, Date.now());
     //// Insert or modify documents in the database here.
     //// Mutations can also read from the database like queries.
     //// See https://docs.convex.dev/database/writing-data.
@@ -48,6 +53,7 @@ export const addNumber = mutation({
     console.log("Added new document with id:", id);
     // Optionally, return a value from your mutation.
     // return id;
+    return null;
   },
 });
 
@@ -58,6 +64,7 @@ export const myAction = action({
     first: v.number(),
     second: v.string(),
   },
+  returns: v.null(),
 
   // Action implementation.
   handler: async (ctx, args) => {
@@ -76,5 +83,6 @@ export const myAction = action({
     await ctx.runMutation(api.myFunctions.addNumber, {
       value: args.first,
     });
+    return null;
   },
 });

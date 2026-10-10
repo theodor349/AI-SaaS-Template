@@ -213,7 +213,7 @@ export function worktreeCredentials(root, mainRoot, polar = true, inherited = pr
   // Existing development keys remain usable; never copy another checkout's URLs or cloud target.
   const mainKeys = readEnvironment(join(mainRoot, ".env.local"));
   if (mainKeys.WORKTREE_ID === worktreeConfig(realpathSync(mainRoot)).id) delete mainKeys.CLERK_JWT_ISSUER_DOMAIN;
-  const providerNames = ["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET", "CLERK_JWT_ISSUER_DOMAIN", "POLAR_ACCESS_TOKEN", "POLAR_ORGANIZATION_ID"];
+  const providerNames = ["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET", "CLERK_JWT_ISSUER_DOMAIN", "POLAR_ACCESS_TOKEN", "POLAR_ORGANIZATION_ID", "POLAR_PRODUCT_MONTHLY", "POLAR_PRODUCT_YEARLY", "POLAR_PRODUCT_LIFETIME"];
   // A main checkout's .env.local may contain its generated test signing secret.
   // Share signing secrets only from explicit bootstrap settings, not that file.
   const providerKeys = Object.fromEntries(Object.entries(mainKeys).filter(([key]) =>
@@ -327,7 +327,7 @@ async function bootstrap() {
     saveEnvironment(localFile, fileEnv);
     configured = true;
     const backendEnv = Object.fromEntries(Object.entries(fileEnv).filter(([key]) =>
-      ["WORKTREE_ID", "APP_URL", "CLERK_JWT_ISSUER_DOMAIN", "CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET", "POLAR_ACCESS_TOKEN", "POLAR_ENVIRONMENT", "POLAR_WEBHOOK_SECRET", "POLAR_SUCCESS_URL", "POLAR_ORGANIZATION_ID"].includes(key)));
+      ["WORKTREE_ID", "APP_URL", "CLERK_JWT_ISSUER_DOMAIN", "CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET", "POLAR_ACCESS_TOKEN", "POLAR_ENVIRONMENT", "POLAR_WEBHOOK_SECRET", "POLAR_SUCCESS_URL", "POLAR_ORGANIZATION_ID", "POLAR_PRODUCT_MONTHLY", "POLAR_PRODUCT_YEARLY", "POLAR_PRODUCT_LIFETIME"].includes(key)));
     const backendEnvFile = join(root, ".env.convex.local");
     saveEnvironment(backendEnvFile, backendEnv);
     const watchEnvFile = join(root, ".env.convex-watch.local");
@@ -353,6 +353,9 @@ async function bootstrap() {
       const orgArgs = credentials.POLAR_ORGANIZATION_ID ? ["--org", credentials.POLAR_ORGANIZATION_ID] : [];
       start("pnpm", ["exec", "polar", "listen", config.env.POLAR_WEBHOOK_URL, ...orgArgs], true);
       console.log(`Polar sandbox webhooks: ${config.env.POLAR_WEBHOOK_URL}`);
+    }
+    if (polar && ["POLAR_PRODUCT_MONTHLY", "POLAR_PRODUCT_YEARLY", "POLAR_PRODUCT_LIFETIME"].every(key => credentials[key])) {
+      await run(["exec", "convex", "run", "--env-file", watchEnvFile, "polar:syncCatalog", "{}"]);
     }
     await waitForServer(config.env.APP_URL, controller.signal);
     if (process.platform !== "win32") {

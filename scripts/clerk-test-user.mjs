@@ -20,13 +20,15 @@ async function withProviderRetry(operation) {
 export async function createClerkTestUser({ config, env }) {
   const client = createClerkClient({ secretKey: env.CLERK_SECRET_KEY });
   const label = `${config.id}-${randomUUID().slice(0, 8)}`;
-  const email = `${label}+clerk_test@example.com`;
+  // Clerk recognizes +clerk_test; Polar also requires a domain with valid MX.
+  const email = `${label}+clerk_test@gmail.com`;
+  const firstName = `Test ${randomUUID().slice(0, 8).replace(/[0-9]/g, digit => String.fromCharCode(97 + Number(digit)))}`;
   let user;
   try {
     user = await withProviderRetry(() => client.users.createUser({
       emailAddress: [email],
-      firstName: label,
-      lastName: "E2E",
+      firstName,
+      lastName: "Account",
       skipPasswordRequirement: true,
       publicMetadata: { WORKTREE_ID: config.id, purpose: "local-agent-test" },
     }));
@@ -37,7 +39,7 @@ export async function createClerkTestUser({ config, env }) {
   return {
     id: user.id,
     email,
-    name: `${label} E2E`,
+    name: `${firstName} Account`,
     async revokeSessions() {
       const sessions = await withProviderRetry(() => client.sessions.getSessionList({ userId: user.id, status: "active" }));
       await Promise.all(sessions.data.map((session) => withProviderRetry(() => client.sessions.revokeSession(session.id))));
