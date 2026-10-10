@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { once } from "node:events";
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createServer } from "node:net";
 import { createServer as createHttpServer } from "node:http";
 import test from "node:test";
@@ -14,6 +17,7 @@ import {
   descendantProcessGroups,
   environmentFile,
   worktreeConfig,
+  worktreeCredentials,
 } from "./bootstrap.mjs";
 
 const credentials = {
@@ -257,4 +261,52 @@ test("macOS zombie-only groups cannot interrupt cleanup, while live permission e
   assert.equal(bootstrap.signalProcessGroup(2147483647, "SIGTERM"), false);
   const ownGroup = Number(execFileSync("ps", ["-o", "pgid=", "-p", String(process.pid)], { encoding: "utf8" }).trim());
   assert.throws(() => bootstrap.signalProcessGroup(ownGroup, "SIGTERM"), (actual) => actual === error);
+});
+
+test("Clerk webhook secrets are validated and available without Polar forwarding", () => {
+  const secret = `whsec_${Buffer.from("local test secret").toString("base64")}`;
+  assert.equal(developmentCredentials({ ...credentials, CLERK_WEBHOOK_SIGNING_SECRET: secret }, false).CLERK_WEBHOOK_SIGNING_SECRET, secret);
+  assert.match(developmentCredentials(credentials, false).CLERK_WEBHOOK_SIGNING_SECRET, /^whsec_/);
+  assert.throws(() => developmentCredentials({ ...credentials, CLERK_WEBHOOK_SIGNING_SECRET: "bad secret" }, false), /Svix/);
+});
+
+
+test("generated Clerk signing secrets stay local while explicit overrides can be shared", () => {
+  const fixture = realpathSync(mkdtempSync(join(tmpdir(), "bootstrap credentials ")));
+  const mainRoot = join(fixture, "main");
+  const firstRoot = join(fixture, "first");
+  const secondRoot = join(fixture, "second");
+  for (const root of [mainRoot, firstRoot, secondRoot]) mkdirSync(root);
+  const savedSecret = `whsec_${Buffer.from("main checkout generated secret").toString("base64")}`;
+  const explicitSecret = `whsec_${Buffer.from("explicit development webhook secret").toString("base64")}`;
+  const overrideSecret = `whsec_${Buffer.from("worktree override webhook secret").toString("base64")}`;
+  try {
+    writeFileSync(join(mainRoot, ".env.local"), environmentFile({
+      ...credentials, ...worktreeConfig(mainRoot).env,
+      CLERK_WEBHOOK_SIGNING_SECRET: savedSecret,
+    }));
+    const first = worktreeCredentials(firstRoot, mainRoot, false, {});
+    const second = worktreeCredentials(secondRoot, mainRoot, false, {});
+    assert.notEqual(first.CLERK_WEBHOOK_SIGNING_SECRET, savedSecret);
+    assert.notEqual(second.CLERK_WEBHOOK_SIGNING_SECRET, first.CLERK_WEBHOOK_SIGNING_SECRET);
+    // Saving the generated credentials is how bootstrap persists restart state.
+    writeFileSync(join(firstRoot, ".env.local"), environmentFile({ ...first, ...worktreeConfig(firstRoot).env }));
+    assert.equal(worktreeCredentials(firstRoot, mainRoot, false, {}).CLERK_WEBHOOK_SIGNING_SECRET, first.CLERK_WEBHOOK_SIGNING_SECRET);
+    writeFileSync(join(mainRoot, ".env.bootstrap.local"), environmentFile({ CLERK_WEBHOOK_SIGNING_SECRET: explicitSecret }));
+    assert.equal(worktreeCredentials(secondRoot, mainRoot, false, {}).CLERK_WEBHOOK_SIGNING_SECRET, explicitSecret);
+    assert.equal(worktreeCredentials(firstRoot, mainRoot, false, {}).CLERK_WEBHOOK_SIGNING_SECRET, first.CLERK_WEBHOOK_SIGNING_SECRET);
+    const copiedTemplate = { ...parseEnv(readFileSync(new URL("../.env.bootstrap.example", import.meta.url), "utf8")), ...credentials };
+    assert.equal(copiedTemplate.CLERK_WEBHOOK_SIGNING_SECRET, "");
+    writeFileSync(join(firstRoot, ".env.bootstrap.local"), environmentFile(copiedTemplate));
+    writeFileSync(join(secondRoot, ".env.bootstrap.local"), environmentFile(copiedTemplate));
+    assert.equal(worktreeCredentials(firstRoot, mainRoot, false, {}).CLERK_WEBHOOK_SIGNING_SECRET, first.CLERK_WEBHOOK_SIGNING_SECRET);
+    assert.equal(worktreeCredentials(firstRoot, mainRoot, false, { CLERK_WEBHOOK_SIGNING_SECRET: "" }).CLERK_WEBHOOK_SIGNING_SECRET, first.CLERK_WEBHOOK_SIGNING_SECRET);
+    assert.equal(worktreeCredentials(secondRoot, mainRoot, false, {}).CLERK_WEBHOOK_SIGNING_SECRET, explicitSecret);
+    writeFileSync(join(firstRoot, ".env.bootstrap.local"), environmentFile({ CLERK_WEBHOOK_SIGNING_SECRET: overrideSecret }));
+    assert.equal(worktreeCredentials(firstRoot, mainRoot, false, {}).CLERK_WEBHOOK_SIGNING_SECRET, overrideSecret);
+    assert.equal(worktreeCredentials(firstRoot, mainRoot, false, { CLERK_WEBHOOK_SIGNING_SECRET: "" }).CLERK_WEBHOOK_SIGNING_SECRET, overrideSecret);
+    assert.equal(worktreeCredentials(firstRoot, mainRoot, false, { CLERK_WEBHOOK_SIGNING_SECRET: explicitSecret }).CLERK_WEBHOOK_SIGNING_SECRET, explicitSecret);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
 });

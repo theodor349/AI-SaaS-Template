@@ -23,5 +23,8 @@ export function resolveLocalTestConfig(root = execFileSync("git", ["rev-parse", 
       ["CONVEX_DEPLOY_KEY", "CONVEX_DEPLOYMENT_TOKEN", "CONVEX_SELF_HOSTED_URL", "CONVEX_SELF_HOSTED_ADMIN_KEY"].some((key) => env[key])) {
     throw new Error("Local tests require bootstrap's isolated anonymous Convex deployment; cloud credentials are refused.");
   }
+  if (!env.CLERK_WEBHOOK_SIGNING_SECRET) {
+    throw new Error("Local Clerk webhook signing secret is missing. Restart pnpm bootstrap in this worktree first.");
+  }
   return { config, env: developmentCredentials(env, false) };
 }
