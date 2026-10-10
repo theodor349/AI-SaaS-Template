@@ -39,8 +39,8 @@ export async function createClerkTestUser({ config, env }) {
     email,
     name: `${label} E2E`,
     async revokeSessions() {
-      const sessions = await client.sessions.getSessionList({ userId: user.id, status: "active" });
-      await Promise.all(sessions.data.map((session) => client.sessions.revokeSession(session.id)));
+      const sessions = await withProviderRetry(() => client.sessions.getSessionList({ userId: user.id, status: "active" }));
+      await Promise.all(sessions.data.map((session) => withProviderRetry(() => client.sessions.revokeSession(session.id))));
     },
     async cleanup() {
       try {
@@ -69,7 +69,7 @@ export async function createClerkTestOrganization({ config, env }, userId) {
   return {
     id: organization.id,
     async setRole(role) {
-      await client.organizations.updateOrganizationMembership({ organizationId: organization.id, userId, role });
+      await withProviderRetry(() => client.organizations.updateOrganizationMembership({ organizationId: organization.id, userId, role }));
     },
     async cleanup() {
       await withProviderRetry(() => client.organizations.deleteOrganization(organization.id));
