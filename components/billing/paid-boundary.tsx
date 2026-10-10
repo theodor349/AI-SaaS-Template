@@ -10,12 +10,14 @@ export function PaidBoundary({ children }: { children: ReactNode }) {
   const status = useQuery(api.billing.status);
   const recover = useAction(api.polar.recover);
   const router = useRouter();
+  const deleting = status?.readiness === "deleting";
   const ready = status?.readiness === "ready";
   const active = status?.state === "active";
   const paidThrough = status?.paidThrough;
   useEffect(() => {
-    if (ready && !active) router.replace("/billing");
-  }, [ready, active, router]);
+    if (deleting) router.replace("/account");
+    else if (ready && !active) router.replace("/billing");
+  }, [deleting, ready, active, router]);
   useEffect(() => {
     if (!paidThrough) return;
     const timer = setTimeout(() => { void recover({}).catch(() => router.replace("/billing")); }, Math.min(2_147_483_647, Math.max(0, paidThrough - Date.now())));

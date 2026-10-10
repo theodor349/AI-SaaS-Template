@@ -1,6 +1,6 @@
 "use client";
 
-import { SignOutButton, UserButton } from "@clerk/nextjs";
+import { UserButton } from "@clerk/nextjs";
 import { useAction, useQuery } from "convex/react";
 import NextLink from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -16,6 +16,8 @@ const label = { monthly: "Monthly Pro", yearly: "Yearly Pro", lifetime: "Lifetim
 type Operation = "cancel" | "reactivate" | "monthly" | "yearly";
 export function BillingControls() {
   const status = useQuery(api.billing.status);
+  const deletion = useQuery(api.accountLifecycle.current, status?.readiness === "ready" ? {} : "skip");
+  const deleting = deletion?.status === "pending";
   const identity = useQuery(api.auth.currentIdentity);
   const checkout = useAction(api.polar.checkout);
   const portal = useAction(api.polar.portal);
@@ -49,11 +51,12 @@ export function BillingControls() {
   const returnUrl = () => `${window.location.origin}/billing`;
   const purchase = (model: BillingModel) => run(async () => { window.location.assign(await checkout({ model, returnUrl: returnUrl() })); });
   if (!status || status.readiness === "provisioning") return <AuthPending message="Setting up your billing account…" />;
-  if (status.readiness === "deleting") return <p>Account deletion has been requested. <SignOutButton><Button variant="outline">Sign out</Button></SignOutButton></p>;
+  if (status.readiness === "deleting") return <p>Account deletion is being completed. <NextLink href="/account">View account status</NextLink></p>;
   const recurring = status.state === "active" && status.model !== "lifetime";
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between"><h1 className="text-3xl font-bold">Billing</h1><UserButton /></div>
+      {deleting && <p>Deletion is scheduled. Undo deletion in <NextLink href="/account">Account</NextLink> before resuming your subscription.</p>}
       <p>Welcome {identity?.name ?? "to your account"}!</p>
       <Card>
         <CardHeader><CardTitle><h2>{status.state === "active" && status.model ? label[status.model] : status.state === "ended" ? "Restore Pro access" : "Choose your paid plan"}</h2></CardTitle></CardHeader>
@@ -68,9 +71,8 @@ export function BillingControls() {
         <div className="flex flex-wrap gap-3">
           <Button disabled={busy} variant="outline" onClick={() => void run(() => recover({}))}>Check payment status</Button>
           {status.hasCustomer && <Button disabled={busy} variant="outline" onClick={() => void run(async () => { window.location.assign(await portal({ returnUrl: returnUrl() })); })}>Customer portal</Button>}
-          <SignOutButton><Button variant="ghost">Sign out</Button></SignOutButton>
         </div>
-        {recurring && <div className="flex flex-wrap gap-3">
+        {recurring && !deleting && <div className="flex flex-wrap gap-3">
           <Button disabled={busy || (pending && !timedOut)} variant="outline" onClick={() => void run(() => change({ operation: status.cancelAtPeriodEnd ? "reactivate" : "cancel" }), status.cancelAtPeriodEnd ? "reactivate" : "cancel")}>{status.cancelAtPeriodEnd ? "Reactivate subscription" : "Cancel subscription"}</Button>
           <Button disabled={busy || (pending && !timedOut)} variant="outline" onClick={() => { const operation = status.model === "monthly" ? "yearly" : "monthly"; void run(() => change({ operation }), operation); }}>Switch to {status.model === "monthly" ? "yearly" : "monthly"}</Button>
           <Button disabled={busy} onClick={() => void purchase("lifetime")}>Upgrade to lifetime</Button>
@@ -82,7 +84,7 @@ export function BillingControls() {
         {confirmed && !busy && !expectation && <p role="status">Payment status check requested. The billing state above shows your confirmed access.</p>}
       </div></CardContent>
       </Card>
-      {status.state !== "active" && <>
+      {status.state !== "active" && !deleting && <>
         {selectedPlan && <div><Button disabled={busy} onClick={() => void purchase(selectedPlan)}>Continue with {selectedPlan}</Button></div>}
         <Pricing />
         {!selectedPlan && <p>Select a plan above to continue to checkout.</p>}
