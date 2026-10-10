@@ -71,6 +71,8 @@ Most code changes do not need an internal documentation change. Agents can read 
 
 ## Taste
 
+- Pages describe what is on the screen; nearby components implement how those parts work. Keep page-specific components in the page's `_components` folder, components shared across pages at their narrowest shared ancestor, and app-wide components in the global `components` folder. Pages own composition and route concerns; components own cohesive behavior and implementation details.
+- Client components should call Convex hooks where the data or behavior is needed instead of prop drilling solely to avoid duplicate requests. Within the same Convex client, `useQuery` calls for the same query and argument values share a subscription. Components can also declare their own `useMutation` hooks, but each invocation executes a mutation. 
 - Use existing Shadcn components when available. Install missing components with `pnpm dlx shadcn@latest add <component>` and follow the existing preset, theme tokens, and component patterns.
 - `components/ui` exports own their look. Pick a `variant` or `size`; do not restyle one with `className`. If none fits and the look is a generic concept, add a variant to the component; a look that belongs to one feature stays in that feature's own component, not in `components/ui`. Layout classes (width, flex, margin, position) belong on the parent. `shadcn/no-restyle` fails lint on violations.
 - Inferred types over annotations. `any` is the enemy.
