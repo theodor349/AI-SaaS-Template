@@ -98,6 +98,13 @@ export const apply = internalMutation({
       const other = await accountForUser(ctx, user._id);
       if (other && other._id !== account._id) throw new Error("Customer identity conflict");
     }
+    const deletion = user ? await ctx.db.query("accountLifecycleRequests").withIndex("by_userId", q => q.eq("userId", user._id)).unique() : null;
+    if (user && (user.lifecycle === "deleted" || deletion?.erasing)) {
+      await ctx.db.patch("billingAccounts", account._id, { userId: user._id, status: "ended", model: undefined,
+        subscriptionId: undefined, lifetimeOrderId: undefined, paidThrough: undefined, cancelAtPeriodEnd: false,
+        reconciledAt: Date.now(), completedVersion: version, revision: account.revision + 1 });
+      return state.subscriptions.filter(s => !["canceled", "unpaid"].includes(s.status)).map(s => s.id);
+    }
     for (const item of state.orders) {
       const old = await ctx.db.query("billingOrders").withIndex("by_orderId", q => q.eq("orderId", item.id)).unique();
       if (old && old.customerId !== customerId) throw new Error("Order ownership conflict");
@@ -111,6 +118,11 @@ export const apply = internalMutation({
     const lifetime = orders.filter(o => productModel(o.productId) === "lifetime" && o.paid && !o.fullyRefunded)
       .sort((a, b) => b.createdAt - a.createdAt)[0];
     const deleting = user && user.lifecycle !== "active";
+    // A portal/provider change during the window must stop renewal again.
+    if (deletion?.status === "pending" && !deleting && state.subscriptions.some(s => !["canceled", "unpaid"].includes(s.status) && !s.cancelAtPeriodEnd)) {
+      await ctx.db.patch("accountLifecycleRequests", deletion._id, { cancellationConfirmed: false });
+      await ctx.scheduler.runAfter(0, internal.accountLifecycle.process, { requestId: deletion._id });
+    }
     const revoke: string[] = [];
     for (const item of state.subscriptions) {
       const old = await ctx.db.query("billingSubscriptions").withIndex("by_subscriptionId", q => q.eq("subscriptionId", item.id)).unique();
@@ -227,6 +239,8 @@ export const beginOperation = internalMutation({
     const user = await requireUser(ctx); const account = await accountForUser(ctx, user._id);
     if (!account) throw new ConvexError({ code: "CUSTOMER_NOT_FOUND" });
     if ((account.operationLeaseUntil ?? 0) > Date.now()) throw new ConvexError({ code: "BILLING_OPERATION_PENDING" });
+    const deletion = await ctx.db.query("accountLifecycleRequests").withIndex("by_userId", q => q.eq("userId", user._id)).unique();
+    if (deletion?.status === "pending") throw new ConvexError({ code: "DELETION_PENDING" });
     const lease = Date.now() + 120_000;
     await ctx.db.patch("billingAccounts", account._id, { operationLeaseUntil: lease }); return lease;
   },
@@ -257,7 +271,9 @@ export const cleanupContext = internalQuery({
   args: { userId: v.id("users") }, returns: v.object({ user: schema.doc("users"), account: accountDoc }),
   handler: async (ctx, { userId }) => {
     const user = await ctx.db.get("users", userId);
-    if (!user || user.lifecycle === "active") throw new Error("Deletion must be requested first");
+    if (!user) throw new Error("User missing");
+    const request = await ctx.db.query("accountLifecycleRequests").withIndex("by_userId", q => q.eq("userId", userId)).unique();
+    if (user.lifecycle === "active" && request?.status !== "pending") throw new Error("Deletion must be requested first");
     const account = await accountForUser(ctx, userId) ?? await ctx.db.query("billingAccounts")
       .withIndex("by_externalId", q => q.eq("externalId", externalCustomerId(user.tokenIdentifier))).unique();
     return { user, account };

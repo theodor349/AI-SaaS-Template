@@ -21,6 +21,7 @@ import type * as lib_clerk from "../lib/clerk.js";
 import type * as lib_polarWebhook from "../lib/polarWebhook.js";
 import type * as myFunctions from "../myFunctions.js";
 import type * as polar from "../polar.js";
+import type * as profile from "../profile.js";
 import type * as users from "../users.js";
 import type * as webhooks from "../webhooks.js";
 
@@ -44,6 +45,7 @@ declare const fullApi: ApiFromModules<{
   "lib/polarWebhook": typeof lib_polarWebhook;
   myFunctions: typeof myFunctions;
   polar: typeof polar;
+  profile: typeof profile;
   users: typeof users;
   webhooks: typeof webhooks;
 }>;

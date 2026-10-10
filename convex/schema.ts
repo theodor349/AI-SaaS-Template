@@ -13,6 +13,7 @@ export default defineSchema(
       email: v.optional(v.string()),
       firstName: v.optional(v.string()),
       lastName: v.optional(v.string()),
+      profileEdited: v.optional(v.boolean()),
       profileUpdatedAt: v.number(),
       profileEventAt: v.number(),
       lifecycle: v.union(v.literal("active"), v.literal("deletion_requested"), v.literal("deleted")),
@@ -20,12 +21,20 @@ export default defineSchema(
       .index("by_clerkId", ["clerkId"]),
     accountLifecycleRequests: defineTable({
       userId: v.id("users"),
-      source: v.literal("clerk"),
-      sourceDeliveryId: v.string(),
+      source: v.union(v.literal("clerk"), v.literal("user")),
+      sourceDeliveryId: v.optional(v.string()),
       requestedAt: v.number(),
-      status: v.union(v.literal("pending"), v.literal("completed")),
+      status: v.union(v.literal("pending"), v.literal("cancelled"), v.literal("completed")),
+      deleteAfter: v.optional(v.number()),
+      nextAttemptAt: v.optional(v.number()),
+      leaseUntil: v.optional(v.number()),
+      cancellationConfirmed: v.optional(v.boolean()),
+      erasing: v.optional(v.boolean()),
+      attempts: v.optional(v.number()),
+      failureCode: v.optional(v.string()),
     }).index("by_userId", ["userId"])
-      .index("by_status", ["status"]),
+      .index("by_status", ["status"])
+      .index("by_status_and_nextAttemptAt", ["status", "nextAttemptAt"]),
     webhookDeliveries: defineTable({
       provider: v.union(v.literal("clerk"), v.literal("polar")),
       deliveryId: v.string(),

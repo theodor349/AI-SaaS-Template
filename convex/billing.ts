@@ -14,7 +14,7 @@ export const status = query({
     const identity = await requireIdentity(ctx);
     const user = await ctx.db.query("users").withIndex("by_tokenIdentifier", q => q.eq("tokenIdentifier", identity.tokenIdentifier)).unique();
     const account = user ? await accountForUser(ctx, user._id) : null;
-    return { readiness: !user?.email ? "provisioning" as const : user.lifecycle !== "active" ? "deleting" as const : "ready" as const,
+    return { readiness: user && user.lifecycle !== "active" ? "deleting" as const : !user?.email ? "provisioning" as const : "ready" as const,
       state: account?.status ?? "awaiting_payment" as const, model: account?.model ?? null,
       paidThrough: account?.paidThrough ?? null, cancelAtPeriodEnd: account?.cancelAtPeriodEnd ?? false,
       hasCustomer: !!account, revision: account?.revision ?? 0, reconciledAt: account?.reconciledAt ?? 0,

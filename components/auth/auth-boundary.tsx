@@ -1,6 +1,6 @@
 "use client";
 
-import { useAuth, SignInButton, SignOutButton } from "@clerk/nextjs";
+import { useAuth, SignInButton } from "@clerk/nextjs";
 import { useConvexAuth } from "convex/react";
 import { ReactNode, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -15,9 +15,6 @@ export function AuthRecovery() {
         <p>Try again, or sign out and sign back in.</p>
         <div className="flex gap-4">
           <Button onClick={() => window.location.reload()}>Try again</Button>
-          <SignOutButton>
-            <Button variant="outline">Sign out</Button>
-          </SignOutButton>
         </div>
       </AlertDescription>
     </Alert>

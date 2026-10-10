@@ -54,7 +54,7 @@ export const syncProfile = internalMutation({
       return readiness(user);
     }
     const fields = {
-      email: profile.email, firstName: profile.firstName, lastName: profile.lastName,
+      email: profile.email, firstName: user?.profileEdited ? user.firstName : profile.firstName, lastName: user?.profileEdited ? user.lastName : profile.lastName,
       profileUpdatedAt: profile.updatedAt, profileEventAt: eventAt,
     };
     if (user) {

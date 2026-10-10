@@ -212,6 +212,20 @@ export const cleanupAccount = internalAction({
       throw error;
     }
     belongs(customer, externalId);
+    if (user.lifecycle === "active") {
+      const subscriptions = await retry(() => bounded(p.subscriptions.iterList({ customer_id: customer.id, limit: 100 }), 100));
+      for (const sub of subscriptions) {
+        if (sub.customer_id !== customer.id) throw new Error("Subscription ownership conflict");
+        if (!["canceled", "unpaid"].includes(sub.status) && !sub.cancel_at_period_end) {
+          await retry(() => p.subscriptions.update(sub.id, { cancel_at_period_end: true }));
+        }
+      }
+      const confirmed = await retry(() => bounded(p.subscriptions.iterList({ customer_id: customer.id, limit: 100 }), 100));
+      if (confirmed.some(s => !["canceled", "unpaid"].includes(s.status) && !s.cancel_at_period_end)) return { complete: false };
+      await ctx.runMutation(internal.billingState.enqueue, { customerId: customer.id, externalId });
+      await ctx.runAction(internal.polar.reconcileCustomer, { customerId: customer.id });
+      return { complete: true };
+    }
     await ctx.runMutation(internal.billingState.enqueue, { customerId: customer.id, externalId });
     await ctx.runAction(internal.polar.reconcileCustomer, { customerId: customer.id });
     return ctx.runMutation(internal.billingState.cleanup, { userId });
