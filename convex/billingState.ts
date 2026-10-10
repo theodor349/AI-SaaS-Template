@@ -26,7 +26,9 @@ export const enqueue = internalMutation({
   args: { customerId: v.string(), externalId: v.optional(v.string()) }, returns: v.id("billingAccounts"),
   handler: async (ctx, { customerId, externalId }) => {
     let row = await ctx.db.query("billingAccounts").withIndex("by_customerId", q => q.eq("customerId", customerId)).unique();
-    if (row?.externalId && externalId && row.externalId !== externalId) throw new Error("Customer identity conflict");
+    // Signed/provider-verified repairs may fix an unclaimed legacy identity.
+    // Once linked to an application owner, the association is immutable.
+    if (row?.userId && row.externalId && externalId && row.externalId !== externalId) throw new Error("Customer identity conflict");
     const id = row?._id ?? await ctx.db.insert("billingAccounts", { customerId, externalId,
       status: "awaiting_payment", cancelAtPeriodEnd: false, revision: 0, reconciledAt: 0,
       nextCheckAt: Date.now(), requestedVersion: 0, completedVersion: 0, leaseUntil: 0, attempts: 0 });
@@ -88,7 +90,7 @@ export const apply = internalMutation({
   handler: async (ctx, { snapshot: state, version }) => {
     const account = await ctx.db.query("billingAccounts").withIndex("by_customerId", q => q.eq("customerId", state.customerId)).unique();
     if (!account || account.leaseVersion !== version || account.requestedVersion !== version) return [];
-    if (account.externalId && state.externalId && account.externalId !== state.externalId) throw new Error("Customer identity conflict");
+    if (account.userId && account.externalId && state.externalId && account.externalId !== state.externalId) throw new Error("Customer identity conflict");
     const customerId = state.customerId;
     const user = account.userId ? await ctx.db.get("users", account.userId) : state.externalId?.startsWith(`${env.WORKTREE_ID}:`) ?
       await ctx.db.query("users").withIndex("by_tokenIdentifier", q => q.eq("tokenIdentifier", state.externalId!.slice(env.WORKTREE_ID.length + 1))).unique() : null;
@@ -143,7 +145,7 @@ export const apply = internalMutation({
     const paidThrough = active && !lifetime ? recurring?.confirmedPaidThrough : undefined;
     await ctx.db.patch("billingAccounts", account._id, {
       externalId: state.externalId ?? account.externalId, userId: user?._id ?? account.userId,
-      status: active ? "active" : account.reconciledAt || orders.some(o => o.paid) ? "ended" : "awaiting_payment",
+      status: active ? "active" : deleting || account.status !== "awaiting_payment" || orders.some(o => o.paid || o.fullyRefunded) ? "ended" : "awaiting_payment",
       model, subscriptionId: active && !lifetime ? recurring?.subscriptionId : undefined,
       lifetimeOrderId: active ? lifetime?.orderId : undefined, paidThrough,
       cancelAtPeriodEnd: active && !lifetime ? recurring?.cancelAtPeriodEnd ?? false : false,

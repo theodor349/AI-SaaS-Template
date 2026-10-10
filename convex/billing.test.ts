@@ -359,3 +359,27 @@ test("zero-price paid flags cannot grant a first recurring or lifetime entitleme
     expect((await state(t))?.status).not.toBe("active");
   }
 });
+
+test("an invalid unclaimed external identity can be repaired; a claimed customer's identity cannot change", async () => {
+  const t = setup(); await provision(t);
+  customer.external_id = "invalid-legacy-id";
+  await send(t, "customer.created", customer); await reconcile(t);
+  expect((await state(t))?.userId).toBeUndefined();
+  expect((await state(t))?.failureCode).toBe("CUSTOMER_LINK_REQUIRED");
+  customer.external_id = externalId;
+  expect((await send(t, "customer.updated", customer, "repaired")).status).toBe(200);
+  await reconcile(t);
+  expect((await alice(t).query(api.billing.status, {})).state).toBe("active");
+  customer.external_id = "wt-test:https://clerk.example|bob";
+  expect((await send(t, "customer.updated", customer, "different-owner")).status).toBe(503);
+  expect((await state(t))?.externalId).toBe(externalId);
+});
+
+test("repeated reconciliation of abandoned checkout remains awaiting payment until a confirmed purchase", async () => {
+  const t = setup(); await provision(t); await link(t);
+  subscriptions = []; orders = [];
+  await reconcile(t); await reconcile(t); await reconcile(t);
+  expect((await alice(t).query(api.billing.status, {})).state).toBe("awaiting_payment");
+  orders = [order("lifetime", "first-paid", null)]; await reconcile(t);
+  expect((await alice(t).query(api.billing.status, {})).state).toBe("active");
+});

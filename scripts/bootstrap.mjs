@@ -354,10 +354,11 @@ async function bootstrap() {
       start("pnpm", ["exec", "polar", "listen", config.env.POLAR_WEBHOOK_URL, ...orgArgs], true);
       console.log(`Polar sandbox webhooks: ${config.env.POLAR_WEBHOOK_URL}`);
     }
+    // Next starts only after the initial Convex push, so its readiness also proves functions exist.
+    await waitForServer(config.env.APP_URL, controller.signal);
     if (polar && ["POLAR_PRODUCT_MONTHLY", "POLAR_PRODUCT_YEARLY", "POLAR_PRODUCT_LIFETIME"].every(key => credentials[key])) {
       await run(["exec", "convex", "run", "--env-file", watchEnvFile, "polar:syncCatalog", "{}"]);
     }
-    await waitForServer(config.env.APP_URL, controller.signal);
     if (process.platform !== "win32") {
       serviceGroups = descendantProcessGroups(children.filter(({ persistent }) => persistent).map(({ child }) => child.pid),
         execFileSync("ps", ["-eo", "pid=,ppid=,pgid="], { encoding: "utf8" }));
