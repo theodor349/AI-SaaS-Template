@@ -192,7 +192,7 @@ test("anonymous and foreign-issuer callers cannot provision or choose somebody e
   expect((await rows(t)).users).toEqual([]);
 });
 
-test("provider absence and a deletion racing provisioning cannot resurrect an identity", async () => {
+test("a signed deletion racing provisioning cannot resurrect an identity", async () => {
   const t = setup();
   const alice = t.withIdentity({ issuer, subject: "user_a" });
   vi.spyOn(globalThis, "fetch").mockImplementationOnce(async () => {
@@ -201,10 +201,7 @@ test("provider absence and a deletion racing provisioning cannot resurrect an id
   });
   expect(await alice.action(api.users.ensureCurrentUser, {})).toEqual({ status: "deleting" });
   expect(await alice.query(api.users.current, {})).toEqual({ status: "deleting" });
-  const bob = t.withIdentity({ issuer, subject: "user_b" });
-  vi.mocked(fetch).mockResolvedValueOnce(new Response("", { status: 404 }));
-  expect(await bob.action(api.users.ensureCurrentUser, {})).toEqual({ status: "deleting" });
-  expect((await rows(t)).requests).toHaveLength(2);
+  expect((await rows(t)).requests).toHaveLength(1);
 });
 
 const applyRef = makeFunctionReference<"mutation", { fail: boolean }, null>("testHandlers:apply") as unknown as FunctionReference<"mutation", "internal", { fail: boolean }, null>;
@@ -297,4 +294,23 @@ test("signed HTTP handler failures return 503, roll back writes, and recover on 
   expect((await send(t, event())).status).toBe(200);
   expect((await rows(t)).users).toHaveLength(1);
   expect((await rows(t)).deliveries[0]).toMatchObject({ status: "success", attempts: 2 });
+});
+
+
+test("a Clerk API 404 stays retryable without deleting a new or paid application identity", async () => {
+  const t = setup();
+  const alice = t.withIdentity({ issuer, subject: "user_a" });
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("", { status: 404 }));
+  await expect(alice.action(api.users.ensureCurrentUser, {})).rejects.toThrow("PROVISIONING_FAILED");
+  expect(await alice.query(api.users.current, {})).toEqual({ status: "provisioning" });
+  expect(await rows(t)).toEqual({ users: [], deliveries: [], requests: [] });
+  fetchMock.mockResolvedValueOnce(Response.json(profile()));
+  expect(await alice.action(api.users.ensureCurrentUser, {})).toMatchObject({ status: "ready" });
+  const user = (await rows(t)).users[0];
+  await t.run((ctx) => ctx.db.patch("users", user._id, { paidEntitlement: "pro" }));
+  fetchMock.mockResolvedValueOnce(new Response("", { status: 404 }));
+  await expect(alice.action(api.users.ensureCurrentUser, { refresh: true })).rejects.toThrow("PROVISIONING_FAILED");
+  expect(await alice.query(api.users.current, {})).toMatchObject({ status: "ready" });
+  expect((await rows(t)).users[0]).toMatchObject({ lifecycle: "active", paidEntitlement: "pro" });
+  expect((await rows(t)).requests).toEqual([]);
 });

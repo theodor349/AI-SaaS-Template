@@ -88,12 +88,8 @@ export const ensureCurrentUser = action({
         headers: { Authorization: `Bearer ${env.CLERK_SECRET_KEY}` },
         signal: AbortSignal.timeout(15000),
       });
-      if (response.status === 404) {
-        await ctx.runMutation(internal.accountLifecycle.requestClerkDeletion, {
-          clerkId: identity.subject, eventAt: Date.now(), deliveryId: "backend-api:missing-user",
-        });
-        return { status: "deleting" as const };
-      }
+      // A 404 can mean the Backend API key belongs to another Clerk instance.
+      // Only signed deletion events may create terminal lifecycle requests.
       if (!response.ok) throw new Error("Provider request failed");
       const data: unknown = await response.json();
       const profile = parseClerkProfile(data);

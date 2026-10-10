@@ -202,6 +202,26 @@ function saveEnvironment(file, values) {
   chmodSync(file, 0o600);
 }
 
+export function worktreeCredentials(root, mainRoot, polar = true, inherited = process.env) {
+  const sharedKeys = readEnvironment(join(mainRoot, ".env.bootstrap.local"));
+  // Existing development keys remain usable; never copy another checkout's URLs or cloud target.
+  const mainKeys = readEnvironment(join(mainRoot, ".env.local"));
+  if (mainKeys.WORKTREE_ID === worktreeConfig(realpathSync(mainRoot)).id) delete mainKeys.CLERK_JWT_ISSUER_DOMAIN;
+  const providerNames = ["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET", "CLERK_JWT_ISSUER_DOMAIN", "POLAR_ACCESS_TOKEN", "POLAR_ORGANIZATION_ID"];
+  // A main checkout's .env.local may contain its generated test signing secret.
+  // Share signing secrets only from explicit bootstrap settings, not that file.
+  const providerKeys = Object.fromEntries(Object.entries(mainKeys).filter(([key]) =>
+    providerNames.includes(key) && key !== "CLERK_WEBHOOK_SIGNING_SECRET"));
+  const localKeys = readEnvironment(join(root, ".env.local"));
+  // Re-derive generated issuers after a worktree overrides its Clerk key pair.
+  if (localKeys.WORKTREE_ID === worktreeConfig(root).id) delete localKeys.CLERK_JWT_ISSUER_DOMAIN;
+  return developmentCredentials({
+    ...providerKeys, ...sharedKeys, ...localKeys,
+    ...readEnvironment(join(root, ".env.bootstrap.local")),
+    ...Object.fromEntries(Object.entries(inherited).filter(([key]) => providerNames.includes(key))),
+  }, polar);
+}
+
 async function bootstrap() {
   const args = process.argv.slice(2);
   if (args.includes("--help")) {
@@ -222,20 +242,7 @@ async function bootstrap() {
   const commonGitDir = execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { encoding: "utf8" }).trim();
   const mainRoot = dirname(commonGitDir);
   const localFile = join(root, ".env.local");
-  const sharedKeys = readEnvironment(join(mainRoot, ".env.bootstrap.local"));
-  // Existing development keys remain usable; never copy another checkout's URLs or cloud target.
-  const mainKeys = readEnvironment(join(mainRoot, ".env.local"));
-  if (mainKeys.WORKTREE_ID === worktreeConfig(realpathSync(mainRoot)).id) delete mainKeys.CLERK_JWT_ISSUER_DOMAIN;
-  const providerNames = ["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET", "CLERK_JWT_ISSUER_DOMAIN", "POLAR_ACCESS_TOKEN", "POLAR_ORGANIZATION_ID"];
-  const providerKeys = Object.fromEntries(Object.entries(mainKeys).filter(([key]) => providerNames.includes(key)));
-  const localKeys = readEnvironment(localFile);
-  // Re-derive generated issuers after a worktree overrides its Clerk key pair.
-  if (localKeys.WORKTREE_ID === config.id) delete localKeys.CLERK_JWT_ISSUER_DOMAIN;
-  const credentials = developmentCredentials({
-    ...providerKeys, ...sharedKeys, ...localKeys,
-    ...readEnvironment(join(root, ".env.bootstrap.local")),
-    ...Object.fromEntries(Object.entries(process.env).filter(([key]) => providerNames.includes(key))),
-  }, polar);
+  const credentials = worktreeCredentials(root, mainRoot, polar);
   const env = childEnvironment(config, credentials);
   const fileEnv = childEnvironment(config, credentials, {});
   const stateFile = join(root, ".convex/local/default/config.json");
