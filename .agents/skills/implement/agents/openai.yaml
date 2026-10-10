@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implement and prepare PR"
+  short_description: "Implement a task and handle bot review before handoff"
+  default_prompt: "Use $implement to complete this issue or feature in the current T3-assigned worktree and prepare its PR for my review."
