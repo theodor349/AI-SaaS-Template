@@ -68,3 +68,17 @@ test("cleanup keeps reused proxies and routes changed by someone else", async ()
   assert.equal(fake.state.Web[authority(remote.ports.convex)], undefined);
   assert.deepEqual(fake.state.Web["agent.example.ts.net:443"], existing.Web["agent.example.ts.net:443"]);
 });
+
+
+test("failed rollback reports cleanup failure without masking the original startup error", async t => {
+  const fake = fakeTailscale(remote.ports.convex);
+  let setupFailed = false;
+  const reported = t.mock.method(console, "error", () => {});
+  const command = args => {
+    if (setupFailed && args[1] === "status") throw new Error("Cleanup status timed out");
+    try { return fake.command(args); }
+    catch (error) { setupFailed = true; throw error; }
+  };
+  await assert.rejects(serveWorktree(local, remote, command), /Serve setup failed/);
+  assert.match(reported.mock.calls[0].arguments[0], /Cleanup status timed out/);
+});

@@ -39,6 +39,11 @@ export function plannedProxies(config, remote, serve) {
   });
 }
 
+function cleanupProxies(cleanup) {
+  try { cleanup(); return true; }
+  catch (error) { console.error(`Tailscale cleanup failed: ${error.message}`); return false; }
+}
+
 export async function serveWorktree(config, remote, command = args => execFileSync("tailscale", args, { encoding: "utf8", timeout: 15000 })) {
   const plans = plannedProxies(config, remote, JSON.parse(command(["serve", "status", "--json"])));
   await assertPortsAvailable(Object.fromEntries(plans.filter(p => p.create).map(p => [`tailscale-${p.port}`, p.port])));
@@ -61,7 +66,7 @@ export async function serveWorktree(config, remote, command = args => execFileSy
       created.push(plan);
     }
   } catch (error) {
-    cleanup();
+    cleanupProxies(cleanup);
     throw error;
   }
   return cleanup;
@@ -90,7 +95,7 @@ async function main() {
       await waitForServer(remote.env.APP_URL, signal);
       await waitForServer(`${remote.env.NEXT_PUBLIC_CONVEX_URL}/version`, signal);
     } });
-  } finally { cleanup(); }
+  } finally { if (!cleanupProxies(cleanup)) process.exitCode = 1; }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
