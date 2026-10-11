@@ -75,13 +75,19 @@ Most code changes do not need an internal documentation change. Agents can read 
 ## Taste
 
 - Pages describe what is on the screen; nearby components implement how those parts work. Keep page-specific components in the page's `_components` folder, components shared across pages at their narrowest shared ancestor, and app-wide components in the global `components` folder. Pages own composition and route concerns; components own cohesive behavior and implementation details.
-- Client components should call Convex hooks where the data or behavior is needed instead of prop drilling solely to avoid duplicate requests. Within the same Convex client, `useQuery` calls for the same query and argument values share a subscription. Components can also declare their own `useMutation` hooks, but each invocation executes a mutation.
+- Write JSX so its structure is easy to scan. Avoid nested ternaries or chains of conditions inside JSX. Extract components around cohesive behavior.
+- Client components should call Convex hooks where the data or behavior is needed instead of prop drilling.
+- Each component owns its loading state. Keep the page shell visible while its components load independently. Use dynamic skeletons that match the loaded component's dimensions, spacing, fields, controls, and text wrapping at supported screen sizes. Keep skeleton markup close to the component so layout changes update both states together.
 - Use existing Shadcn components when available. Install missing components with `pnpm dlx shadcn@latest add <component>` and follow the existing preset, theme tokens, and component patterns.
 - `components/ui` exports own their look. Pick a `variant` or `size`; do not restyle one with `className`. If none fits and the look is a generic concept, add a variant to the component; a look that belongs to one feature stays in that feature's own component, not in `components/ui`. Layout classes (width, flex, margin, position) belong on the parent. `shadcn/no-restyle` fails lint on violations.
 - Inferred types over annotations. `any` is the enemy.
 - Comments describe how a thing is used, and move when the code moves. To be used mostly to describe functions, not to annotate every line of behavior.
 - Our users notice a dropped frame, a lying spinner, and a stale label. No continuously repainting animations; they peg the GPU on high-refresh displays.
+- Make action progress clear where the action happens, for as long as it is pending. Keep the layout stable and prevent duplicate submissions. Let the resulting UI communicate success; add feedback only when it provides useful information.
+- Make errors easy to notice and understand. Choose feedback that fits the error’s context and duration, keeping ongoing failures visible near the affected content until resolved. Avoid repeated notifications for the same failure.
 - If a rule here fights the task in front of you, say so loudly and get a human sign-off before breaking it.
+
+For examples of page composition, component-owned skeletons, and action versus job errors, see the [account page](app/account/page.tsx). Apply the rules above to new features, using these examples to understand the intended structure and state placement.
 
 ## Additional tips
 

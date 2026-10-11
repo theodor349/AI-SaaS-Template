@@ -7,6 +7,8 @@ import { cn } from "@/lib/utils";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { AUTHENTICATED_DESTINATION, SIGN_IN_PATH, SIGN_UP_PATH } from "@/lib/auth";
+import { AccountControls } from "@/components/auth/account-controls";
+import { AuthBoundary } from "@/components/auth/auth-boundary";
 
 const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
@@ -31,7 +33,15 @@ export default function RootLayout({
           allowedRedirectOrigins={[]}
         >
           <TooltipProvider>
-            <ConvexClientProvider>{children}</ConvexClientProvider>
+            <ConvexClientProvider>
+              {
+                  <main className="container mx-auto max-w-3xl px-4 py-8">
+                    <AccountControls />
+                    {/* Each component guards its queries and renders its own pending state. */}
+                    <AuthBoundary renderWhilePending>{children}</AuthBoundary>
+                  </main>
+              
+              }</ConvexClientProvider>
           </TooltipProvider>
         </ClerkProvider>
         <Toaster closeButton />
