@@ -22,21 +22,43 @@ export function AuthRecovery() {
 }
 
 // The timeout changes only the recovery UI; it never redirects or declares sign-out.
-export function AuthPending({ message = "Connecting your account…" }: { message?: string }) {
+export function AuthPending({
+  message = "Connecting your account…",
+  fallback,
+}: {
+  message?: string;
+  fallback?: ReactNode;
+}) {
   const [timedOut, setTimedOut] = useState(false);
   useEffect(() => {
     const timer = setTimeout(() => setTimedOut(true), 15_000);
     return () => clearTimeout(timer);
   }, []);
-  return timedOut ? <AuthRecovery /> : <p role="status">{message}</p>;
+  if (timedOut) {
+    return <AuthRecovery />;
+  }
+
+  return fallback ?? <p role="status">{message}</p>;
 }
 
 // Authentication alone admits checkout, billing recovery, and account controls.
 // Place paid feature gates below this boundary; sign-in never grants an entitlement.
-export function AuthBoundary({ children, signedOut }: { children: ReactNode; signedOut?: ReactNode }) {
+export function AuthBoundary({
+  children,
+  signedOut,
+  pending,
+  renderWhilePending = false,
+}: {
+  children: ReactNode;
+  signedOut?: ReactNode;
+  pending?: ReactNode;
+  renderWhilePending?: boolean;
+}) {
   const clerk = useAuth();
   const convex = useConvexAuth();
-  if (!clerk.isLoaded) return <AuthPending />;
+  if (!clerk.isLoaded) {
+    return renderWhilePending ? children : <AuthPending fallback={pending} />;
+  }
   if (!clerk.isSignedIn) {
     return signedOut ?? (
       <div className="flex flex-col gap-4">
@@ -47,7 +69,9 @@ export function AuthBoundary({ children, signedOut }: { children: ReactNode; sig
       </div>
     );
   }
-  if (convex.isLoading || convex.isRefreshing) return <AuthPending />;
+  if (convex.isLoading || convex.isRefreshing) {
+    return renderWhilePending ? children : <AuthPending fallback={pending} />;
+  }
   if (!convex.isAuthenticated) return <AuthRecovery />;
   return children;
 }
