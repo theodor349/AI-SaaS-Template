@@ -5,6 +5,7 @@ import { ConvexClientProvider } from "./ConvexClientProvider";
 import { ClerkProvider } from "@clerk/nextjs";
 import { cn } from "@/lib/utils";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/sonner";
 import { AUTHENTICATED_DESTINATION, SIGN_IN_PATH, SIGN_UP_PATH } from "@/lib/auth";
 
 const geist = Geist({subsets:['latin'],variable:'--font-sans'});
@@ -33,6 +34,7 @@ export default function RootLayout({
             <ConvexClientProvider>{children}</ConvexClientProvider>
           </TooltipProvider>
         </ClerkProvider>
+        <Toaster closeButton />
       </body>
     </html>
   );

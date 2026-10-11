@@ -2,20 +2,14 @@
 
 import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
-import { CircleQuestionMark } from "lucide-react";
 import { useState, type SubmitEvent } from "react";
+import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import { AuthBoundary, AuthPending } from "@/components/auth/auth-boundary";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Popover,
-  PopoverContent,
-  PopoverDescription,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AccountSkeleton } from "./account-skeleton";
 
@@ -84,7 +78,6 @@ function UserDataFormContent() {
     lastName: string;
   } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState("");
 
   if (!current || current.status === "provisioning") {
     return <AuthPending fallback={<UserDataFormSkeleton />} />;
@@ -117,22 +110,27 @@ function UserDataFormContent() {
     };
 
     setIsSaving(true);
-    setError("");
+    toast.dismiss("profile-save-error");
 
     try {
       await saveProfile(submitted);
       setDraft(submitted);
     } catch (error) {
+      let description = "We couldn’t complete the request. Try again in a moment.";
+
       if (
         error instanceof ConvexError &&
         typeof error.data === "object" &&
         error.data !== null &&
         error.data.code === "INVALID_NAME"
       ) {
-        setError("Use names up to 100 characters without control characters.");
-      } else {
-        setError("We couldn’t complete the request. Try again in a moment.");
+        description = "Use names up to 100 characters without control characters.";
       }
+
+      toast.error("Couldn’t save your profile", {
+        description,
+        id: "profile-save-error",
+      });
     } finally {
       setIsSaving(false);
     }
@@ -185,7 +183,6 @@ function UserDataFormContent() {
               {isSaving ? "Saving..." : "Save profile"}
             </Button>
           </div>
-          {error && <p role="alert">{error}</p>}
         </form>
       </CardContent>
     </Card>

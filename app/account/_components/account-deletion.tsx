@@ -3,8 +3,10 @@
 import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { useState } from "react";
+import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import { AuthBoundary, AuthPending } from "@/components/auth/auth-boundary";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,6 +18,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { AlertCircleIcon } from "lucide-react"
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AccountSkeleton, AccountTextSkeleton } from "./account-skeleton";
@@ -72,12 +75,11 @@ function AccountDeletionContent() {
   const requestDeletion = useMutation(api.accountLifecycle.requestDeletion);
   const recoverAccount = useMutation(api.accountLifecycle.recover);
   const [busyAction, setBusyAction] = useState<"request" | "recover" | null>(null);
-  const [error, setError] = useState("");
   const isBusy = busyAction !== null;
 
   async function runDeletionOperation(operation: "request" | "recover") {
     setBusyAction(operation);
-    setError("");
+    toast.dismiss("account-deletion-error");
 
     try {
       if (operation === "request") {
@@ -86,18 +88,27 @@ function AccountDeletionContent() {
         await recoverAccount({});
       }
     } catch (error) {
+      let description = "We couldn’t complete the request. Try again in a moment.";
+
       if (
         error instanceof ConvexError &&
         typeof error.data === "object" &&
         error.data !== null &&
         error.data.code === "RECOVERY_UNAVAILABLE"
       ) {
-        setError(
-          "The recovery window has closed. Deletion can no longer be undone.",
-        );
-      } else {
-        setError("We couldn’t complete the request. Try again in a moment.");
+        description =
+          "The recovery window has closed. Deletion can no longer be undone.";
       }
+
+      const title =
+        operation === "request"
+          ? "Couldn’t request account deletion"
+          : "Couldn’t undo account deletion";
+
+      toast.error(title, {
+        description,
+        id: "account-deletion-error",
+      });
     } finally {
       setBusyAction(null);
     }
@@ -152,12 +163,6 @@ function AccountDeletionContent() {
             </Button>
           </div>
         )}
-        {deletion?.failure && (
-          <p role="alert">
-            Cleanup needs another attempt. We are retrying. Your account has not
-            been fully deleted.
-          </p>
-        )}
       </>
     );
   } else {
@@ -205,8 +210,16 @@ function AccountDeletionContent() {
       </CardHeader>
       <CardContent>
         <div className="flex flex-col gap-4">
+          {deletion?.failure && (
+            <Alert variant="destructive">
+            <AlertCircleIcon/>
+              <AlertTitle>Account cleanup needs another attempt</AlertTitle>
+              <AlertDescription>
+                We are retrying. Your account has not been fully deleted.
+              </AlertDescription>
+            </Alert>
+          )}
           {deletionContent}
-          {error && <p role="alert">{error}</p>}
         </div>
       </CardContent>
     </Card>
