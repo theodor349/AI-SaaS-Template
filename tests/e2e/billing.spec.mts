@@ -132,6 +132,42 @@ test("lifetime access shows the purchase date and opens the customer portal", as
   } finally { release?.(); await user.cleanup(); }
 });
 
+for (const action of ["checkout", "portal"] as const) {
+  test(`${action} permits another request after a cached page is restored`, async ({ page }) => {
+    const user = await createClerkTestUser(local);
+    let requests = 0;
+    try {
+      if (action === "portal") await seedPaidTestUser(user);
+      await page.routeWebSocket(/\/sync$/, socket => {
+        const server = socket.connectToServer();
+        server.onMessage(message => socket.send(message));
+        socket.onMessage(message => {
+          const frame = JSON.parse(message.toString()) as { type: string; udfPath?: string; requestId: number };
+          if (frame.type !== "Action" || frame.udfPath !== `polar:${action}`) { server.send(message); return; }
+          requests++;
+          // Keep the document mounted after a successful navigation response,
+          // then reproduce the browser's cached-page lifecycle event below.
+          socket.send(JSON.stringify({ type: "ActionResponse", requestId: frame.requestId, success: true,
+            result: `${local.config.env.APP_URL}/billing#navigation-${requests}`, logLines: [] }));
+        });
+      });
+      await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email }); await page.goto("/billing");
+      const label = action === "checkout" ? "Choose monthly" : "Customer portal";
+      const progress = action === "checkout" ? "Opening checkout…" : "Opening portal…";
+      await page.getByRole("button", { name: label, exact: true }).click();
+      await expect(page).toHaveURL(/#navigation-1$/);
+      await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: false })));
+      await expect(page.getByRole("button", { name: progress, exact: true })).toBeDisabled();
+      expect(requests).toBe(1);
+      await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
+      await expect(page.getByRole("button", { name: label, exact: true })).toBeEnabled();
+      await page.getByRole("button", { name: label, exact: true }).click();
+      await expect(page).toHaveURL(/#navigation-2$/);
+      expect(requests).toBe(2);
+    } finally { await user.cleanup(); }
+  });
+}
+
 test("expiry removes paid pages reactively while billing and account controls remain accessible", async ({ page }) => {
   const user = await createClerkTestUser(local);
   try {
@@ -212,7 +248,6 @@ test("sandbox checkout and recovery work when another customer uses the sign-in 
 
 test("yearly-to-monthly requires confirmation and shows the scheduled plan without changing paid access", async ({ page }) => {
   const user = await createClerkTestUser(local);
-  const fixture = await seedPaidTestUser(user, "yearly");
   const { client: admin } = billingTestAdmin();
   let requests = 0;
   await page.routeWebSocket(/\/sync$/, socket => {
@@ -226,6 +261,7 @@ test("yearly-to-monthly requires confirmation and shows the scheduled plan witho
     });
   });
   try {
+    const fixture = await seedPaidTestUser(user, "yearly");
     await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email }); await page.goto("/billing");
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole("button", { name: "Switch to monthly" }).click();
@@ -265,52 +301,52 @@ test("yearly-to-monthly requires confirmation and shows the scheduled plan witho
 
 test("repeated switches and cancellation cycles confirm reactive state; failures clear obsolete expectations", async ({ page }) => {
   const user = await createClerkTestUser(local);
-  const fixture = await seedPaidTestUser(user, "monthly");
-  const { client: admin } = billingTestAdmin();
-  let model: "monthly" | "yearly" = "monthly";
-  let cancel = false;
-  let failNext = false;
-  let sequence = 0;
   let release: (() => void) | undefined;
-  async function confirmSwitch(target: "monthly" | "yearly") {
-    await page.getByRole("button", { name: `Switch to ${target}` }).click();
-    const dialog = page.getByRole("alertdialog");
-    await expect(dialog).toBeVisible();
-    await expect(dialog).toContainText(target === "yearly" ? "charged immediately" : "end of your current one-year period");
-    await dialog.getByRole("button", { name: "Confirm switch" }).click();
-  }
-  await page.routeWebSocket(/\/sync$/, socket => {
-    const server = socket.connectToServer();
-    server.onMessage(message => socket.send(message));
-    socket.onMessage(async message => {
-      const frame = JSON.parse(message.toString()) as { type: string; udfPath?: string; requestId: number; args: [{ operation: string }] };
-      if (frame.type !== "Action" || frame.udfPath !== "polar:changeSubscription") { server.send(message); return; }
-      // The UI action result is deliberately separated from a trusted state
-      // publication to prove the label never treats an action ACK as entitlement.
-      if (failNext) {
-        failNext = false;
-        socket.send(JSON.stringify({ type: "ActionResponse", requestId: frame.requestId, success: false, result: "Fixture provider failure", logLines: [] }));
-        return;
-      }
-      const operation = frame.args[0].operation;
-      if (operation === "monthly" || operation === "yearly") model = operation;
-      else cancel = operation === "cancel";
-      socket.send(JSON.stringify({ type: "ActionResponse", requestId: frame.requestId, success: true, result: null, logLines: [] }));
-      await new Promise<void>(resolve => { release = resolve; });
-      const lease = await leaseBillingFixture(fixture.customerId);
-      const now = Date.now() + ++sequence * 100;
-      const productId = local.env[`POLAR_PRODUCT_${model.toUpperCase()}`]!;
-      await adminMutation(admin, internal.billingState.apply, { version: lease.version, snapshot: {
-        customerId: fixture.customerId, externalId: fixture.externalId,
-        subscriptions: [{ id: fixture.subscriptionId, productId, status: "active", start: now - 60_000,
-          end: now + 60 * 60_000, modifiedAt: now, cancelAtPeriodEnd: cancel }],
-        orders: [{ id: `fixture-switch-${user.id}-${sequence}`, productId, subscriptionId: fixture.subscriptionId,
-          paid: true, fullyRefunded: false, createdAt: now, modifiedAt: now }],
-      } });
-      await adminMutation(admin, internal.billingState.finish, { customerId: fixture.customerId, version: lease.version, failed: false });
-    });
-  });
   try {
+    const fixture = await seedPaidTestUser(user, "monthly");
+    const { client: admin } = billingTestAdmin();
+    let model: "monthly" | "yearly" = "monthly";
+    let cancel = false;
+    let failNext = false;
+    let sequence = 0;
+    async function confirmSwitch(target: "monthly" | "yearly") {
+      await page.getByRole("button", { name: `Switch to ${target}` }).click();
+      const dialog = page.getByRole("alertdialog");
+      await expect(dialog).toBeVisible();
+      await expect(dialog).toContainText(target === "yearly" ? "charged immediately" : "end of your current one-year period");
+      await dialog.getByRole("button", { name: "Confirm switch" }).click();
+    }
+    await page.routeWebSocket(/\/sync$/, socket => {
+      const server = socket.connectToServer();
+      server.onMessage(message => socket.send(message));
+      socket.onMessage(async message => {
+        const frame = JSON.parse(message.toString()) as { type: string; udfPath?: string; requestId: number; args: [{ operation: string }] };
+        if (frame.type !== "Action" || frame.udfPath !== "polar:changeSubscription") { server.send(message); return; }
+        // The UI action result is deliberately separated from a trusted state
+        // publication to prove the label never treats an action ACK as entitlement.
+        if (failNext) {
+          failNext = false;
+          socket.send(JSON.stringify({ type: "ActionResponse", requestId: frame.requestId, success: false, result: "Fixture provider failure", logLines: [] }));
+          return;
+        }
+        const operation = frame.args[0].operation;
+        if (operation === "monthly" || operation === "yearly") model = operation;
+        else cancel = operation === "cancel";
+        socket.send(JSON.stringify({ type: "ActionResponse", requestId: frame.requestId, success: true, result: null, logLines: [] }));
+        await new Promise<void>(resolve => { release = resolve; });
+        const lease = await leaseBillingFixture(fixture.customerId);
+        const now = Date.now() + ++sequence * 100;
+        const productId = local.env[`POLAR_PRODUCT_${model.toUpperCase()}`]!;
+        await adminMutation(admin, internal.billingState.apply, { version: lease.version, snapshot: {
+          customerId: fixture.customerId, externalId: fixture.externalId,
+          subscriptions: [{ id: fixture.subscriptionId, productId, status: "active", start: now - 60_000,
+            end: now + 60 * 60_000, modifiedAt: now, cancelAtPeriodEnd: cancel }],
+          orders: [{ id: `fixture-switch-${user.id}-${sequence}`, productId, subscriptionId: fixture.subscriptionId,
+            paid: true, fullyRefunded: false, createdAt: now, modifiedAt: now }],
+        } });
+        await adminMutation(admin, internal.billingState.finish, { customerId: fixture.customerId, version: lease.version, failed: false });
+      });
+    });
     await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email }); await page.goto("/billing");
     const planCard = (plan: "monthly" | "yearly") => page.locator('[data-slot="card"]').filter({ has: page.getByRole("heading", { name: plan === "monthly" ? "Monthly" : "Yearly", exact: true }) });
     await expect(planCard("monthly").getByRole("button", { name: "Current", exact: true })).toBeDisabled();

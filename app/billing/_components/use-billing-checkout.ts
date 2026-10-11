@@ -2,7 +2,7 @@
 
 import { useAction } from "convex/react";
 import type { FunctionArgs } from "convex/server";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 
@@ -11,6 +11,19 @@ export function useBillingCheckout() {
   const requestInFlight = useRef(false);
   const [isPending, setIsPending] = useState(false);
   const [pendingPlan, setPendingPlan] = useState<FunctionArgs<typeof api.polar.checkout>["model"] | null>(null);
+
+  // External navigation keeps the button pending until the page leaves. A
+  // cached page restored with Back must allow a new checkout attempt.
+  useEffect(() => {
+    function restore(event: PageTransitionEvent) {
+      if (!event.persisted) return;
+      requestInFlight.current = false;
+      setIsPending(false);
+      setPendingPlan(null);
+    }
+    window.addEventListener("pageshow", restore);
+    return () => window.removeEventListener("pageshow", restore);
+  }, []);
 
   async function purchase(model: FunctionArgs<typeof api.polar.checkout>["model"]) {
     if (requestInFlight.current) {

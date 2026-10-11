@@ -45,6 +45,18 @@ export function useBillingActions() {
   const fulfilled = matchesExpectation(status, expectation);
   const pending = expectation !== null && !fulfilled;
 
+  // Restore portal controls after Back returns a cached page. Subscription
+  // expectations still wait for confirmed provider state.
+  useEffect(() => {
+    function restore(event: PageTransitionEvent) {
+      if (!event.persisted) return;
+      requestInFlight.current = false;
+      setBusyAction(null);
+    }
+    window.addEventListener("pageshow", restore);
+    return () => window.removeEventListener("pageshow", restore);
+  }, []);
+
   useEffect(() => {
     if (!pending) {
       return;
