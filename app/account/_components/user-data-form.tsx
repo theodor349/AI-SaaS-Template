@@ -1,8 +1,8 @@
 "use client";
 
-import { useUser } from "@clerk/nextjs";
 import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
+import { CircleQuestionMark } from "lucide-react";
 import { useState, type SubmitEvent } from "react";
 import { api } from "@/convex/_generated/api";
 import { AuthBoundary, AuthPending } from "@/components/auth/auth-boundary";
@@ -10,8 +10,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AccountSkeleton, AccountTextSkeleton } from "./account-skeleton";
+import { AccountSkeleton } from "./account-skeleton";
 
 export function UserDataForm() {
   return (
@@ -22,9 +28,6 @@ export function UserDataForm() {
 }
 
 function UserDataFormSkeleton() {
-  const { user } = useUser();
-  const email = user?.primaryEmailAddress?.emailAddress ?? "";
-
   return (
     <Card aria-busy="true" aria-label="Profile">
       <CardHeader>
@@ -43,8 +46,13 @@ function UserDataFormSkeleton() {
             <Label>Last name</Label>
             <Skeleton size="input" aria-hidden="true" />
           </div>
-          <AccountTextSkeleton>Email: {email}</AccountTextSkeleton>
-          <p>Your email is managed through your sign-in provider.</p>
+          <div className="flex flex-col gap-2">
+            <Label>Email</Label>
+            <div className="flex flex-col">
+              <Skeleton size="input" aria-hidden="true" />
+              <EmailHelp />
+            </div>
+          </div>
           <div>
             <div className="w-fit">
               <AccountSkeleton>
@@ -58,6 +66,16 @@ function UserDataFormSkeleton() {
   );
 }
 
+function EmailHelp() {
+  return (
+    <div className="flex items-center gap-1 text-muted-foreground">
+      <p id="account-email-description">
+        * Your email is managed through your sign-in provider.
+      </p>
+    </div>
+  );
+}
+
 function UserDataFormContent() {
   const current = useQuery(api.users.current);
   const saveProfile = useMutation(api.profile.save);
@@ -66,7 +84,6 @@ function UserDataFormContent() {
     lastName: string;
   } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   if (!current || current.status === "provisioning") {
@@ -85,6 +102,11 @@ function UserDataFormContent() {
 
   function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (isSaving) {
+      return;
+    }
+
     void submitProfile();
   }
 
@@ -96,12 +118,10 @@ function UserDataFormContent() {
 
     setIsSaving(true);
     setError("");
-    setMessage("");
 
     try {
       await saveProfile(submitted);
       setDraft(submitted);
-      setMessage("Profile saved.");
     } catch (error) {
       if (
         error instanceof ConvexError &&
@@ -147,14 +167,24 @@ function UserDataFormContent() {
               }
             />
           </div>
-          <p>Email: {user.email}</p>
-          <p>Your email is managed through your sign-in provider.</p>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="account-email">Email</Label>
+            <div className="flex flex-col">
+              <Input
+                id="account-email"
+                type="email"
+                value={user.email}
+                disabled
+                aria-describedby="account-email-description"
+              />
+              <EmailHelp />
+            </div>
+          </div>
           <div>
-            <Button disabled={isSaving} type="submit">
-              Save profile
+            <Button disabled={isSaving} type="submit" aria-live="polite">
+              {isSaving ? "Saving..." : "Save profile"}
             </Button>
           </div>
-          {message && <p role="status">{message}</p>}
           {error && <p role="alert">{error}</p>}
         </form>
       </CardContent>

@@ -2,7 +2,6 @@
 
 import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
-import NextLink from "next/link";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { AuthBoundary, AuthPending } from "@/components/auth/auth-boundary";
@@ -56,15 +55,6 @@ function AccountDeletionSkeleton() {
               </AccountSkeleton>
             </div>
           </div>
-          <div>
-            <div className="w-fit">
-              <AccountSkeleton>
-                <Button disabled variant="outline">
-                  Manage subscription
-                </Button>
-              </AccountSkeleton>
-            </div>
-          </div>
         </div>
       </CardContent>
     </Card>
@@ -81,21 +71,20 @@ function AccountDeletionContent() {
   );
   const requestDeletion = useMutation(api.accountLifecycle.requestDeletion);
   const recoverAccount = useMutation(api.accountLifecycle.recover);
-  const [isBusy, setIsBusy] = useState(false);
-  const [message, setMessage] = useState("");
+  const [busyAction, setBusyAction] = useState<"request" | "recover" | null>(null);
   const [error, setError] = useState("");
+  const isBusy = busyAction !== null;
 
-  async function runDeletionOperation(
-    operation: () => Promise<unknown>,
-    successMessage: string,
-  ) {
-    setIsBusy(true);
+  async function runDeletionOperation(operation: "request" | "recover") {
+    setBusyAction(operation);
     setError("");
-    setMessage("");
 
     try {
-      await operation();
-      setMessage(successMessage);
+      if (operation === "request") {
+        await requestDeletion({});
+      } else {
+        await recoverAccount({});
+      }
     } catch (error) {
       if (
         error instanceof ConvexError &&
@@ -110,19 +99,16 @@ function AccountDeletionContent() {
         setError("We couldn’t complete the request. Try again in a moment.");
       }
     } finally {
-      setIsBusy(false);
+      setBusyAction(null);
     }
   }
 
   function handleRequestDeletion() {
-    void runDeletionOperation(() => requestDeletion({}), "Deletion requested.");
+    void runDeletionOperation("request");
   }
 
   function handleUndoDeletion() {
-    void runDeletionOperation(
-      () => recoverAccount({}),
-      "Deletion undone. Renewal remains cancelled; you can resume your subscription in Billing.",
-    );
+    void runDeletionOperation("recover");
   }
 
   if (!current || current.status === "provisioning") {
@@ -151,28 +137,20 @@ function AccountDeletionContent() {
       deletionMessage = `Deletion scheduled for ${deadline}. You can undo deletion before then.`;
     }
 
-    let cancellationMessage =
-      "Stopping subscription renewal… Your request is recorded; billing cancellation is awaiting confirmation.";
-
-    if (deletion?.cancellationConfirmed) {
-      cancellationMessage =
-        "Subscription renewal is cancelled. Existing paid access remains until it expires or deletion completes.";
-    }
-
     deletionContent = (
       <>
         <p>{deletionMessage}</p>
         {!isFinalizing && (
-          <>
-            <p>{cancellationMessage}</p>
+          <div>
             <Button
               disabled={isBusy}
-              variant="outline"
+              variant="destructive"
               onClick={handleUndoDeletion}
+              aria-live="polite"
             >
-              Undo deletion
+              {busyAction === "recover" ? "Undoing..." : "Undo deletion"}
             </Button>
-          </>
+          </div>
         )}
         {deletion?.failure && (
           <p role="alert">
@@ -190,8 +168,8 @@ function AccountDeletionContent() {
         <div>
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button variant="destructive" disabled={isBusy}>
-                Delete account
+              <Button variant="destructive" disabled={isBusy} aria-live="polite">
+                {busyAction === "request" ? "Requesting..." : "Delete account"}
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
@@ -228,7 +206,6 @@ function AccountDeletionContent() {
       <CardContent>
         <div className="flex flex-col gap-4">
           {deletionContent}
-          {message && <p role="status">{message}</p>}
           {error && <p role="alert">{error}</p>}
         </div>
       </CardContent>

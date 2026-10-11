@@ -26,7 +26,8 @@ test("unpaid owners edit profiles, preserve drafts, request deletion and recover
     await page.getByLabel("First name", { exact: true }).fill("");
     await page.getByLabel("Last name", { exact: true }).fill("  Local name  ");
     await page.getByRole("button", { name: "Save profile" }).click();
-    await expect(page.getByText("Profile saved.", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Save profile" })).toBeEnabled();
+    await expect(page.getByLabel("Last name", { exact: true })).toHaveValue("Local name");
     await page.reload();
     await expect(page.getByLabel("First name", { exact: true })).toHaveValue("");
     await expect(page.getByLabel("Last name", { exact: true })).toHaveValue("Local name");
@@ -96,9 +97,10 @@ test("record the deletion request and recovery flow for review", async ({ browse
     await page.getByRole("button", { name: "Delete account", exact: true }).click();
     await page.getByRole("button", { name: "Request deletion", exact: true }).click();
     await expect(page.getByText(/Deletion scheduled for/)).toBeVisible();
-    await expect(page.getByText(/Subscription renewal is cancelled/)).toBeVisible();
-    await page.getByRole("button", { name: "Undo deletion" }).click();
-    await expect(page.getByText(/Deletion undone/)).toBeVisible();
+    await expect(async () => {
+      await page.getByRole("button", { name: "Undo deletion" }).click();
+      await expect(page.getByRole("button", { name: "Delete account", exact: true })).toBeVisible({ timeout: 2000 });
+    }).toPass({ timeout: 30_000 });
     await page.screenshot({ path: "/tmp/issue5-evidence/deletion-recovered.png", fullPage: true });
     const video = page.video()!;
     await context.close();

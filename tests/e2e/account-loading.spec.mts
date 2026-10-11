@@ -32,6 +32,9 @@ async function holdBackendResponses(page: Page) {
 
   return {
     pendingResponseCount: () => responses.length,
+    hold() {
+      holdingResponses = true;
+    },
     release() {
       holdingResponses = false;
       responses.splice(0).forEach((send) => send());
@@ -121,6 +124,44 @@ test("stalled account skeletons offer recovery and resolve when responses arrive
     await expect(page.getByLabel("First name", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Delete account", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Try again" })).toHaveCount(0);
+  } finally {
+    await user.cleanup();
+  }
+});
+
+test("profile saving uses the button state and persists changes while email stays disabled", async ({ page }) => {
+  const user = await createClerkTestUser(local);
+
+  try {
+    await page.goto("/");
+    await clerk.signIn({ page, emailAddress: user.email });
+    await page.goto("/account");
+    await expect(page.getByLabel("First name", { exact: true })).toBeVisible();
+
+    const backend = await holdBackendResponses(page);
+    await page.reload();
+    await expect(page.locator('[data-slot="card"][aria-busy="true"]')).toHaveCount(2);
+    backend.release();
+
+    const lastName = page.getByLabel("Last name", { exact: true });
+    const email = page.getByLabel("Email", { exact: true });
+
+    await expect(email).toHaveValue(user.email);
+    await expect(email).toBeDisabled();
+    await lastName.fill("  Saved surname  ");
+
+    backend.hold();
+    await page.getByRole("button", { name: "Save profile" }).click();
+    await expect(page.getByRole("button", { name: "Saving...", exact: true })).toBeDisabled();
+
+    backend.release();
+    await expect(page.getByRole("button", { name: "Save profile" })).toBeEnabled();
+    await expect(lastName).toHaveValue("Saved surname");
+
+    await page.reload();
+    await expect(lastName).toHaveValue("Saved surname");
+    await expect(email).toHaveValue(user.email);
+    await expect(email).toBeDisabled();
   } finally {
     await user.cleanup();
   }
