@@ -43,7 +43,6 @@ function ProvisionCurrentUser() {
       </div>
     );
   }
-  if (needsProvisioning) return <p role="status" className="p-3 text-center">Setting up your account…</p>;
   if (current?.status === "deleting") return <p role="status" className="p-3 text-center">Account deletion has been requested.</p>;
   return null;
 }

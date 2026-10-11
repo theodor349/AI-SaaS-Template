@@ -61,4 +61,32 @@ function Button({
   )
 }
 
-export { Button, buttonVariants }
+// Keep both labels in the same grid cell so pending text cannot resize the button.
+function ButtonLabel({
+  children,
+  loading,
+  loadingText,
+}: {
+  children: React.ReactNode
+  loading: boolean
+  loadingText: React.ReactNode
+}) {
+  return (
+    <span className="inline-grid">
+      <span
+        aria-hidden={loading}
+        className={cn("col-start-1 row-start-1", loading && "invisible")}
+      >
+        {children}
+      </span>
+      <span
+        aria-hidden={!loading}
+        className={cn("col-start-1 row-start-1", !loading && "invisible")}
+      >
+        {loadingText}
+      </span>
+    </span>
+  )
+}
+
+export { Button, ButtonLabel, buttonVariants }
