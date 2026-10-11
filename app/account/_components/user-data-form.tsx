@@ -6,7 +6,7 @@ import { useState, type SubmitEvent } from "react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import { AuthBoundary, AuthPending } from "@/components/auth/auth-boundary";
-import { Button } from "@/components/ui/button";
+import { Button, ButtonLabel } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -34,23 +34,27 @@ function UserDataFormSkeleton() {
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
             <Label>First name</Label>
-            <Skeleton size="input" aria-hidden="true" />
+            <Skeleton size="input" animation="pulse" aria-hidden="true" />
           </div>
           <div className="flex flex-col gap-2">
             <Label>Last name</Label>
-            <Skeleton size="input" aria-hidden="true" />
+            <Skeleton size="input" animation="pulse" aria-hidden="true" />
           </div>
           <div className="flex flex-col gap-2">
             <Label>Email</Label>
             <div className="flex flex-col">
-              <Skeleton size="input" aria-hidden="true" />
+              <Skeleton size="input" animation="pulse" aria-hidden="true" />
               <EmailHelp />
             </div>
           </div>
           <div>
             <div className="w-fit">
               <AccountSkeleton>
-                <Button disabled>Save profile</Button>
+                <Button disabled>
+                  <ButtonLabel loading={false} loadingText="Saving...">
+                    Save profile
+                  </ButtonLabel>
+                </Button>
               </AccountSkeleton>
             </div>
           </div>
@@ -179,8 +183,15 @@ function UserDataFormContent() {
             </div>
           </div>
           <div>
-            <Button disabled={isSaving} type="submit" aria-live="polite">
-              {isSaving ? "Saving..." : "Save profile"}
+            <Button
+              disabled={isSaving}
+              type="submit"
+              aria-busy={isSaving}
+              aria-live="polite"
+            >
+              <ButtonLabel loading={isSaving} loadingText="Saving...">
+                Save profile
+              </ButtonLabel>
             </Button>
           </div>
         </form>

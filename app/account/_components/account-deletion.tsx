@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
+import { AlertCircleIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
@@ -18,8 +19,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { AlertCircleIcon } from "lucide-react"
-import { Button } from "@/components/ui/button";
+import { Button, ButtonLabel } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AccountSkeleton, AccountTextSkeleton } from "./account-skeleton";
 
@@ -53,7 +53,9 @@ function AccountDeletionSkeleton() {
             <div className="w-fit">
               <AccountSkeleton>
                 <Button disabled variant="destructive">
-                  Delete account
+                  <ButtonLabel loading={false} loadingText="Requesting...">
+                    Delete account
+                  </ButtonLabel>
                 </Button>
               </AccountSkeleton>
             </div>
@@ -78,6 +80,10 @@ function AccountDeletionContent() {
   const isBusy = busyAction !== null;
 
   async function runDeletionOperation(operation: "request" | "recover") {
+    if (isBusy) {
+      return;
+    }
+
     setBusyAction(operation);
     toast.dismiss("account-deletion-error");
 
@@ -157,9 +163,15 @@ function AccountDeletionContent() {
               disabled={isBusy}
               variant="destructive"
               onClick={handleUndoDeletion}
+              aria-busy={busyAction === "recover"}
               aria-live="polite"
             >
-              {busyAction === "recover" ? "Undoing..." : "Undo deletion"}
+              <ButtonLabel
+                loading={busyAction === "recover"}
+                loadingText="Undoing..."
+              >
+                Undo deletion
+              </ButtonLabel>
             </Button>
           </div>
         )}
@@ -173,8 +185,18 @@ function AccountDeletionContent() {
         <div>
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button variant="destructive" disabled={isBusy} aria-live="polite">
-                {busyAction === "request" ? "Requesting..." : "Delete account"}
+              <Button
+                variant="destructive"
+                disabled={isBusy}
+                aria-busy={busyAction === "request"}
+                aria-live="polite"
+              >
+                <ButtonLabel
+                  loading={busyAction === "request"}
+                  loadingText="Requesting..."
+                >
+                  Delete account
+                </ButtonLabel>
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
@@ -212,7 +234,7 @@ function AccountDeletionContent() {
         <div className="flex flex-col gap-4">
           {deletion?.failure && (
             <Alert variant="destructive">
-            <AlertCircleIcon/>
+              <AlertCircleIcon />
               <AlertTitle>Account cleanup needs another attempt</AlertTitle>
               <AlertDescription>
                 We are retrying. Your account has not been fully deleted.
