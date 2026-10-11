@@ -35,6 +35,7 @@ test("killing only the Next listener shuts down Convex, the watcher, and Polar",
     await writeFile(join(fixture, ".env.bootstrap.local"), [
       `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_${Buffer.from("example.clerk.accounts.dev$").toString("base64")}`,
       "CLERK_SECRET_KEY=sk_test_example", "POLAR_ACCESS_TOKEN=polar_oat_example",
+      "POLAR_PRODUCT_MONTHLY=monthly", "POLAR_PRODUCT_YEARLY=yearly", "POLAR_PRODUCT_LIFETIME=lifetime",
     ].join("\n"), { mode: 0o600 });
     // Stand-ins preserve the failure shape: both wrapping CLIs survive Next's exit.
     await writeFile(join(fixture, "bin/pnpm"), `#!/usr/bin/env node
@@ -43,6 +44,12 @@ test("killing only the Next listener shuts down Convex, the watcher, and Polar",
       const { createServer } = require("node:http");
       const args = process.argv.slice(2);
       if (args.includes("--print-secret")) { console.log("whsec_example"); console.error("whsec_example"); }
+      else if (args.includes("polar:syncCatalog")) {
+        fetch(process.env.APP_URL).then(response => {
+          if (!response.ok) process.exit(1);
+          writeFileSync("catalog-synced", "ready");
+        }).catch(() => process.exit(1));
+      }
       else if (args.includes("set")) { /* env upload */ }
       else if (args.includes("polar")) {
         console.log("Signing secret: whsec_example");
@@ -54,9 +61,23 @@ test("killing only the Next listener shuts down Convex, the watcher, and Polar",
         writeFileSync(".convex/local/default/config.json", JSON.stringify({ deploymentName: "anonymous-agent", adminKey: "example" }));
         createServer((req, res) => res.end("version")).listen(Number(process.env.PORT) + 1, "127.0.0.1");
         createServer((req, res) => res.writeHead(404).end()).listen(Number(process.env.PORT) + 2, "127.0.0.1");
-        const listener = spawn(process.execPath, ["-e", 'require("node:http").createServer((req, res) => res.end("app")).listen(Number(process.env.PORT), "127.0.0.1")'], { detached: true, stdio: "ignore" });
-        writeFileSync("next.pid", String(listener.pid));
-        writeFileSync("convex.pid", String(process.pid));
+        setTimeout(() => {
+          const listener = spawn(process.execPath, ["-e", 'require("node:http").createServer((req, res) => res.end("app")).listen(Number(process.env.PORT), "127.0.0.1")'], { detached: true, stdio: "ignore" });
+          writeFileSync("next.pid", String(listener.pid));
+          writeFileSync("convex.pid", String(process.pid));
+        }, 500);
+      }
+    `, { mode: 0o700 });
+    // A Ctrl+C can interrupt ps itself during cleanup; retry before signalling descendants.
+    await writeFile(join(fixture, "bin/ps"), `#!/usr/bin/env node
+      const { existsSync, writeFileSync } = require("node:fs");
+      const { execFileSync } = require("node:child_process");
+      if (existsSync("inspect-started") && !existsSync("inspect-interrupted")) {
+        writeFileSync("inspect-interrupted", "yes");
+        process.kill(process.pid, "SIGINT");
+      } else {
+        writeFileSync("inspect-started", "yes");
+        process.stdout.write(execFileSync("/usr/bin/ps", process.argv.slice(2)));
       }
     `, { mode: 0o700 });
     child = spawn(process.execPath, [join(root, "bootstrap.mjs")], {
@@ -68,6 +89,7 @@ test("killing only the Next listener shuts down Convex, the watcher, and Polar",
     const deadline = Date.now() + 5000;
     while ((!output.includes("Ready:") || !existsSync(join(fixture, "polar.pid"))) && child.exitCode === null && Date.now() < deadline) await delay(25);
     assert.ok(output.includes("Ready:"), output);
+    assert.ok(existsSync(join(fixture, "catalog-synced")), "Ready must include a catalog sync after initial app startup");
     groups = descendantProcessGroups([child.pid], execFileSync("ps", ["-eo", "pid=,ppid=,pgid="], { encoding: "utf8" }));
     const nextPid = Number(await readFile(join(fixture, "next.pid"), "utf8"));
     const convexPid = Number(await readFile(join(fixture, "convex.pid"), "utf8"));
@@ -83,6 +105,7 @@ test("killing only the Next listener shuts down Convex, the watcher, and Polar",
       timeout.abort();
     }
     assert.equal(code, 1, output);
+    assert.ok(existsSync(join(fixture, "inspect-interrupted")), "Cleanup survives interrupted process inspection");
     assert.match(output, /Next.*unavailable/);
     assert.doesNotMatch(output, /whsec_example|sk_test_example|polar_oat_example/);
     await assertPortsAvailable(config.ports);

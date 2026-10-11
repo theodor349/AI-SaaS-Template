@@ -32,6 +32,8 @@ This template provides shared architecture, UI patterns, and an agent-friendly d
 
 - Use pnpm for all package management and scripts.
 - `pnpm bootstrap` starts Next.js, local Convex, and Polar sandbox forwarding, installing missing dependencies along the way. Run it in a persistent terminal and wait for `Ready:` before opening the printed app URL. This is the worktree entry point instead of `pnpm dev`.
+- Share application inspection links with the maintainer over Tailscale HTTPS. Start `pnpm bootstrap:tailscale`, wait for its `Ready:` URL, and verify the URL responds before sharing it. Do not share localhost or loopback URLs for maintainer inspection.
+- For remote testing over Tailscale, use `pnpm bootstrap:tailscale` after stopping the current bootstrap in its owning terminal. It prints a private HTTPS URL and configures frontend/backend connections and checkout redirects. `--print` shows the URLs without starting services. Ctrl+C removes only the Tailscale proxies created by that run.
 - Ports and `WORKTREE_ID` derive from the worktree path and stay stable across restarts. `pnpm bootstrap --print` shows them without starting anything. Occupied ports cause a startup error.
 - Local database state lives in the worktree's gitignored `.convex`; Next.js output lives in `.next`. Restarting bootstrap keeps the database. Each worktree gets its own generated environment files.
 - Development credentials come from the main checkout's gitignored `.env.bootstrap.local`. Worktree files and process variables can override them. Bootstrap generates the local URLs, so there is no need to copy another checkout's environment files.
@@ -49,6 +51,7 @@ This template provides shared architecture, UI patterns, and an agent-friendly d
 ## Pull requests
 
 - Never make a PR unless the developer explicitly asks you to do so.
+- Invoking [$implement](.agents/skills/implement/SKILL.md) with an issue, problem, or feature is an explicit request to implement it in the current T3-assigned worktree, open one PR, and handle bot feedback before asking the maintainer to review. Example: `$implement issue #123`. Do not create another worktree. Follow the skill's completion gates; do not merge the PR.
 - Conventional commit titles, plain language: `fix(web): correctly handle Polar subscription events`.
 - Body: the problem in a sentence or two, then how you fixed it. End with the model and harness that did the work.
 - UI changes need before/after images. Motion or timing needs a short video.
@@ -71,6 +74,8 @@ Most code changes do not need an internal documentation change. Agents can read 
 
 ## Taste
 
+- Pages describe what is on the screen; nearby components implement how those parts work. Keep page-specific components in the page's `_components` folder, components shared across pages at their narrowest shared ancestor, and app-wide components in the global `components` folder. Pages own composition and route concerns; components own cohesive behavior and implementation details.
+- Client components should call Convex hooks where the data or behavior is needed instead of prop drilling solely to avoid duplicate requests. Within the same Convex client, `useQuery` calls for the same query and argument values share a subscription. Components can also declare their own `useMutation` hooks, but each invocation executes a mutation.
 - Use existing Shadcn components when available. Install missing components with `pnpm dlx shadcn@latest add <component>` and follow the existing preset, theme tokens, and component patterns.
 - `components/ui` exports own their look. Pick a `variant` or `size`; do not restyle one with `className`. If none fits and the look is a generic concept, add a variant to the component; a look that belongs to one feature stays in that feature's own component, not in `components/ui`. Layout classes (width, flex, margin, position) belong on the parent. `shadcn/no-restyle` fails lint on violations.
 - Inferred types over annotations. `any` is the enemy.

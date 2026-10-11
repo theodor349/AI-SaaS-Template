@@ -1,5 +1,5 @@
 import { spawn, execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, realpathSync, writeFileSync, chmodSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
@@ -47,7 +47,15 @@ export function developmentCredentials(values, polar = true) {
   if (polar && !values.POLAR_ACCESS_TOKEN) {
     throw new Error("POLAR_ACCESS_TOKEN is required. Add a sandbox token to .env.bootstrap.local, or use --no-polar.");
   }
-  return { ...values, CLERK_JWT_ISSUER_DOMAIN: issuer };
+  if (values.CLERK_WEBHOOK_SIGNING_SECRET &&
+      !/^whsec_[A-Za-z0-9+/]+={0,2}$/.test(values.CLERK_WEBHOOK_SIGNING_SECRET)) {
+    throw new Error("CLERK_WEBHOOK_SIGNING_SECRET must be a Svix signing secret (whsec_...).");
+  }
+  // Local signed HTTP tests need a secret even without a public Clerk endpoint.
+  // The generated value stays in this worktree and survives bootstrap restarts.
+  return { ...values, CLERK_JWT_ISSUER_DOMAIN: issuer,
+    CLERK_WEBHOOK_SIGNING_SECRET: values.CLERK_WEBHOOK_SIGNING_SECRET || `whsec_${randomBytes(32).toString("base64")}`,
+  };
 }
 
 export function childEnvironment(config, credentials, inherited = process.env) {
@@ -57,7 +65,7 @@ export function childEnvironment(config, credentials, inherited = process.env) {
     CONVEX_AGENT_MODE: "anonymous",
     CONVEX_ALLOW_ANONYMOUS: "true",
   };
-  for (const key of ["CONVEX_DEPLOY_KEY", "CONVEX_DEPLOYMENT_TOKEN", "CONVEX_SELF_HOSTED_URL", "CONVEX_SELF_HOSTED_ADMIN_KEY"]) {
+  for (const key of ["CONVEX_DEPLOY_KEY", "CONVEX_DEPLOYMENT_TOKEN", "CONVEX_SELF_HOSTED_URL", "CONVEX_SELF_HOSTED_ADMIN_KEY", "TAILSCALE_HOSTNAME"]) {
     delete env[key];
   }
   return env;
@@ -194,7 +202,43 @@ function saveEnvironment(file, values) {
   chmodSync(file, 0o600);
 }
 
-async function bootstrap() {
+// A copied template's blank signing secret must not replace a persisted secret.
+function credentialOverrides(values) {
+  return Object.fromEntries(Object.entries(values).filter(([key, value]) =>
+    key !== "CLERK_WEBHOOK_SIGNING_SECRET" || value !== ""));
+}
+
+export function worktreeCredentials(root, mainRoot, polar = true, inherited = process.env) {
+  const sharedKeys = readEnvironment(join(mainRoot, ".env.bootstrap.local"));
+  // Existing development keys remain usable; never copy another checkout's URLs or cloud target.
+  const mainKeys = readEnvironment(join(mainRoot, ".env.local"));
+  if (mainKeys.WORKTREE_ID === worktreeConfig(realpathSync(mainRoot)).id) delete mainKeys.CLERK_JWT_ISSUER_DOMAIN;
+  const providerNames = ["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET", "CLERK_JWT_ISSUER_DOMAIN", "POLAR_ACCESS_TOKEN", "POLAR_ORGANIZATION_ID", "POLAR_PRODUCT_MONTHLY", "POLAR_PRODUCT_YEARLY", "POLAR_PRODUCT_LIFETIME"];
+  // A main checkout's .env.local may contain its generated test signing secret.
+  // Share signing secrets only from explicit bootstrap settings, not that file.
+  const providerKeys = Object.fromEntries(Object.entries(mainKeys).filter(([key]) =>
+    providerNames.includes(key) && key !== "CLERK_WEBHOOK_SIGNING_SECRET"));
+  const localKeys = readEnvironment(join(root, ".env.local"));
+  // Re-derive generated issuers after a worktree overrides its Clerk key pair.
+  if (localKeys.WORKTREE_ID === worktreeConfig(root).id) delete localKeys.CLERK_JWT_ISSUER_DOMAIN;
+  return developmentCredentials({
+    ...providerKeys, ...sharedKeys, ...localKeys,
+    ...credentialOverrides(readEnvironment(join(root, ".env.bootstrap.local"))),
+    ...credentialOverrides(Object.fromEntries(Object.entries(inherited).filter(([key]) => providerNames.includes(key)))),
+  }, polar);
+}
+
+async function processTable() {
+  try { return execFileSync("ps", ["-eo", "pid=,ppid=,pgid="], { encoding: "utf8" }); }
+  catch (error) {
+    // A terminal Ctrl+C can also interrupt the process inspection started during cleanup.
+    if (!["SIGINT", "SIGTERM"].includes(error.signal)) throw error;
+    await delay(50);
+    return execFileSync("ps", ["-eo", "pid=,ppid=,pgid="], { encoding: "utf8" });
+  }
+}
+
+export async function bootstrap({ browserEnv = {}, onReady } = {}) {
   const args = process.argv.slice(2);
   if (args.includes("--help")) {
     console.log("pnpm bootstrap [--no-polar] [--print]\n\nStarts local Convex, Next.js, and Polar sandbox webhook forwarding.\n--no-polar  Start without billing credentials or webhook forwarding.\n--print     Print path-derived configuration without changing anything.");
@@ -214,22 +258,9 @@ async function bootstrap() {
   const commonGitDir = execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { encoding: "utf8" }).trim();
   const mainRoot = dirname(commonGitDir);
   const localFile = join(root, ".env.local");
-  const sharedKeys = readEnvironment(join(mainRoot, ".env.bootstrap.local"));
-  // Existing development keys remain usable; never copy another checkout's URLs or cloud target.
-  const mainKeys = readEnvironment(join(mainRoot, ".env.local"));
-  if (mainKeys.WORKTREE_ID === worktreeConfig(realpathSync(mainRoot)).id) delete mainKeys.CLERK_JWT_ISSUER_DOMAIN;
-  const providerNames = ["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "CLERK_SECRET_KEY", "CLERK_JWT_ISSUER_DOMAIN", "POLAR_ACCESS_TOKEN", "POLAR_ORGANIZATION_ID"];
-  const providerKeys = Object.fromEntries(Object.entries(mainKeys).filter(([key]) => providerNames.includes(key)));
-  const localKeys = readEnvironment(localFile);
-  // Re-derive generated issuers after a worktree overrides its Clerk key pair.
-  if (localKeys.WORKTREE_ID === config.id) delete localKeys.CLERK_JWT_ISSUER_DOMAIN;
-  const credentials = developmentCredentials({
-    ...providerKeys, ...sharedKeys, ...localKeys,
-    ...readEnvironment(join(root, ".env.bootstrap.local")),
-    ...Object.fromEntries(Object.entries(process.env).filter(([key]) => providerNames.includes(key))),
-  }, polar);
-  const env = childEnvironment(config, credentials);
-  const fileEnv = childEnvironment(config, credentials, {});
+  const credentials = worktreeCredentials(root, mainRoot, polar);
+  const env = { ...childEnvironment(config, credentials), ...browserEnv };
+  const fileEnv = { ...childEnvironment(config, credentials, {}), ...browserEnv };
   const stateFile = join(root, ".convex/local/default/config.json");
   if (existsSync(stateFile)) {
     if (JSON.parse(readFileSync(stateFile, "utf8")).deploymentName !== "anonymous-agent") {
@@ -306,7 +337,7 @@ async function bootstrap() {
     saveEnvironment(localFile, fileEnv);
     configured = true;
     const backendEnv = Object.fromEntries(Object.entries(fileEnv).filter(([key]) =>
-      ["WORKTREE_ID", "APP_URL", "CLERK_JWT_ISSUER_DOMAIN", "CLERK_SECRET_KEY", "POLAR_ACCESS_TOKEN", "POLAR_ENVIRONMENT", "POLAR_WEBHOOK_SECRET", "POLAR_SUCCESS_URL", "POLAR_ORGANIZATION_ID"].includes(key)));
+      ["WORKTREE_ID", "APP_URL", "CLERK_JWT_ISSUER_DOMAIN", "CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET", "POLAR_ACCESS_TOKEN", "POLAR_ENVIRONMENT", "POLAR_WEBHOOK_SECRET", "POLAR_SUCCESS_URL", "POLAR_ORGANIZATION_ID", "POLAR_PRODUCT_MONTHLY", "POLAR_PRODUCT_YEARLY", "POLAR_PRODUCT_LIFETIME"].includes(key)));
     const backendEnvFile = join(root, ".env.convex.local");
     saveEnvironment(backendEnvFile, backendEnv);
     const watchEnvFile = join(root, ".env.convex-watch.local");
@@ -333,14 +364,21 @@ async function bootstrap() {
       start("pnpm", ["exec", "polar", "listen", config.env.POLAR_WEBHOOK_URL, ...orgArgs], true);
       console.log(`Polar sandbox webhooks: ${config.env.POLAR_WEBHOOK_URL}`);
     }
+    // Next starts only after the initial Convex push, so its readiness also proves functions exist.
     await waitForServer(config.env.APP_URL, controller.signal);
+    if (polar && ["POLAR_PRODUCT_MONTHLY", "POLAR_PRODUCT_YEARLY", "POLAR_PRODUCT_LIFETIME"].every(key => credentials[key])) {
+      await run(["exec", "convex", "run", "--env-file", watchEnvFile, "polar:syncCatalog", "{}"]);
+    }
     if (process.platform !== "win32") {
       serviceGroups = descendantProcessGroups(children.filter(({ persistent }) => persistent).map(({ child }) => child.pid),
-        execFileSync("ps", ["-eo", "pid=,ppid=,pgid="], { encoding: "utf8" }));
+        await processTable());
     }
     supervision.push(superviseNext(config.env.APP_URL, controller));
+    // The local Convex CLI rewrites its browser URLs during initial setup.
+    if (Object.keys(browserEnv).length) saveEnvironment(localFile, fileEnv);
     restoreLocalSelection();
-    console.log(`Ready: ${config.env.APP_URL} (Ctrl+C stops all services)`);
+    if (onReady) await onReady(controller.signal);
+    console.log(`Ready: ${env.APP_URL} (Ctrl+C stops all services)`);
     await new Promise((resolveStop) => {
       if (controller.signal.aborted) resolveStop();
       else controller.signal.addEventListener("abort", resolveStop, { once: true });
@@ -354,7 +392,7 @@ async function bootstrap() {
     await Promise.all(supervision);
     const pids = children.filter(({ child, persistent }) => child.pid && (persistent || (child.exitCode === null && child.signalCode === null))).map(({ child }) => child.pid);
     const groups = process.platform === "win32" ? pids : [...new Set([...serviceGroups, ...descendantProcessGroups(pids,
-      execFileSync("ps", ["-eo", "pid=,ppid=,pgid="], { encoding: "utf8" }))])];
+      await processTable())])];
     const running = (group) => signalProcessGroup(group, 0);
     for (const group of groups) signalProcessGroup(group, "SIGTERM");
     const deadline = Date.now() + 5000;

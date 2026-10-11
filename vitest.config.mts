@@ -4,6 +4,6 @@ export default defineConfig({
   test: {
     passWithNoTests: true,
     environment: "edge-runtime",
-    include: ["convex/**/*.test.ts"],
+    include: ["convex/**/*.test.ts", "lib/**/*.test.ts"],
   },
 });

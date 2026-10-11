@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "bootstrap": "node scripts/bootstrap.mjs",
+    "bootstrap:tailscale": "node scripts/bootstrap-tailscale.mjs",
     "test:bootstrap": "node --test scripts/*.test.mjs",
     "test": "pnpm test:unit",
     "test:unit": "pnpm test:bootstrap && vitest run",
@@ -20,6 +21,7 @@
   "dependencies": {
     "@clerk/nextjs": "^7.9.10",
     "@hookform/resolvers": "^3.3.2",
+    "@polar-sh/sdk": "^1.0.2",
     "@radix-ui/react-icons": "^1.3.0",
     "@radix-ui/react-label": "^2.0.2",
     "@radix-ui/react-slot": "^1.0.2",
@@ -38,6 +40,7 @@
     "react-hook-form": "^7.47.0",
     "react-remove-scroll": "^2.5.6",
     "shadcn": "^4.21.1",
+    "svix": "^2.8.0",
     "tailwind-merge": "^3.7.0",
     "tw-animate-css": "^1.4.0",
     "zod": "^3.22.4"

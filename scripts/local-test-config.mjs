@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { parseEnv } from "node:util";
+import { tailscaleConfig } from "./bootstrap-tailscale.mjs";
 import { developmentCredentials, worktreeConfig } from "./bootstrap.mjs";
 
 // Tests only use the generated local target, never inherited deployment selectors.
@@ -13,6 +14,7 @@ export function resolveLocalTestConfig(root = execFileSync("git", ["rev-parse", 
     throw new Error("Local test configuration is missing. Start pnpm bootstrap in this worktree first.");
   }
   const env = parseEnv(readFileSync(file, "utf8"));
+  if (env.TAILSCALE_HOSTNAME) Object.assign(config.env, tailscaleConfig(config, env.TAILSCALE_HOSTNAME).env);
   for (const [key, expected] of Object.entries(config.env)) {
     if (env[key] !== expected) {
       throw new Error(`Local test configuration ${key} does not match this worktree. Start pnpm bootstrap here; cloud and other worktree targets are refused.`);
@@ -22,6 +24,9 @@ export function resolveLocalTestConfig(root = execFileSync("git", ["rev-parse", 
       JSON.parse(readFileSync(stateFile, "utf8")).deploymentName !== "anonymous-agent" ||
       ["CONVEX_DEPLOY_KEY", "CONVEX_DEPLOYMENT_TOKEN", "CONVEX_SELF_HOSTED_URL", "CONVEX_SELF_HOSTED_ADMIN_KEY"].some((key) => env[key])) {
     throw new Error("Local tests require bootstrap's isolated anonymous Convex deployment; cloud credentials are refused.");
+  }
+  if (!env.CLERK_WEBHOOK_SIGNING_SECRET) {
+    throw new Error("Local Clerk webhook signing secret is missing. Restart pnpm bootstrap in this worktree first.");
   }
   return { config, env: developmentCredentials(env, false) };
 }
