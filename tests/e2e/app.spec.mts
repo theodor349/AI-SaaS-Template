@@ -93,13 +93,14 @@ test("sign-in fallback and return-to redirects reach the configured application 
   }
 });
 
-test("revoked sessions remove protected content and restored cookies cannot re-enter", async ({ page }) => {
+test("revoked sessions remove protected content and restored cookies cannot re-enter", async ({ page, browser }) => {
   const user = await createClerkTestUser(local);
   try {
     await page.goto("/");
     await clerk.signIn({ page, emailAddress: user.email });
     await page.goto("/app");
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();
+    const savedSession = await page.context().storageState();
     await user.revokeSessions();
     // Force the same token refresh the SDK performs when its JWT expires.
     await page.evaluate(async () => {
@@ -107,8 +108,16 @@ test("revoked sessions remove protected content and restored cookies cannot re-e
     });
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Your application" })).toHaveCount(0);
-    await page.goto("/app");
-    await expect(page).toHaveURL(/\/sign-in\?/);
+    // Restore the original cookies in a fresh page so Clerk's live sign-out
+    // redirect cannot race the attempt to re-enter the protected route.
+    const restored = await browser.newContext({ baseURL: local.config.env.APP_URL, storageState: savedSession });
+    try {
+      const restoredPage = await restored.newPage();
+      await restoredPage.goto("/app");
+      await expect(restoredPage.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
+      await expect(restoredPage.getByRole("heading", { name: "Your application" })).toHaveCount(0);
+      await expect(restoredPage.getByText(`Welcome ${user.name}!`, { exact: true })).toHaveCount(0);
+    } finally { await restored.close(); }
   } finally {
     await user.cleanup();
   }
