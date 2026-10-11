@@ -1,36 +1,158 @@
 "use client";
 
 import NextLink from "next/link";
-import { useQuery } from "convex/react";
+import { useConvexAuth, useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
+import { AuthPending } from "@/components/auth/auth-boundary";
+import { ContentSkeleton } from "@/components/loading/content-skeleton";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Button, ButtonLabel } from "@/components/ui/button";
 
 const labels = { monthly: "Monthly", yearly: "Yearly", lifetime: "Lifetime" };
+const intervals = { monthly: " / month", yearly: " / year", lifetime: " once" };
+type Product = FunctionReturnType<typeof api.billing.products>[number];
+type PricingActions = {
+  disabled?: boolean;
+  pendingPlan?: Product["model"] | null;
+  onSelect?: (model: Product["model"]) => void;
+};
+
 function formatPrice(amount: number, currency: string) {
   const formatter = new Intl.NumberFormat(undefined, { style: "currency", currency });
   return formatter.format(amount / 10 ** (formatter.resolvedOptions().maximumFractionDigits ?? 2));
 }
-export function Pricing() {
-  const products = useQuery(api.billing.products);
-  if (products === undefined) return <p role="status">Loading paid plans…</p>;
-  if (!products.length) return <p role="alert">Paid plans are being configured. Please check back soon.</p>;
+
+function taxDescription(taxBehavior: string) {
+  if (taxBehavior === "inclusive") return "Tax included";
+  if (taxBehavior === "exclusive") return "Tax added at checkout";
+  return "Final tax calculated at checkout";
+}
+
+export function Pricing({ disabled = false, pendingPlan = null, onSelect }: PricingActions) {
+  const { isAuthenticated, isLoading, isRefreshing } = useConvexAuth();
+  const status = useQuery(api.billing.status, isAuthenticated && !isLoading && !isRefreshing ? {} : "skip");
+  const currentPlan = status?.state === "active" ? status.model : null;
+  const products = useQuery(api.billing.products, currentPlan === "lifetime" ? "skip" : {});
+
+  if (isLoading || isRefreshing || (isAuthenticated && status === undefined)) {
+    return <AuthPending fallback={<PricingSkeleton />} />;
+  }
+
+  if (currentPlan === "lifetime") return <p>You have lifetime access.</p>;
+  if (products === undefined) return <AuthPending fallback={<PricingSkeleton />} />;
+
+  if (!products.length) {
+    return (
+      <Alert>
+        <AlertTitle>Paid plans are being configured</AlertTitle>
+        <AlertDescription>Please check back soon.</AlertDescription>
+      </Alert>
+    );
+  }
+
   return (
     <div className="grid gap-4 sm:grid-cols-3">
-      {products.map(product => (
-        <Card key={product.model}>
-          <CardHeader><CardTitle><h2>{labels[product.model]}</h2></CardTitle></CardHeader>
-          <CardContent><div className="flex flex-col gap-4">
-          <p className="text-2xl font-semibold">
-            {formatPrice(product.amount, product.currency)}
-            <span className="text-sm font-normal">{product.model === "monthly" ? " / month" : product.model === "yearly" ? " / year" : " once"}</span>
-          </p>
-          <p className="text-sm text-muted-foreground">{product.taxBehavior === "inclusive" ? "Tax included" : product.taxBehavior === "exclusive" ? "Tax added at checkout" : "Final tax calculated at checkout"}</p>
-          <p>Full Pro access{product.model === "lifetime" ? " for the life of the product." : ". Cancel any time."}</p>
-          </div></CardContent>
-          <CardFooter><Button asChild><NextLink href={`/billing?plan=${product.model}`} prefetch={false}>Choose {labels[product.model].toLowerCase()}</NextLink></Button></CardFooter>
-        </Card>
+      {products.map((product) => (
+        <PlanCard
+          key={product.model}
+          product={product}
+          currentPlan={currentPlan}
+          scheduledPlan={status?.scheduledChange?.model}
+          disabled={disabled || (isAuthenticated && status?.readiness !== "ready")}
+          pendingPlan={pendingPlan}
+          onSelect={onSelect}
+        />
       ))}
     </div>
   );
+}
+
+// Use the same cards to reserve responsive spacing and text wrapping before
+// catalog prices arrive. Placeholder amounts are hidden from assistive tools.
+export function PricingSkeleton() {
+  return (
+    <div aria-busy="true" aria-label="Plan prices">
+      <p role="status" className="sr-only">Loading paid plans…</p>
+      <div className="grid gap-4 sm:grid-cols-3">
+        {(["monthly", "yearly", "lifetime"] as const).map((model) => (
+          <PlanCard
+            key={model}
+            product={{ model, name: labels[model], amount: 0, currency: "USD", taxBehavior: "provider" }}
+            disabled
+            loading
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PlanCard({ product, disabled = false, loading = false, currentPlan = null, scheduledPlan = null, pendingPlan = null, onSelect }: PricingActions & {
+  product: Product;
+  loading?: boolean;
+  currentPlan?: Product["model"] | null;
+  scheduledPlan?: Product["model"] | null;
+}) {
+  const model = product.model;
+  const description = model === "lifetime"
+    ? "Full Pro access for the life of the product."
+    : "Full Pro access. Cancel any time.";
+
+  return (
+    <Card aria-busy={loading || undefined}>
+      <CardHeader>
+        <CardTitle><h2>{labels[model]}</h2></CardTitle>
+      </CardHeader>
+      <div className="flex-1">
+        <CardContent>
+          <div className="flex flex-col gap-4">
+            <ContentSkeleton loading={loading}>
+              <p className="text-2xl font-semibold">
+                {formatPrice(product.amount, product.currency)}
+                <span className="text-sm font-normal">{intervals[model]}</span>
+              </p>
+            </ContentSkeleton>
+            <ContentSkeleton loading={loading}>
+              <p className="text-sm text-muted-foreground">{taxDescription(product.taxBehavior)}</p>
+            </ContentSkeleton>
+            <ContentSkeleton loading={loading}>
+              <p>{description}</p>
+            </ContentSkeleton>
+          </div>
+        </CardContent>
+      </div>
+      <CardFooter>
+        <ContentSkeleton loading={loading}>
+          <PlanAction model={model} currentPlan={currentPlan} scheduledPlan={scheduledPlan} disabled={disabled} pending={pendingPlan === model} onSelect={onSelect} />
+        </ContentSkeleton>
+      </CardFooter>
+    </Card>
+  );
+}
+
+function PlanAction({ model, currentPlan, scheduledPlan, disabled, pending, onSelect }: {
+  model: Product["model"];
+  currentPlan: Product["model"] | null;
+  scheduledPlan: Product["model"] | null;
+  disabled: boolean;
+  pending: boolean;
+  onSelect?: PricingActions["onSelect"];
+}) {
+  if (model === currentPlan) return <Button disabled variant="outline">Current</Button>;
+  if (model === scheduledPlan) return <Button disabled variant="outline">Scheduled</Button>;
+  let label = `Choose ${labels[model].toLowerCase()}`;
+  if (model === "lifetime") label = "Get lifetime";
+  else if (currentPlan) label = `Switch to ${labels[model].toLowerCase()}`;
+  if (onSelect || disabled) {
+    return (
+      <Button disabled={disabled} onClick={() => onSelect?.(model)} aria-busy={pending} aria-live="polite">
+        <ButtonLabel loading={pending} loadingText={model === "lifetime" || !currentPlan ? "Opening checkout…" : "Confirming plan…"}>
+          {label}
+        </ButtonLabel>
+      </Button>
+    );
+  }
+  return <Button asChild><NextLink href={`/billing?plan=${model}`} prefetch={false}>{label}</NextLink></Button>;
 }

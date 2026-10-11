@@ -2,6 +2,7 @@
 import { convexTest } from "convex-test";
 import { Webhook } from "svix";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { PolarClientError, PolarNetworkError } from "@polar-sh/sdk";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { billingReturnUrl } from "./lib/billing";
@@ -29,7 +30,8 @@ const end = Date.now() + 30 * 24 * 60 * 60_000;
 function sub(product = "monthly", cancel = false) {
   return { id: "sub-a", customer_id: "customer-a", product_id: product, status: "active",
     current_period_start: new Date(start).toISOString(), current_period_end: new Date(end).toISOString(),
-    created_at: new Date(start).toISOString(), modified_at: new Date().toISOString(), cancel_at_period_end: cancel };
+    created_at: new Date(start).toISOString(), modified_at: new Date().toISOString(), cancel_at_period_end: cancel,
+    pending_update: null as { product_id: string; applies_at: string } | null };
 }
 function order(product = "monthly", id = "order-a", subscription: string | null = "sub-a") {
   return { id, customer_id: "customer-a", product_id: product, subscription_id: subscription,
@@ -69,6 +71,7 @@ beforeEach(() => {
   customer = { id: "customer-a", external_id: externalId, metadata: { worktree_id: "wt-test" } };
   provider.customers.get.mockImplementation(async () => customer);
   provider.customers.getExternal.mockImplementation(async () => customer);
+  provider.customers.create.mockImplementation(async () => customer);
   provider.products.get.mockImplementation(async (id: string) => ({ id, name: id, is_archived: false,
     is_recurring: id !== "lifetime", recurring_interval: id === "monthly" ? "month" : id === "yearly" ? "year" : null,
     recurring_interval_count: id === "lifetime" ? null : 1,
@@ -80,11 +83,17 @@ beforeEach(() => {
   });
   provider.orders.iterList.mockImplementation(() => iterate(orders));
   provider.subscriptions.get.mockImplementation(async (id: string) => subscriptions.find(s => s.id === id));
-  provider.subscriptions.update.mockImplementation(async (id: string, body: { product_id?: string; cancel_at_period_end?: boolean }) => {
+  provider.subscriptions.update.mockImplementation(async (id: string, body: { product_id?: string; cancel_at_period_end?: boolean; proration_behavior?: string }) => {
     const current = subscriptions.find(s => s.id === id)!;
-    if (body.product_id) { current.product_id = body.product_id; orders.push({ ...order(body.product_id, `switch-${orders.length}`), billing_reason: "subscription_update" }); }
+    if (body.product_id && body.proration_behavior === "next_period") {
+      current.pending_update = { product_id: body.product_id, applies_at: current.current_period_end };
+    } else if (body.product_id) {
+      current.product_id = body.product_id;
+      current.pending_update = null;
+      orders.push({ ...order(body.product_id, `switch-${orders.length}`), billing_reason: "subscription_update" });
+    }
     if (body.cancel_at_period_end !== undefined) current.cancel_at_period_end = body.cancel_at_period_end;
-    current.modified_at = new Date(Date.now() + orders.length).toISOString(); return current;
+    current.modified_at = new Date(Math.max(Date.now() + orders.length, Date.parse(current.modified_at) + 1)).toISOString(); return current;
   });
   provider.subscriptions.revoke.mockImplementation(async (id: string) => { const current = subscriptions.find(s => s.id === id)!; current.status = "canceled"; return current; });
   provider.checkouts.list.mockResolvedValue({ items: [] });
@@ -113,6 +122,13 @@ test("first payment, repeated plan switches, renewal, cancel and uncancel use co
   expect(await alice(t).query(api.billing.application, {})).toEqual({ name: "Alice" });
   for (const operation of ["yearly", "monthly", "yearly", "cancel", "reactivate", "cancel", "reactivate"] as const) {
     await alice(t).action(api.polar.changeSubscription, { operation });
+    if (subscriptions[0].pending_update) {
+      // Apply the provider's scheduled product before exercising another cycle.
+      subscriptions[0].product_id = subscriptions[0].pending_update.product_id;
+      subscriptions[0].pending_update = null;
+      subscriptions[0].modified_at = new Date(Date.now() + orders.length + 1).toISOString();
+      await reconcile(t);
+    }
     const row = await state(t);
     expect(row?.status).toBe("active");
     expect(row?.cancelAtPeriodEnd).toBe(operation === "cancel");
@@ -122,6 +138,32 @@ test("first payment, repeated plan switches, renewal, cancel and uncancel use co
   orders.push({ ...order("yearly", "renewal"), created_at: new Date(start + 600).toISOString(), billing_reason: "subscription_cycle" });
   await send(t, "order.paid", { ...orders.at(-1), customer }); await reconcile(t);
   expect(await state(t)).toMatchObject({ model: "yearly", status: "active", cancelAtPeriodEnd: false });
+});
+
+test("monthly upgrades invoice now; yearly downgrades preserve paid time and apply only on renewal", async () => {
+  const t = setup(); await provision(t); await link(t); await reconcile(t);
+  await alice(t).action(api.polar.changeSubscription, { operation: "yearly" });
+  expect(provider.subscriptions.update).toHaveBeenLastCalledWith("sub-a", { product_id: "yearly", proration_behavior: "invoice" });
+  const annualEnd = Date.now() + 365 * 24 * 60 * 60_000;
+  subscriptions[0].current_period_end = new Date(annualEnd).toISOString();
+  subscriptions[0].modified_at = new Date(Date.now() + 100).toISOString();
+  await reconcile(t);
+  const paidOrders = orders.length;
+  await alice(t).action(api.polar.changeSubscription, { operation: "monthly" });
+  expect(provider.subscriptions.update).toHaveBeenLastCalledWith("sub-a", { product_id: "monthly", proration_behavior: "next_period" });
+  expect(orders).toHaveLength(paidOrders);
+  expect(await alice(t).query(api.billing.status, {})).toMatchObject({
+    state: "active", model: "yearly", paidThrough: annualEnd,
+    scheduledChange: { model: "monthly", at: annualEnd },
+  });
+  vi.useFakeTimers(); vi.setSystemTime(annualEnd + 1);
+  subscriptions[0] = { ...sub("monthly"), current_period_start: new Date(annualEnd).toISOString(),
+    current_period_end: new Date(annualEnd + 30 * 24 * 60 * 60_000).toISOString() };
+  orders.push({ ...order("monthly", "monthly-renewal"), created_at: new Date(annualEnd + 1).toISOString() });
+  await reconcile(t);
+  expect(await alice(t).query(api.billing.status, {})).toMatchObject({
+    state: "active", model: "monthly", scheduledChange: null,
+  });
 });
 
 test("a signed success/order-created payload without paid provider state cannot grant access", async () => {
@@ -155,16 +197,19 @@ test("lifetime first purchase and upgrade protect against every old recurring ev
     const lifetime = { ...order("lifetime", "lifetime-first", null), billing_reason: "purchase" };
     orders.push(lifetime); await send(t, "order.paid", { ...lifetime, customer }); await reconcile(t);
     expect(await state(t)).toMatchObject({ status: "active", model: "lifetime", lifetimeOrderId: "lifetime-first" });
+    expect((await alice(t).query(api.billing.status, {})).lifetimePurchasedAt).toBe(Date.parse(lifetime.created_at));
     for (const event of ["subscription.active", "subscription.canceled", "subscription.uncanceled", "subscription.revoked", "order.paid"]) {
       if (subscriptions[0]) { subscriptions[0].status = event === "subscription.revoked" ? "canceled" : "active"; subscriptions[0].product_id = "yearly"; }
       orders.push({ ...order("yearly", `old-${event}`), billing_reason: "subscription_update" });
       await send(t, event, { id: "late", customer_id: customer.id, customer }, `late-${event}`); await reconcile(t);
       expect((await state(t))?.model).toBe("lifetime");
+      expect((await alice(t).query(api.billing.status, {})).lifetimePurchasedAt).toBe(Date.parse(lifetime.created_at));
     }
     orders.push({ ...order("lifetime", "lifetime-second", null), created_at: new Date(Date.now() + 1).toISOString() });
     lifetime.refunded_amount = lifetime.net_amount; lifetime.modified_at = new Date(Date.now() + 100).toISOString();
     await send(t, "order.refunded", { ...lifetime, customer }); await reconcile(t);
     expect((await state(t))?.lifetimeOrderId).toBe("lifetime-second");
+    expect((await alice(t).query(api.billing.status, {})).lifetimePurchasedAt).toBe(Date.parse(orders.at(-1)!.created_at));
   }
 });
 
@@ -176,6 +221,7 @@ test("full lifetime refund ends access, partial refund preserves it, and old sub
   lifetime.refunded_amount = 1000; lifetime.modified_at = new Date(Date.now() + 20).toISOString();
   subscriptions[0].status = "active"; await reconcile(t);
   expect(await state(t)).toMatchObject({ status: "ended", cancelAtPeriodEnd: false });
+  expect((await alice(t).query(api.billing.status, {})).lifetimePurchasedAt).toBeNull();
   expect((await state(t))?.subscriptionId).toBeUndefined();
   await expect(alice(t).query(api.billing.application, {})).rejects.toThrow("PAID_ACCESS_REQUIRED");
   expect(await alice(t).action(api.polar.portal, { returnUrl: "/billing" })).toContain("portal");
@@ -239,6 +285,84 @@ test("checkout accepts unpaid owners, validates products and return URLs, and po
   provider.products.get.mockResolvedValueOnce({ is_archived: true, prices: [] });
   await expect(alice(t).action(api.polar.checkout, { model: "yearly", returnUrl: "/billing" })).rejects.toThrow("BILLING_CONFIGURATION_REQUIRED");
   expect(await alice(t).action(api.polar.portal, { returnUrl: "/billing" })).toContain("portal");
+});
+
+test("sandbox checkout and recovery can create isolated customers when the sign-in email is already used", async () => {
+  subscriptions = []; orders = [];
+  provider.customers.getExternal.mockRejectedValue(new PolarClientError(404, { detail: "Not Found" }));
+  provider.customers.create.mockImplementation(async (body: { email: string }) => {
+    if (body.email === "alice@example.com") {
+      throw new PolarClientError(422, { detail: [{ loc: ["body", "email"], msg: "Email already exists" }] });
+    }
+    return customer;
+  });
+
+  for (const operation of ["checkout", "recover"] as const) {
+    const t = setup(); await provision(t);
+    if (operation === "checkout") {
+      expect(await alice(t).action(api.polar.checkout, { model: "monthly", returnUrl: "/billing" })).toContain("checkout");
+    } else {
+      await alice(t).action(api.polar.recover, {});
+    }
+    expect((await alice(t).query(api.billing.status, {})).state).toBe("awaiting_payment");
+    expect(provider.customers.create).toHaveBeenLastCalledWith({
+      email: "alice+wt-test@example.com", external_id: externalId, metadata: { worktree_id: "wt-test" },
+    });
+    expect((await state(t))?.externalId).toBe(externalId);
+  }
+});
+
+test("separate sandbox worktrees use distinct emails for the same sign-in identity", async () => {
+  subscriptions = []; orders = [];
+  provider.customers.getExternal.mockRejectedValue(new PolarClientError(404, { detail: "Not Found" }));
+
+  for (const worktree of ["wt-test", "wt-other"]) {
+    vi.stubEnv("WORKTREE_ID", worktree);
+    customer = { id: "customer-a", external_id: `${worktree}:${tokenIdentifier}`, metadata: { worktree_id: worktree } };
+    const t = setup(); await provision(t);
+    await alice(t).action(api.polar.recover, {});
+    expect(provider.customers.create).toHaveBeenLastCalledWith({
+      email: `alice+${worktree}@example.com`, external_id: customer.external_id, metadata: customer.metadata,
+    });
+    expect((await state(t))?.userId).toBeDefined();
+  }
+});
+
+test("production customer creation preserves the sign-in email", async () => {
+  vi.stubEnv("POLAR_ENVIRONMENT", "production");
+  subscriptions = []; orders = [];
+  provider.customers.getExternal.mockRejectedValue(new PolarClientError(404, { detail: "Not Found" }));
+  const t = setup(); await provision(t);
+  await alice(t).action(api.polar.recover, {});
+  expect(provider.customers.create).toHaveBeenCalledWith({
+    email: "alice@example.com", external_id: externalId, metadata: { worktree_id: "wt-test" },
+  });
+});
+
+test("an ambiguous customer create is recovered by external identity", async () => {
+  subscriptions = []; orders = [];
+  provider.customers.getExternal
+    .mockRejectedValueOnce(new PolarClientError(404, { detail: "Not Found" }))
+    .mockResolvedValueOnce(customer);
+  provider.customers.create.mockRejectedValueOnce(new PolarNetworkError("response lost"));
+  const t = setup(); await provision(t);
+  await alice(t).action(api.polar.recover, {});
+  expect(provider.customers.getExternal).toHaveBeenLastCalledWith(externalId);
+  expect((await state(t))?.userId).toBeDefined();
+});
+
+test("failed customer creation retains the provider failure without logging email or credentials", async () => {
+  const logging = vi.spyOn(console, "error").mockImplementation(() => {});
+  const validation = new PolarClientError(422, { detail: [{ loc: ["body", "email"], input: "alice@example.com" }] });
+  provider.customers.getExternal.mockRejectedValue(new PolarClientError(404, { detail: "Not Found" }));
+  provider.customers.create.mockRejectedValueOnce(validation);
+  const t = setup(); await provision(t);
+  await expect(alice(t).action(api.polar.recover, {})).rejects.toThrow("BILLING_REQUEST_FAILED");
+  expect(logging).toHaveBeenCalledWith("Polar operation failed", {
+    code: "BILLING_REQUEST_FAILED", providerError: validation.name, providerStatus: 422,
+  });
+  expect(JSON.stringify(logging.mock.calls)).not.toContain("alice@example.com");
+  expect(await state(t)).toBeNull();
 });
 
 test("a superseded reconciliation cannot publish stale state and account deletion exposes retryable cleanup", async () => {

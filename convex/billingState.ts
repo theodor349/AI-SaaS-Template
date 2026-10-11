@@ -2,11 +2,12 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import { env, internalMutation, internalQuery } from "./_generated/server";
 import { accountForUser, externalCustomerId, productModel, requireUser } from "./lib/billing";
-import schema from "./schema";
+import schema, { scheduledPlanChange } from "./schema";
 import { deliveryArgs, deliveryResult, processDelivery } from "./webhooks";
 
 const subscription = v.object({ id: v.string(), productId: v.string(), status: v.string(),
-  start: v.number(), end: v.number(), modifiedAt: v.number(), cancelAtPeriodEnd: v.boolean() });
+  start: v.number(), end: v.number(), modifiedAt: v.number(), cancelAtPeriodEnd: v.boolean(),
+  scheduledChange: v.optional(scheduledPlanChange) });
 const order = v.object({ id: v.string(), productId: v.string(), subscriptionId: v.optional(v.string()),
   paid: v.boolean(), fullyRefunded: v.boolean(), createdAt: v.number(), modifiedAt: v.number() });
 export const snapshot = v.object({ customerId: v.string(), externalId: v.optional(v.string()),
@@ -101,7 +102,7 @@ export const apply = internalMutation({
     const deletion = user ? await ctx.db.query("accountLifecycleRequests").withIndex("by_userId", q => q.eq("userId", user._id)).unique() : null;
     if (user && (user.lifecycle === "deleted" || deletion?.erasing)) {
       await ctx.db.patch("billingAccounts", account._id, { userId: user._id, status: "ended", model: undefined,
-        subscriptionId: undefined, lifetimeOrderId: undefined, paidThrough: undefined, cancelAtPeriodEnd: false,
+        subscriptionId: undefined, lifetimeOrderId: undefined, paidThrough: undefined, cancelAtPeriodEnd: false, scheduledChange: undefined,
         reconciledAt: Date.now(), completedVersion: version, revision: account.revision + 1 });
       return state.subscriptions.filter(s => !["canceled", "unpaid"].includes(s.status)).map(s => s.id);
     }
@@ -134,7 +135,8 @@ export const apply = internalMutation({
       const refunded = orders.some(o => o.subscriptionId === item.id && o.fullyRefunded && o.createdAt >= item.start);
       const superseded = old?.superseded || !!lifetime || !!deleting || refunded;
       const fields = { customerId, subscriptionId: item.id, productId: item.productId, status: item.status,
-        paidThrough: item.end, cancelAtPeriodEnd: item.cancelAtPeriodEnd, modifiedAt: item.modifiedAt, periodStart: item.start, superseded };
+        paidThrough: item.end, cancelAtPeriodEnd: item.cancelAtPeriodEnd, modifiedAt: item.modifiedAt, periodStart: item.start, superseded,
+        scheduledChange: item.scheduledChange };
       if (old) await ctx.db.patch("billingSubscriptions", old._id, fields); else await ctx.db.insert("billingSubscriptions", fields);
       if (superseded && ["active", "trialing", "past_due", "incomplete", "paused"].includes(item.status)) revoke.push(item.id);
     }
@@ -161,6 +163,7 @@ export const apply = internalMutation({
       model, subscriptionId: active && !lifetime ? recurring?.subscriptionId : undefined,
       lifetimeOrderId: active ? lifetime?.orderId : undefined, paidThrough,
       cancelAtPeriodEnd: active && !lifetime ? recurring?.cancelAtPeriodEnd ?? false : false,
+      scheduledChange: active && !lifetime ? recurring?.scheduledChange : undefined,
       revision, reconciledAt: Date.now(), completedVersion: version,
       // Retain the lease during external cleanup. Failed cleanup leaves a visible retry.
       nextCheckAt: Date.now() + (revoke.length ? 120_000 : 15 * 60_000), failureCode: revoke.length ? "RECURRING_CLEANUP_PENDING" : undefined,
@@ -191,7 +194,7 @@ export const expire = internalMutation({
     const row = await ctx.db.get("billingAccounts", accountId);
     if (row && row.revision === revision && row.paidThrough !== undefined && row.paidThrough <= Date.now()) {
       await ctx.db.patch("billingAccounts", accountId, { status: "ended", model: undefined, subscriptionId: undefined,
-        paidThrough: undefined, cancelAtPeriodEnd: false, nextCheckAt: Date.now() });
+        paidThrough: undefined, cancelAtPeriodEnd: false, scheduledChange: undefined, nextCheckAt: Date.now() });
       await ctx.scheduler.runAfter(0, internal.polar.reconcileCustomer, { customerId: row.customerId });
     }
     return null;
@@ -224,7 +227,7 @@ export const confirmProviderCleanup = internalMutation({
       .withIndex("by_externalId", q => q.eq("externalId", externalCustomerId(user.tokenIdentifier))).unique();
     if (account?.userId && account.userId !== userId) throw new Error("Customer identity conflict");
     if (account) await ctx.db.patch("billingAccounts", account._id, { userId, status: "ended", model: undefined,
-      subscriptionId: undefined, lifetimeOrderId: undefined, paidThrough: undefined, cancelAtPeriodEnd: false,
+      subscriptionId: undefined, lifetimeOrderId: undefined, paidThrough: undefined, cancelAtPeriodEnd: false, scheduledChange: undefined,
       failureCode: undefined, reconciledAt: Date.now(), revision: account.revision + 1 });
     return null;
   },

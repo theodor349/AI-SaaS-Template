@@ -25,6 +25,7 @@ test("killing only the Next listener shuts down Convex, the watcher, and Polar",
     await mkdir(join(fixture, "node_modules/@polar-sh/cli"), { recursive: true });
     await mkdir(join(fixture, "bin"));
     await copyFile(fileURLToPath(new URL("./bootstrap.mjs", import.meta.url)), join(fixture, "bootstrap.mjs"));
+    await copyFile(fileURLToPath(new URL("./bootstrap-output-guard.mjs", import.meta.url)), join(fixture, "bootstrap-output-guard.mjs"));
     // A previous run's derived issuer must not block a different app's key override.
     await writeFile(join(fixture, ".env.local"), environmentFile({
       ...config.env,

@@ -27,7 +27,11 @@ async function retry<T>(operation: () => Promise<T>): Promise<T> {
 async function userFacing<T>(operation: () => Promise<T>): Promise<T> {
   try { return await operation(); } catch (error) {
     if (error instanceof ConvexError) throw error;
-    console.error("Polar operation failed", { code: "BILLING_REQUEST_FAILED" });
+    console.error("Polar operation failed", {
+      code: "BILLING_REQUEST_FAILED",
+      providerError: error instanceof PolarClientError || error instanceof PolarNetworkError || error instanceof PolarServerError ? error.name : "UnexpectedError",
+      providerStatus: error instanceof PolarClientError || error instanceof PolarServerError ? error.statusCode : null,
+    });
     throw new ConvexError({ code: "BILLING_REQUEST_FAILED" });
   }
 }
@@ -37,6 +41,15 @@ function belongs(customer: PolarModels.Customer, expected?: string) {
     throw new ConvexError({ code: "CUSTOMER_IDENTITY_CONFLICT" });
   }
 }
+
+// Polar requires unique customer emails within an organization. Shared sandbox
+// organizations need a separate alias per worktree, alongside the external ID.
+function customerEmail(email: string) {
+  if (env.POLAR_ENVIRONMENT !== "sandbox") return email;
+  const separator = email.lastIndexOf("@");
+  return `${email.slice(0, separator)}+${env.WORKTREE_ID}${email.slice(separator)}`;
+}
+
 async function ownedCustomer(ctx: ActionCtx): Promise<{ p: ReturnType<typeof client>; customer: PolarModels.Customer; user: Doc<"users">; account: Doc<"billingAccounts"> | null }> {
   const { user, account } = await ctx.runQuery(internal.billingState.owned, {});
   const p = client(); const externalId = externalCustomerId(user.tokenIdentifier);
@@ -47,8 +60,11 @@ async function ownedCustomer(ctx: ActionCtx): Promise<{ p: ReturnType<typeof cli
     catch (error) {
       if (!(error instanceof PolarClientError && error.statusCode === 404)) throw error;
       // Stable external ID makes a lost create response recoverable by lookup.
-      try { customer = await p.customers.create({ email: user.email!, external_id: externalId, metadata: { worktree_id: env.WORKTREE_ID } }); }
-      catch { customer = await retry(() => p.customers.getExternal(externalId)); }
+      try { customer = await p.customers.create({ email: customerEmail(user.email!), external_id: externalId, metadata: { worktree_id: env.WORKTREE_ID } }); }
+      catch (creationError) {
+        try { customer = await retry(() => p.customers.getExternal(externalId)); }
+        catch { throw creationError; }
+      }
     }
   }
   belongs(customer, externalId);
@@ -129,7 +145,8 @@ export const changeSubscription = action({
       }
       if (operation === "monthly" || operation === "yearly") {
         const product = await validateProduct(p, operation);
-        await retry(() => p.subscriptions.update(sub.id, { product_id: product.productId, proration_behavior: "invoice" }));
+        const proration = productModel(sub.product_id) === "yearly" && operation === "monthly" ? "next_period" : "invoice";
+        await retry(() => p.subscriptions.update(sub.id, { product_id: product.productId, proration_behavior: proration }));
       } else await retry(() => p.subscriptions.update(sub.id, { cancel_at_period_end: operation === "cancel" }));
       // The result is confirmed from provider state and paid orders, then published
       // reactively. A successful update alone cannot grant new paid entitlement.
@@ -177,9 +194,15 @@ export const reconcileCustomer = internalAction({
       ]);
       const revoke: string[] = await ctx.runMutation(internal.billingState.apply, { version: lease.version, snapshot: {
         customerId, externalId: customer.external_id ?? undefined,
-        subscriptions: subscriptions.map(s => ({ id: s.id, productId: s.product_id,
-          status: s.status, start: timestamp(s.current_period_start), end: timestamp(s.current_period_end),
-          modifiedAt: timestamp(s.modified_at ?? s.created_at), cancelAtPeriodEnd: s.cancel_at_period_end })),
+        subscriptions: subscriptions.map(s => {
+          const pendingModel = s.pending_update?.product_id ? productModel(s.pending_update.product_id) : undefined;
+          return { id: s.id, productId: s.product_id,
+            status: s.status, start: timestamp(s.current_period_start), end: timestamp(s.current_period_end),
+            modifiedAt: timestamp(s.modified_at ?? s.created_at), cancelAtPeriodEnd: s.cancel_at_period_end,
+            scheduledChange: pendingModel && pendingModel !== "lifetime" ? {
+              model: pendingModel, at: timestamp(s.pending_update!.applies_at),
+            } : undefined };
+        }),
         orders: orders.filter(o => o.product_id && productModel(o.product_id)).map(o => ({ id: o.id, productId: o.product_id!,
           subscriptionId: o.subscription_id ?? undefined, paid: o.paid && o.net_amount > 0,
           fullyRefunded: o.status === "refunded" || (o.net_amount > 0 && o.refunded_amount >= o.net_amount),

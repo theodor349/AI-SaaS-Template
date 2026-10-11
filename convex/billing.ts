@@ -1,22 +1,30 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery, query } from "./_generated/server";
 import { accountForUser, billingModel, requirePro } from "./lib/billing";
-import schema from "./schema";
+import schema, { scheduledPlanChange } from "./schema";
 import { requireIdentity } from "./lib/auth";
 
 export const status = query({
   args: {}, returns: v.object({ readiness: v.union(v.literal("provisioning"), v.literal("ready"), v.literal("deleting")),
     state: v.union(v.literal("awaiting_payment"), v.literal("active"), v.literal("ended")),
     model: v.union(billingModel, v.null()), paidThrough: v.union(v.number(), v.null()),
+    lifetimePurchasedAt: v.union(v.number(), v.null()),
     cancelAtPeriodEnd: v.boolean(), hasCustomer: v.boolean(), revision: v.number(),
+    scheduledChange: v.union(scheduledPlanChange, v.null()),
     reconciledAt: v.number(), failure: v.union(v.string(), v.null()) }),
   handler: async ctx => {
     const identity = await requireIdentity(ctx);
     const user = await ctx.db.query("users").withIndex("by_tokenIdentifier", q => q.eq("tokenIdentifier", identity.tokenIdentifier)).unique();
     const account = user ? await accountForUser(ctx, user._id) : null;
+    const lifetimeOrder = account?.status === "active" && account.model === "lifetime" && account.lifetimeOrderId
+      ? await ctx.db.query("billingOrders").withIndex("by_orderId", q => q.eq("orderId", account.lifetimeOrderId!)).unique()
+      : null;
     return { readiness: user && user.lifecycle !== "active" ? "deleting" as const : !user?.email ? "provisioning" as const : "ready" as const,
       state: account?.status ?? "awaiting_payment" as const, model: account?.model ?? null,
       paidThrough: account?.paidThrough ?? null, cancelAtPeriodEnd: account?.cancelAtPeriodEnd ?? false,
+      lifetimePurchasedAt: lifetimeOrder?.customerId === account?.customerId && lifetimeOrder?.paid && !lifetimeOrder.fullyRefunded
+        ? lifetimeOrder.createdAt : null,
+      scheduledChange: account?.status === "active" ? account.scheduledChange ?? null : null,
       hasCustomer: !!account, revision: account?.revision ?? 0, reconciledAt: account?.reconciledAt ?? 0,
       failure: account?.failureCode ?? null };
   },

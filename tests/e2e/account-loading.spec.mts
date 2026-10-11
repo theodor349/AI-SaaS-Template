@@ -59,7 +59,7 @@ for (const width of [1280, 390]) {
       const profile = page.locator('[data-slot="card"][aria-label="Profile"]');
       const deletion = page.locator('[data-slot="card"][aria-label="Account deletion"]');
 
-      await expect(page.getByRole("heading", { name: "Your account" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
       await expect(profile).toHaveAttribute("aria-busy", "true");
       await expect(deletion).toHaveAttribute("aria-busy", "true");
       await expect(page.getByRole("button", { name: "Save profile" })).toHaveCount(0);

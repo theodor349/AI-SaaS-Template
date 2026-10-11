@@ -1,7 +1,9 @@
 import { copyFile } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import { clerk, clerkSetup } from "@clerk/testing/playwright";
 import { expect, test } from "@playwright/test";
 import { ConvexHttpClient } from "convex/browser";
+import { createPolar } from "@polar-sh/sdk/2026-10";
 import { api, internal } from "../../convex/_generated/api";
 import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
 import { billingTestAdmin, seedPaidTestUser } from "../../scripts/billing-test-fixtures.mjs";
@@ -9,18 +11,44 @@ import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 
 import { adminQuery, adminMutation } from "../../scripts/billing-test-admin";
 const local = resolveLocalTestConfig();
+async function leaseBillingFixture(customerId: string) {
+  const { client: admin } = billingTestAdmin();
+  let lease = await adminMutation(admin, internal.billingState.lease, { customerId });
+  for (let attempt = 0; !lease && attempt < 100; attempt++) {
+    await delay(100);
+    lease = await adminMutation(admin, internal.billingState.lease, { customerId });
+  }
+  if (!lease) throw new Error("Fixture reconciliation lease unavailable");
+  return lease;
+}
 test.beforeAll(async () => {
   await clerkSetup({ publishableKey: local.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, secretKey: local.env.CLERK_SECRET_KEY, dotenv: false });
 });
 
-test("selected paid plan survives authentication; success URL alone leaves recoverable pending access", async ({ page, browser }) => {
+test("selected plan opens checkout once after authentication; success URL alone cannot grant access", async ({ page, browser }) => {
   const user = await createClerkTestUser(local);
+  const checkoutModels: string[] = [];
+  await page.routeWebSocket(/\/sync$/, socket => {
+    const server = socket.connectToServer();
+    server.onMessage(message => socket.send(message));
+    socket.onMessage(message => {
+      const frame = JSON.parse(message.toString()) as { type: string; udfPath?: string; requestId: number; args: [{ model: string }] };
+      if (frame.type !== "Action" || frame.udfPath !== "polar:checkout") { server.send(message); return; }
+      checkoutModels.push(frame.args[0].model);
+      socket.send(JSON.stringify({ type: "ActionResponse", requestId: frame.requestId, success: false,
+        result: "Fixture checkout failure", logLines: [] }));
+    });
+  });
   try {
     await page.goto("/billing?plan=yearly");
     await expect(page).toHaveURL(/\/sign-in\?/);
     await clerk.signIn({ page, emailAddress: user.email });
-    await expect(page).toHaveURL(`${local.config.env.APP_URL}/billing?plan=yearly`);
-    await expect(page.getByRole("button", { name: "Continue with yearly" })).toBeVisible();
+    await expect(page.getByText("We couldn’t open checkout")).toBeVisible();
+    await expect(page).toHaveURL(`${local.config.env.APP_URL}/billing`);
+    expect(checkoutModels).toEqual(["yearly"]);
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Choose yearly" })).toBeEnabled();
+    expect(checkoutModels).toEqual(["yearly"]);
     await page.goto("/app");
     await expect(page).toHaveURL(`${local.config.env.APP_URL}/billing`);
     await expect(page.getByRole("heading", { name: "Your application" })).toHaveCount(0);
@@ -39,17 +67,69 @@ test("selected paid plan survives authentication; success URL alone leaves recov
       await recordedPage.goto("/billing?confirmation=pending");
       await expect(recordedPage.getByText(/Payment confirmation pending/)).toBeVisible();
       await seedPaidTestUser(user);
-      await expect(recordedPage.getByText("Your paid access is confirmed.")).toBeVisible();
+      await expect(recordedPage.getByText("You have lifetime access.")).toBeVisible();
       await recordedPage.screenshot({ path: "/tmp/issue4-lifetime-confirmed.png", fullPage: true });
       await recordedPage.waitForTimeout(500);
       const video = recordedPage.video()!;
       await recording.close();
       await copyFile(await video.path(), "/tmp/issue4-confirmation.webm");
     } finally { await recording.close(); }
-    await expect(page.getByText("Your paid access is confirmed.")).toBeVisible();
-    await page.getByRole("link", { name: "Open application" }).click();
+    await expect(page.getByText("You have lifetime access.")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Monthly", exact: true })).toHaveCount(0);
+    await page.goto("/");
+    await expect(page.getByText("You have lifetime access.")).toBeVisible();
+    await page.getByRole("link", { name: "Dashboard" }).click();
     await expect(page.getByRole("heading", { name: "Your application" })).toBeVisible();
   } finally { await user.cleanup(); }
+});
+
+test("lifetime access shows the purchase date and opens the customer portal", async ({ page }) => {
+  const user = await createClerkTestUser(local);
+  let release: (() => void) | undefined;
+  let requests = 0;
+  const portalUrl = "https://sandbox.polar.sh/fixture-lifetime-portal";
+  await page.route(portalUrl, route => route.fulfill({ contentType: "text/html", body: "<h1>Customer portal fixture</h1>" }));
+  await page.routeWebSocket(/\/sync$/, socket => {
+    const server = socket.connectToServer();
+    server.onMessage(message => socket.send(message));
+    socket.onMessage(async message => {
+      const frame = JSON.parse(message.toString()) as { type: string; udfPath?: string; requestId: number };
+      if (frame.type !== "Action" || frame.udfPath !== "polar:portal") { server.send(message); return; }
+      requests++;
+      await new Promise<void>(resolve => { release = resolve; });
+      socket.send(JSON.stringify({ type: "ActionResponse", requestId: frame.requestId, success: true,
+        result: portalUrl, logLines: [] }));
+    });
+  });
+  try {
+    await seedPaidTestUser(user);
+    await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email }); await page.goto("/billing");
+    await expect(page.getByLabel("Purchased on", { exact: true })).toBeDisabled();
+    const token = await page.evaluate(() => window.Clerk.session!.getToken({ template: "convex" }));
+    const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
+    client.setAuth(token!);
+    const status = await client.query(api.billing.status, {});
+    expect(status.lifetimePurchasedAt).not.toBeNull();
+    const purchaseDate = await page.evaluate(timestamp => new Date(timestamp!).toLocaleDateString(undefined, {
+      day: "numeric", month: "long", year: "numeric",
+    }), status.lifetimePurchasedAt);
+    await expect(page.getByLabel("Purchased on", { exact: true })).toHaveValue(purchaseDate);
+    await expect(page.getByLabel("Purchased on", { exact: true })).toBeDisabled();
+    await expect(page.getByLabel("Plan", { exact: true })).toHaveValue("Lifetime Pro");
+    await expect(page.getByRole("heading", { name: "Monthly", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Cancel subscription" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Customer portal" })).toBeEnabled();
+    await page.screenshot({ path: "/tmp/billing-lifetime-desktop.png", fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: "/tmp/billing-lifetime-mobile.png", fullPage: true });
+    await page.reload();
+    await expect(page.getByLabel("Purchased on", { exact: true })).toHaveValue(purchaseDate);
+    await page.getByRole("button", { name: "Customer portal" }).click();
+    await expect(page.getByRole("button", { name: "Opening portal…" })).toBeDisabled();
+    await expect.poll(() => requests).toBe(1);
+    release!();
+    await expect(page).toHaveURL(portalUrl);
+  } finally { release?.(); await user.cleanup(); }
 });
 
 test("expiry removes paid pages reactively while billing and account controls remain accessible", async ({ page }) => {
@@ -58,17 +138,22 @@ test("expiry removes paid pages reactively while billing and account controls re
     const fixture = await seedPaidTestUser(user, "monthly");
     await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email });
     await page.goto("/billing");
-    await expect(page.getByRole("heading", { name: "Monthly Pro" })).toBeVisible();
+    await expect(page.getByLabel("Plan", { exact: true })).toHaveValue("Monthly Pro");
+    await expect(page.getByLabel("Plan", { exact: true })).toBeDisabled();
+    await expect(page.getByLabel("Paid through", { exact: true })).toBeDisabled();
     await expect(page.getByRole("button", { name: "Cancel subscription" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Upgrade to lifetime" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Get lifetime" })).toBeVisible();
     await page.screenshot({ path: "/tmp/issue4-billing-active.png", fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: "/tmp/billing-summary-mobile.png", fullPage: true });
+    await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto("/app");
     await expect(page.getByRole("heading", { name: "Your application" })).toBeVisible();
     const { client: admin } = billingTestAdmin();
     const account = (await adminQuery(admin, internal.billingState.get, { customerId: fixture.customerId }))!;
     // A higher revision ending state is the same trusted publication used by
     // reconciliation. No browser-side success flags or mocked auth are involved.
-    const lease = (await adminMutation(admin, internal.billingState.lease, { customerId: fixture.customerId }))!;
+    const lease = await leaseBillingFixture(fixture.customerId);
     await adminMutation(admin, internal.billingState.apply, { version: lease.version,
       snapshot: { customerId: fixture.customerId, externalId: fixture.externalId,
         subscriptions: [{ id: fixture.subscriptionId, productId: local.env.POLAR_PRODUCT_MONTHLY!, status: "canceled",
@@ -82,23 +167,99 @@ test("expiry removes paid pages reactively while billing and account controls re
   } finally { await user.cleanup(); }
 });
 
-test("sandbox SDK creates an owned checkout without granting access and live customer delivery reaches this worktree", async ({ page }) => {
+test("sandbox checkout and recovery work when another customer uses the sign-in email", async ({ page }) => {
   const user = await createClerkTestUser(local);
+  const polar = createPolar({ accessToken: local.env.POLAR_ACCESS_TOKEN, environment: "sandbox", organizationId: local.env.POLAR_ORGANIZATION_ID });
+  const fixtureScope = `fixture-${local.config.id}`;
+  let collisionCustomerId: string | undefined;
   try {
-    await page.goto("/billing?plan=monthly"); await clerk.signIn({ page, emailAddress: user.email });
-    await expect(page.getByRole("button", { name: "Continue with monthly" })).toBeVisible();
-    await page.getByRole("button", { name: "Continue with monthly" }).click();
+    // This customer represents a different worktree's existing customer. The
+    // application must create its own customer rather than claim by email.
+    const collision = await polar.customers.create({
+      email: user.email, external_id: `${fixtureScope}:${user.id}`, metadata: { worktree_id: fixtureScope },
+    });
+    collisionCustomerId = collision.id;
+    await page.goto("/billing"); await clerk.signIn({ page, emailAddress: user.email });
+    await page.getByRole("button", { name: "Choose monthly" }).click();
     await expect(page).toHaveURL(/https:\/\/sandbox\.polar\.sh\/checkout\//);
     // Don't record provider pages, tokens, or payment details in PR artifacts.
     await page.goto(`${local.config.env.APP_URL}/billing`);
     await expect(page.getByRole("button", { name: "Customer portal" })).toBeVisible();
     await expect(page.getByText("Your paid access is confirmed.")).toHaveCount(0);
+    const token = await page.evaluate(() => window.Clerk.session!.getToken({ template: "convex" }));
+    const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
+    client.setAuth(token!);
+    await client.action(api.polar.recover, {});
+    await expect(page.getByText("We couldn’t complete the billing request")).toHaveCount(0);
     const { client: admin } = billingTestAdmin();
     const userId = await adminQuery(admin, internal.users.byClerkId, { clerkId: user.id });
     const account = (await adminQuery(admin, internal.billing.accountByUser, { userId: userId! }))!;
     expect(account.externalId).toBe(`${local.config.id}:${local.env.CLERK_JWT_ISSUER_DOMAIN}|${user.id}`);
+    expect(account.customerId).not.toBe(collisionCustomerId);
+    const owned = await polar.customers.get(account.customerId);
+    expect(owned.email).toBe(user.email.replace("@", `+${local.config.id}@`));
+    expect((await polar.customers.get(collisionCustomerId)).external_id).toBe(collision.external_id);
     // Poll provider-delivery tracking through a bounded operational query.
     await expect.poll(async () => (await adminQuery(admin, internal.billing.deliveryStatus, { customerId: account.customerId })).delivered).toBe(true);
+  } finally {
+    try {
+      if (collisionCustomerId) await polar.customers.delete(collisionCustomerId);
+    } finally {
+      await user.cleanup();
+    }
+  }
+});
+
+test("yearly-to-monthly requires confirmation and shows the scheduled plan without changing paid access", async ({ page }) => {
+  const user = await createClerkTestUser(local);
+  const fixture = await seedPaidTestUser(user, "yearly");
+  const { client: admin } = billingTestAdmin();
+  let requests = 0;
+  await page.routeWebSocket(/\/sync$/, socket => {
+    const server = socket.connectToServer();
+    server.onMessage(message => socket.send(message));
+    socket.onMessage(message => {
+      const frame = JSON.parse(message.toString()) as { type: string; udfPath?: string; requestId: number };
+      if (frame.type !== "Action" || frame.udfPath !== "polar:changeSubscription") { server.send(message); return; }
+      requests++;
+      socket.send(JSON.stringify({ type: "ActionResponse", requestId: frame.requestId, success: true, result: null, logLines: [] }));
+    });
+  });
+  try {
+    await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email }); await page.goto("/billing");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole("button", { name: "Switch to monthly" }).click();
+    const dialog = page.getByRole("alertdialog");
+    await expect(dialog).toContainText("You will not be charged again until the end of your current one-year period.");
+    await page.screenshot({ path: "/tmp/billing-switch-monthly-confirmation.png", fullPage: true });
+    expect(requests).toBe(0);
+    await dialog.getByRole("button", { name: "Keep current plan" }).click();
+    await page.getByRole("button", { name: "Switch to monthly" }).click();
+    await dialog.getByRole("button", { name: "Confirm switch" }).click();
+    await expect(page.getByRole("button", { name: "Confirming plan…" })).toBeDisabled();
+    await expect.poll(() => requests).toBe(1);
+    const account = (await adminQuery(admin, internal.billingState.get, { customerId: fixture.customerId }))!;
+    const lease = await leaseBillingFixture(fixture.customerId);
+    const now = Date.now();
+    await adminMutation(admin, internal.billingState.apply, { version: lease.version, snapshot: {
+      customerId: fixture.customerId, externalId: fixture.externalId,
+      subscriptions: [{ id: fixture.subscriptionId, productId: local.env.POLAR_PRODUCT_YEARLY!, status: "active",
+        start: now - 60_000, end: account.paidThrough!, modifiedAt: now + 1000, cancelAtPeriodEnd: false,
+        scheduledChange: { model: "monthly", at: account.paidThrough! } }],
+      orders: [{ id: `fixture-scheduled-${user.id}`, productId: local.env.POLAR_PRODUCT_YEARLY!,
+        subscriptionId: fixture.subscriptionId, paid: true, fullyRefunded: false, createdAt: now, modifiedAt: now }],
+    } });
+    await adminMutation(admin, internal.billingState.finish, { customerId: fixture.customerId, version: lease.version, failed: false });
+    await expect(page.getByLabel("Plan", { exact: true })).toHaveValue("Yearly Pro");
+    await expect(page.getByLabel("Next plan", { exact: true })).toHaveValue(/^Monthly Pro from /);
+    await expect(page.getByRole("button", { name: "Scheduled", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Confirming plan…" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Cancel subscription" })).toBeEnabled();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.screenshot({ path: "/tmp/billing-scheduled-plan.png", fullPage: true });
+    await page.reload();
+    await expect(page.getByLabel("Next plan", { exact: true })).toHaveValue(/^Monthly Pro from /);
+    expect(requests).toBe(1);
   } finally { await user.cleanup(); }
 });
 
@@ -111,6 +272,13 @@ test("repeated switches and cancellation cycles confirm reactive state; failures
   let failNext = false;
   let sequence = 0;
   let release: (() => void) | undefined;
+  async function confirmSwitch(target: "monthly" | "yearly") {
+    await page.getByRole("button", { name: `Switch to ${target}` }).click();
+    const dialog = page.getByRole("alertdialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText(target === "yearly" ? "charged immediately" : "end of your current one-year period");
+    await dialog.getByRole("button", { name: "Confirm switch" }).click();
+  }
   await page.routeWebSocket(/\/sync$/, socket => {
     const server = socket.connectToServer();
     server.onMessage(message => socket.send(message));
@@ -129,8 +297,7 @@ test("repeated switches and cancellation cycles confirm reactive state; failures
       else cancel = operation === "cancel";
       socket.send(JSON.stringify({ type: "ActionResponse", requestId: frame.requestId, success: true, result: null, logLines: [] }));
       await new Promise<void>(resolve => { release = resolve; });
-      const lease = await adminMutation(admin, internal.billingState.lease, { customerId: fixture.customerId });
-      if (!lease) throw new Error("Fixture reconciliation lease unavailable");
+      const lease = await leaseBillingFixture(fixture.customerId);
       const now = Date.now() + ++sequence * 100;
       const productId = local.env[`POLAR_PRODUCT_${model.toUpperCase()}`]!;
       await adminMutation(admin, internal.billingState.apply, { version: lease.version, snapshot: {
@@ -145,26 +312,50 @@ test("repeated switches and cancellation cycles confirm reactive state; failures
   });
   try {
     await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email }); await page.goto("/billing");
+    const planCard = (plan: "monthly" | "yearly") => page.locator('[data-slot="card"]').filter({ has: page.getByRole("heading", { name: plan === "monthly" ? "Monthly" : "Yearly", exact: true }) });
+    await expect(planCard("monthly").getByRole("button", { name: "Current", exact: true })).toBeDisabled();
+    await page.getByRole("button", { name: "Switch to yearly" }).click();
+    await page.screenshot({ path: "/tmp/billing-switch-yearly-confirmation.png", fullPage: true });
+    await page.getByRole("button", { name: "Keep current plan" }).click();
+    expect(sequence).toBe(0);
+    expect(release).toBeUndefined();
     for (const target of ["yearly", "monthly", "yearly"] as const) {
-      await page.getByRole("button", { name: `Switch to ${target}` }).click();
-      await expect(page.getByText("Waiting for confirmed billing state…")).toBeVisible();
+      await confirmSwitch(target);
+      await expect(page.getByRole("button", { name: "Confirming plan…" })).toBeDisabled();
+      await expect(page.getByRole("button", { name: "Get lifetime" })).toBeDisabled();
+      await expect(page.getByRole("button", { name: "Cancel subscription" })).toBeDisabled();
+      await expect(planCard(target === "monthly" ? "yearly" : "monthly").getByRole("button", { name: "Current", exact: true })).toBeDisabled();
       release!();
-      await expect(page.getByRole("heading", { name: target === "yearly" ? "Yearly Pro" : "Monthly Pro" })).toBeVisible();
-      await expect(page.getByText("Billing change confirmed.")).toBeVisible();
+      await expect(page.getByLabel("Plan", { exact: true })).toHaveValue(target === "yearly" ? "Yearly Pro" : "Monthly Pro");
+      await expect(planCard(target).getByRole("button", { name: "Current", exact: true })).toBeDisabled();
+      await expect(page.getByRole("button", { name: `Switch to ${target === "yearly" ? "monthly" : "yearly"}` })).toBeEnabled();
     }
     for (const action of ["Cancel subscription", "Reactivate subscription", "Cancel subscription", "Reactivate subscription"]) {
       await page.getByRole("button", { name: action, exact: true }).click();
-      await expect(page.getByText("Waiting for confirmed billing state…")).toBeVisible(); release!();
-      await expect(page.getByText("Billing change confirmed.")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Confirming renewal…" })).toBeDisabled();
+      release!();
+      const nextAction = action === "Cancel subscription" ? "Reactivate subscription" : "Cancel subscription";
+      await expect(page.getByRole("button", { name: nextAction, exact: true })).toBeEnabled();
+      const dateLabel = action === "Cancel subscription" ? "Access ends" : "Paid through";
+      await expect(page.getByLabel(dateLabel, { exact: true })).toBeDisabled();
     }
     failNext = true;
-    await page.getByRole("button", { name: "Switch to monthly" }).click();
+    await confirmSwitch("monthly");
     await expect(page.getByText(/We couldn’t complete the billing request/)).toBeVisible();
-    await expect(page.getByText("Waiting for confirmed billing state…")).toHaveCount(0);
-    await expect(page.getByText("Billing change confirmed.")).toHaveCount(0);
-    await page.getByRole("button", { name: "Switch to monthly" }).click();
-    await expect(page.getByText("Waiting for confirmed billing state…")).toBeVisible(); release!();
-    await expect(page.getByRole("heading", { name: "Monthly Pro" })).toBeVisible();
-    await expect(page.getByText("Billing change confirmed.")).toBeVisible();
+    await confirmSwitch("monthly");
+    await expect(page.getByRole("button", { name: "Confirming plan…" })).toBeDisabled(); release!();
+    await expect(page.getByLabel("Plan", { exact: true })).toHaveValue("Monthly Pro");
+    await expect(page.getByRole("button", { name: "Switch to yearly" })).toBeEnabled();
+
+    // An action acknowledgement must not erase an unconfirmed change or its
+    // timeout warning. Only the trusted state publication resolves it.
+    await confirmSwitch("yearly");
+    await expect(page.getByRole("button", { name: "Confirming plan…" })).toBeDisabled();
+    const warning = page.getByRole("alert").filter({ hasText: "The change is still unconfirmed" });
+    await expect(warning).toBeVisible();
+    release!();
+    await expect(page.getByLabel("Plan", { exact: true })).toHaveValue("Yearly Pro");
+    await expect(warning).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Switch to monthly" })).toBeEnabled();
   } finally { release?.(); await page.unrouteAll({ behavior: "wait" }); await user.cleanup(); }
 });
