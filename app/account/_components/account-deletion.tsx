@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button, ButtonLabel } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AccountSkeleton, AccountTextSkeleton } from "./account-skeleton";
+import { ContentSkeleton, TextSkeleton } from "@/components/loading/content-skeleton";
 
 const deletionDescription =
   "Requesting deletion cancels subscription renewal. You have seven days to undo it. At the deadline, paid access ends and your account and application data are deleted. Unused paid time is not automatically refunded.";
@@ -47,17 +47,17 @@ function AccountDeletionSkeleton() {
           Loading account deletion…
         </p>
         <div className="flex flex-col gap-4">
-          <AccountTextSkeleton>{deletionDescription}</AccountTextSkeleton>
-          <AccountTextSkeleton>{retentionDescription}</AccountTextSkeleton>
+          <TextSkeleton>{deletionDescription}</TextSkeleton>
+          <TextSkeleton>{retentionDescription}</TextSkeleton>
           <div>
             <div className="w-fit">
-              <AccountSkeleton>
+              <ContentSkeleton>
                 <Button disabled variant="destructive">
                   <ButtonLabel loading={false} loadingText="Requesting...">
                     Delete account
                   </ButtonLabel>
                 </Button>
-              </AccountSkeleton>
+              </ContentSkeleton>
             </div>
           </div>
         </div>

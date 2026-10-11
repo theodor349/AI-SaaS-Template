@@ -5,6 +5,11 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+export const scheduledPlanChange = v.object({
+  model: v.union(v.literal("monthly"), v.literal("yearly")),
+  at: v.number(),
+});
+
 export default defineSchema(
   {
     users: defineTable({
@@ -52,6 +57,7 @@ export default defineSchema(
       model: v.optional(v.union(v.literal("monthly"), v.literal("yearly"), v.literal("lifetime"))),
       subscriptionId: v.optional(v.string()), lifetimeOrderId: v.optional(v.string()),
       paidThrough: v.optional(v.number()), cancelAtPeriodEnd: v.boolean(),
+      scheduledChange: v.optional(scheduledPlanChange),
       lastDeliveryAt: v.optional(v.number()),
       revision: v.number(), reconciledAt: v.number(), nextCheckAt: v.number(),
       requestedVersion: v.number(), completedVersion: v.number(),
@@ -67,6 +73,7 @@ export default defineSchema(
       customerId: v.string(), subscriptionId: v.string(), productId: v.string(),
       superseded: v.boolean(), status: v.string(), paidThrough: v.number(),
       cancelAtPeriodEnd: v.boolean(), modifiedAt: v.number(), periodStart: v.number(),
+      scheduledChange: v.optional(scheduledPlanChange),
     }).index("by_subscriptionId", ["subscriptionId"])
       .index("by_customerId", ["customerId"]),
     billingOrders: defineTable({

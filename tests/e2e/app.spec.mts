@@ -66,7 +66,7 @@ test("Clerk identity reaches paid local Convex and persists across reloads", asy
     const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
     client.setAuth(token!);
     expect(await client.query(api.billing.application, {})).toEqual({ name: user.name });
-    await page.getByRole("link", { name: "Open application" }).click();
+    await page.getByRole("link", { name: "Dashboard" }).click();
     await expect(page.getByRole("heading", { name: "Your application" })).toBeVisible();
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();
     await page.reload();
@@ -93,13 +93,14 @@ test("sign-in fallback and return-to redirects reach the configured application 
   }
 });
 
-test("revoked sessions remove protected content and restored cookies cannot re-enter", async ({ page }) => {
+test("revoked sessions remove protected content and restored cookies cannot re-enter", async ({ page, browser }) => {
   const user = await createClerkTestUser(local);
   try {
     await page.goto("/");
     await clerk.signIn({ page, emailAddress: user.email });
     await page.goto("/app");
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();
+    const savedSession = await page.context().storageState();
     await user.revokeSessions();
     // Force the same token refresh the SDK performs when its JWT expires.
     await page.evaluate(async () => {
@@ -107,8 +108,16 @@ test("revoked sessions remove protected content and restored cookies cannot re-e
     });
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Your application" })).toHaveCount(0);
-    await page.goto("/app");
-    await expect(page).toHaveURL(/\/sign-in\?/);
+    // Restore the original cookies in a fresh page so Clerk's live sign-out
+    // redirect cannot race the attempt to re-enter the protected route.
+    const restored = await browser.newContext({ baseURL: local.config.env.APP_URL, storageState: savedSession });
+    try {
+      const restoredPage = await restored.newPage();
+      await restoredPage.goto("/app");
+      await expect(restoredPage.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
+      await expect(restoredPage.getByRole("heading", { name: "Your application" })).toHaveCount(0);
+      await expect(restoredPage.getByText(`Welcome ${user.name}!`, { exact: true })).toHaveCount(0);
+    } finally { await restored.close(); }
   } finally {
     await user.cleanup();
   }
@@ -231,13 +240,13 @@ test("slow Clerk token acquisition shows loading and sends no protected query", 
       });
     });
     await clerk.signIn({ page, emailAddress: user.email });
-    await expect(page.getByRole("status")).toHaveText("Connecting your account…");
+    await expect(page.getByRole("status").filter({ hasText: "Connecting your account…" })).toHaveText("Connecting your account…");
     await expect(page.getByRole("button", { name: "Sign in", exact: true })).toHaveCount(0);
-    await expect(page.getByRole("link", { name: "Open application" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Dashboard" })).toHaveCount(0);
     expect(auth.hasProtectedQuery()).toBe(false);
     await page.evaluate(() => window.dispatchEvent(new Event("release-auth-test")));
-    await expect(page.getByRole("link", { name: "Open application" })).toBeVisible();
-    await page.getByRole("link", { name: "Open application" }).click();
+    await expect(page.getByRole("link", { name: "Dashboard" })).toBeVisible();
+    await page.getByRole("link", { name: "Dashboard" }).click();
     await expect(page).toHaveURL(`${local.config.env.APP_URL}${authenticatedDestination}`);
     await expect(page.getByRole("heading", { name: "Your application" })).toBeVisible();
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();
@@ -263,7 +272,7 @@ test("a restored session waits for Convex validation without signed-out UI, redi
     release = auth.release;
     await page.reload();
     await clerk.loaded({ page });
-    await expect(page.getByRole("status")).toHaveText("Connecting your account…");
+    await expect(page.getByRole("status").filter({ hasText: "Connecting your account…" })).toHaveText("Connecting your account…");
     await expect(page.getByRole("button", { name: "Sign in", exact: true })).toHaveCount(0);
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toHaveCount(0);
     expect(page.url()).toBe(`${local.config.env.APP_URL}/app`);

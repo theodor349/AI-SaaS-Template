@@ -4,7 +4,7 @@ import { appendFileSync, existsSync, readFileSync, realpathSync, writeFileSync, 
 import { createConnection, createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseEnv } from "node:util";
 
 export function worktreeConfig(root) {
@@ -260,6 +260,8 @@ export async function bootstrap({ browserEnv = {}, onReady } = {}) {
   const localFile = join(root, ".env.local");
   const credentials = worktreeCredentials(root, mainRoot, polar);
   const env = { ...childEnvironment(config, credentials), ...browserEnv };
+  const outputGuard = fileURLToPath(new URL("./bootstrap-output-guard.mjs", import.meta.url));
+  env.NODE_OPTIONS = `${env.NODE_OPTIONS ?? ""} --import ${JSON.stringify(outputGuard)}`.trim();
   const fileEnv = { ...childEnvironment(config, credentials, {}), ...browserEnv };
   const stateFile = join(root, ".convex/local/default/config.json");
   if (existsSync(stateFile)) {
@@ -284,9 +286,12 @@ export async function bootstrap({ browserEnv = {}, onReady } = {}) {
     }
   };
   const signalHandler = () => controller.abort(new Error("Bootstrap stopped."));
+  const outputErrorHandler = () => controller.abort(new Error("Bootstrap terminal output is unavailable."));
   process.on("SIGINT", signalHandler);
   process.on("SIGTERM", signalHandler);
   process.on("SIGHUP", signalHandler);
+  process.stdout.on("error", outputErrorHandler);
+  process.stderr.on("error", outputErrorHandler);
 
   function start(command, commandArgs, persistent = false, capture = false) {
     controller.signal.throwIfAborted();
@@ -403,13 +408,15 @@ export async function bootstrap({ browserEnv = {}, onReady } = {}) {
     process.removeListener("SIGINT", signalHandler);
     process.removeListener("SIGTERM", signalHandler);
     process.removeListener("SIGHUP", signalHandler);
+    process.stdout.removeListener("error", outputErrorHandler);
+    process.stderr.removeListener("error", outputErrorHandler);
   }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   bootstrap().catch((error) => {
     if (error.message !== "Bootstrap stopped.") {
-      console.error(`Bootstrap: ${error.message}`);
+      if (!process.stderr.destroyed) console.error(`Bootstrap: ${error.message}`);
       process.exitCode = 1;
     }
   });

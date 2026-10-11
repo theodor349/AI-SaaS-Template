@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AccountSkeleton } from "./account-skeleton";
+import { ContentSkeleton } from "@/components/loading/content-skeleton";
 
 export function UserDataForm() {
   return (
@@ -49,13 +49,13 @@ function UserDataFormSkeleton() {
           </div>
           <div>
             <div className="w-fit">
-              <AccountSkeleton>
+              <ContentSkeleton>
                 <Button disabled>
                   <ButtonLabel loading={false} loadingText="Saving...">
                     Save profile
                   </ButtonLabel>
                 </Button>
-              </AccountSkeleton>
+              </ContentSkeleton>
             </div>
           </div>
         </div>

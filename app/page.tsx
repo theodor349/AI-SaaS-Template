@@ -46,7 +46,7 @@ function SignInAndSignUpButtons() {
           {isAuthenticated && !isLoading && !isRefreshing && (
             // Keep protected redirects out of the prefetch cache across sessions.
             <Link href={AUTHENTICATED_DESTINATION} prefetch={false}>
-              Open application
+              Dashboard
             </Link>
           )}
           <UserButton />
