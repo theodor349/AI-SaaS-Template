@@ -128,7 +128,10 @@ test("a new visitor creates an account and reaches Polar sandbox checkout for th
       const input = page.getByLabel(label, { exact: true });
       if (await input.isVisible()) await input.fill(value);
     }
+    const verificationPrepared = page.waitForResponse(response =>
+      response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/prepare_verification"));
     await page.getByRole("button", { name: "Continue", exact: true }).click();
+    expect((await verificationPrepared).ok()).toBe(true);
     await expect(page.getByRole("heading", { name: "Verify your email" })).toBeVisible();
     await page.getByRole("textbox", { name: "Enter verification code" }).fill("424242");
     await expect(page.getByRole("heading", { name: "Redirecting to the payment page…" })).toBeVisible();
