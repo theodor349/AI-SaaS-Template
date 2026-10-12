@@ -7,7 +7,9 @@ This template supports agents developing and testing features in parallel using 
 ## Development
 
 1. In the main checkout, copy `.env.bootstrap.example` to `.env.bootstrap.local`
-   and add Clerk development keys and a Polar sandbox organization access token.
+   and add Clerk development keys, a Polar sandbox organization access token,
+   and the monthly, yearly, and lifetime sandbox product IDs. Linked worktrees
+   inherit these settings; bootstrap syncs their prices before reporting `Ready:`.
 2. Configure the Clerk application's `convex` JWT template following the
    [Convex Clerk setup](https://docs.convex.dev/auth/clerk).
 3. In your worktree, run `pnpm bootstrap` in a persistent terminal. It installs

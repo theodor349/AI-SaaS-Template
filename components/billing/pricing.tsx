@@ -9,11 +9,13 @@ import { ContentSkeleton } from "@/components/loading/content-skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 import { Button, ButtonLabel } from "@/components/ui/button";
+import { SIGN_UP_PATH } from "@/lib/auth";
 
 const labels = { monthly: "Monthly", yearly: "Yearly", lifetime: "Lifetime" };
 const intervals = { monthly: " / month", yearly: " / year", lifetime: " once" };
 type Product = FunctionReturnType<typeof api.billing.products>[number];
 type PricingActions = {
+  onboarding?: boolean;
   disabled?: boolean;
   pendingPlan?: Product["model"] | null;
   onSelect?: (model: Product["model"]) => void;
@@ -30,7 +32,7 @@ function taxDescription(taxBehavior: string) {
   return "Final tax calculated at checkout";
 }
 
-export function Pricing({ disabled = false, pendingPlan = null, onSelect }: PricingActions) {
+export function Pricing({ onboarding = false, disabled = false, pendingPlan = null, onSelect }: PricingActions) {
   const { isAuthenticated, isLoading, isRefreshing } = useConvexAuth();
   const status = useQuery(api.billing.status, isAuthenticated && !isLoading && !isRefreshing ? {} : "skip");
   const currentPlan = status?.state === "active" ? status.model : null;
@@ -58,6 +60,8 @@ export function Pricing({ disabled = false, pendingPlan = null, onSelect }: Pric
         <PlanCard
           key={product.model}
           product={product}
+          onboarding={onboarding}
+          signUp={onboarding && !isAuthenticated}
           currentPlan={currentPlan}
           scheduledPlan={status?.scheduledChange?.model}
           disabled={disabled || (isAuthenticated && status?.readiness !== "ready")}
@@ -89,8 +93,9 @@ export function PricingSkeleton() {
   );
 }
 
-function PlanCard({ product, disabled = false, loading = false, currentPlan = null, scheduledPlan = null, pendingPlan = null, onSelect }: PricingActions & {
+function PlanCard({ product, onboarding = false, signUp = false, disabled = false, loading = false, currentPlan = null, scheduledPlan = null, pendingPlan = null, onSelect }: PricingActions & {
   product: Product;
+  signUp?: boolean;
   loading?: boolean;
   currentPlan?: Product["model"] | null;
   scheduledPlan?: Product["model"] | null;
@@ -125,15 +130,17 @@ function PlanCard({ product, disabled = false, loading = false, currentPlan = nu
       </div>
       <CardFooter>
         <ContentSkeleton loading={loading}>
-          <PlanAction model={model} currentPlan={currentPlan} scheduledPlan={scheduledPlan} disabled={disabled} pending={pendingPlan === model} onSelect={onSelect} />
+          <PlanAction model={model} onboarding={onboarding} signUp={signUp} currentPlan={currentPlan} scheduledPlan={scheduledPlan} disabled={disabled} pending={pendingPlan === model} onSelect={onSelect} />
         </ContentSkeleton>
       </CardFooter>
     </Card>
   );
 }
 
-function PlanAction({ model, currentPlan, scheduledPlan, disabled, pending, onSelect }: {
+function PlanAction({ model, onboarding, signUp, currentPlan, scheduledPlan, disabled, pending, onSelect }: {
   model: Product["model"];
+  onboarding: boolean;
+  signUp: boolean;
   currentPlan: Product["model"] | null;
   scheduledPlan: Product["model"] | null;
   disabled: boolean;
@@ -154,5 +161,7 @@ function PlanAction({ model, currentPlan, scheduledPlan, disabled, pending, onSe
       </Button>
     );
   }
-  return <Button asChild><NextLink href={`/billing?plan=${model}`} prefetch={false}>{label}</NextLink></Button>;
+  const destination = onboarding && !currentPlan ? `/checkout?plan=${model}` : `/billing?plan=${model}`;
+  const href = signUp ? `${SIGN_UP_PATH}?redirect_url=${encodeURIComponent(destination)}` : destination;
+  return <Button asChild><NextLink href={href} prefetch={false}>{label}</NextLink></Button>;
 }
