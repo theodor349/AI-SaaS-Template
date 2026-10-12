@@ -6,7 +6,7 @@ import type { FunctionArgs } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import { AuthBoundary, AuthPending } from "@/components/auth/auth-boundary";
 import { Pricing, PricingSkeleton } from "@/components/billing/pricing";
-import { useBillingAccount } from "./use-billing-account";
+import { useBillingAccount } from "@/components/billing/use-billing-account";
 import { useBillingRequests } from "./billing-actions-provider";
 import { PlanSwitchConfirmation } from "./plan-switch-confirmation";
 

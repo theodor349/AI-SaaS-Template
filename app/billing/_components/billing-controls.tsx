@@ -9,7 +9,7 @@ import { Button, ButtonLabel } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useBillingAccount } from "./use-billing-account";
+import { useBillingAccount } from "@/components/billing/use-billing-account";
 import { useBillingRequests } from "./billing-actions-provider";
 
 const planLabels = {

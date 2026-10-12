@@ -46,7 +46,7 @@ test("public pages and JSON/TXT/XML assets stay public while application routes 
       await response.body?.cancel();
       assert.equal(response.status, 200, path);
     }
-    for (const path of ["/app", "/app/nested", "/app/private.json", "/billing", "/billing/private.json", "/account", "/account/private.json"]) {
+    for (const path of ["/app", "/app/nested", "/app/private.json", "/billing", "/billing/private.json", "/checkout?plan=yearly", "/checkout/private.json", "/account", "/account/private.json"]) {
       const response = await fetch(`${config.env.APP_URL}${path}`, { redirect: "manual" });
       await response.body?.cancel();
       assert.equal(response.status, 307, path);
