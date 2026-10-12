@@ -28,7 +28,13 @@ function PaymentRedirectContent({ plan }: { plan: Plan }) {
   const router = useRouter();
   const started = useRef(false);
   const requestInFlight = useRef(false);
+  const mounted = useRef(false);
   const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   const openPayment = useCallback(async () => {
     if (requestInFlight.current) return;
@@ -37,8 +43,10 @@ function PaymentRedirectContent({ plan }: { plan: Plan }) {
 
     try {
       const url = await checkout({ model: plan, returnUrl: `${window.location.origin}/billing` });
+      if (!mounted.current || !requestInFlight.current) return;
       window.location.assign(url);
     } catch {
+      if (!mounted.current || !requestInFlight.current) return;
       requestInFlight.current = false;
       setFailed(true);
     }
@@ -47,10 +55,12 @@ function PaymentRedirectContent({ plan }: { plan: Plan }) {
   useEffect(() => {
     if (isLoading || !status) return;
     if (isDeleting) {
+      requestInFlight.current = false;
       router.replace("/account");
       return;
     }
     if (status.state === "active") {
+      requestInFlight.current = false;
       router.replace(status.model === "lifetime" ? "/billing" : `/billing?plan=${plan}`);
       return;
     }
