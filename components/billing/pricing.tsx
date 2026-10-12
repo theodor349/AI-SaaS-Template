@@ -1,10 +1,11 @@
 "use client";
 
 import NextLink from "next/link";
+import { useAuth } from "@clerk/nextjs";
 import { useConvexAuth, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
-import { AuthPending } from "@/components/auth/auth-boundary";
+import { AuthPending, AuthRecovery } from "@/components/auth/auth-boundary";
 import { ContentSkeleton } from "@/components/loading/content-skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
@@ -33,6 +34,7 @@ function taxDescription(taxBehavior: string) {
 }
 
 export function Pricing({ onboarding = false, disabled = false, pendingPlan = null, onSelect }: PricingActions) {
+  const { isSignedIn } = useAuth();
   const { isAuthenticated, isLoading, isRefreshing } = useConvexAuth();
   const status = useQuery(api.billing.status, isAuthenticated && !isLoading && !isRefreshing ? {} : "skip");
   const currentPlan = status?.state === "active" ? status.model : null;
@@ -41,6 +43,8 @@ export function Pricing({ onboarding = false, disabled = false, pendingPlan = nu
   if (isLoading || isRefreshing || (isAuthenticated && status === undefined)) {
     return <AuthPending fallback={<PricingSkeleton />} />;
   }
+
+  if (isSignedIn && !isAuthenticated) return <AuthRecovery />;
 
   if (currentPlan === "lifetime") return <p>You have lifetime access.</p>;
   if (products === undefined) return <AuthPending fallback={<PricingSkeleton />} />;
