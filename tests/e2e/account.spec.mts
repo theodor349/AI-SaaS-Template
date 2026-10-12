@@ -20,8 +20,8 @@ test("unpaid owners edit profiles, preserve drafts, request deletion and recover
     for (const [target, user] of [[page, alice], [other, bob]] as const) {
       await target.goto("/"); await clerk.signIn({ page: target, emailAddress: user.email });
       await target.goto("/account");
-      await expect(target.getByRole("heading", { name: "Your account" })).toBeVisible();
-      await expect(target.getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
+      await expect(target.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
+      await expect(target.getByRole("button", { name: "Open profile menu" })).toBeVisible();
     }
     await page.getByLabel("First name", { exact: true }).fill("");
     await page.getByLabel("Last name", { exact: true }).fill("  Local name  ");
@@ -53,12 +53,14 @@ test("unpaid owners edit profiles, preserve drafts, request deletion and recover
       await page.getByRole("button", { name: "Undo deletion" }).click();
       await expect(page.getByRole("button", { name: "Delete account", exact: true })).toBeVisible({ timeout: 2000 });
     }).toPass({ timeout: 30_000 });
-    await page.getByRole("link", { name: "Billing", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Choose your paid plan" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Sign out", exact: true }).click();
+    await page.getByRole("button", { name: "Open profile menu" }).click();
+    await page.getByRole("menuitem", { name: "Billing", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Billing", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Open profile menu" })).toBeVisible();
+    await page.getByRole("button", { name: "Open profile menu" }).click();
+    await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
     await expect(page).toHaveURL(/\/sign-in|\/$/);
-    await expect(other.getByRole("heading", { name: "Your account" })).toBeVisible();
+    await expect(other.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
   } finally { await otherContext.close(); await Promise.all([alice.cleanup(), bob.cleanup()]); }
 });
 
@@ -81,7 +83,7 @@ test("provider deletion supersedes an open user request and completes cleanup", 
     expect(await adminQuery(admin, internal.users.lookupCurrent, { tokenIdentifier: `${local.env.CLERK_JWT_ISSUER_DOMAIN}|${user.id}` })).toEqual({ status: "deleting" });
     await page.reload();
     await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Your account" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Account", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Undo deletion" })).toHaveCount(0);
   } finally { if (!removed) await user.cleanup(); }
 });
