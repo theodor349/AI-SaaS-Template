@@ -41,10 +41,15 @@ test("Next routes Clerk-style rewrites on the original loopback host", { timeout
     const port = portServer.address().port;
     portServer.close();
     await once(portServer, "close");
+    // A build host can inject Next configuration, adapters, and bundler flags.
+    // This standalone dev server owns its framework configuration.
+    const fixtureEnv = Object.fromEntries(Object.entries(process.env).filter(([name]) =>
+      !/^(?:__NEXT|NEXT_|VERCEL|TURBOPACK|NODE_OPTIONS)/.test(name)));
     child = spawn(process.execPath, [join(root, "node_modules/next/dist/bin/next"), "dev", fixture,
       "--webpack", "--hostname", "127.0.0.1", "--port", String(port)], {
       detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1", NEXT_PUBLIC_APP_URL: "https://agent.example.ts.net:54321" },
+      env: { ...fixtureEnv, NODE_ENV: "development",
+        NEXT_TELEMETRY_DISABLED: "1", NEXT_PUBLIC_APP_URL: "https://agent.example.ts.net:54321" },
     });
     closed = once(child, "close");
     for (const stream of [child.stdout, child.stderr]) stream.on("data", (chunk) => { output += chunk; });
@@ -64,6 +69,8 @@ test("Next routes Clerk-style rewrites on the original loopback host", { timeout
       headers: { origin: "https://another.example.ts.net" }, signal: AbortSignal.timeout(5000),
     });
     assert.equal(blocked.status, 403, "Unconfigured remote origins must remain blocked");
+  } catch (error) {
+    throw new Error(`Next proxy fixture failed.\n${output}`, { cause: error });
   } finally {
     if (child?.pid && child.exitCode === null && child.signalCode === null) {
       const kill = (signal) => process.platform === "win32" ? child.kill(signal) : process.kill(-child.pid, signal);

@@ -26,6 +26,7 @@ is needed. Agent guidance lives in [AGENTS.md](AGENTS.md).
 - `pnpm bootstrap --no-polar` - run Next.js and local Convex without billing.
 - `pnpm test:bootstrap` - test worktree configuration and startup safeguards.
 - `pnpm test:unit` (or `pnpm test`) - run bootstrap checks and any Convex behavior tests added to the app.
+- `pnpm test:app` - run application unit tests without starting dev-server fixtures.
 - `pnpm test:integration` - check the running worktree's local backend and frontend.
 - `pnpm test:e2e` - test sign-in and sign-out with Clerk and Convex in Chromium.
 - `pnpm inspect` - open the running worktree for manual browser inspection.
@@ -34,5 +35,19 @@ is needed. Agent guidance lives in [AGENTS.md](AGENTS.md).
 - `pnpm typecheck` - check TypeScript.
 - `pnpm lint` - check TypeScript and run ESLint.
 - `pnpm build` - build for production.
+- `pnpm build:vercel` - run checks, build Next.js, and deploy Convex from Vercel.
 - `pnpm start` - serve the production build.
 - `pnpm dlx shadcn@latest add <component>` - install a Shadcn component.
+
+## CI and hosted development
+
+GitHub Actions runs unit tests and lint (including TypeScript checking) on every
+pull request and pushes to `main`. Only `main` triggers automatic Vercel
+deployments. Vercel runs application unit tests and lint before building Next.js
+and deploying Convex; failed checks or a failed frontend build stop the backend
+deployment. Dev-server fixtures run on GitHub Actions and locally.
+
+See [deployment setup](docs/deployment.md) for the Vercel project, Convex
+environment variables, and Clerk/Polar webhooks. The hosted app currently uses
+Clerk development and Polar sandbox, with Convex's production deployment serving
+as shared cloud development.

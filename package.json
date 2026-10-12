@@ -7,7 +7,8 @@
     "bootstrap:tailscale": "node scripts/bootstrap-tailscale.mjs",
     "test:bootstrap": "node --test scripts/*.test.mjs",
     "test": "pnpm test:unit",
-    "test:unit": "pnpm test:bootstrap && vitest run",
+    "test:unit": "pnpm test:bootstrap && pnpm test:app",
+    "test:app": "vitest run",
     "test:integration": "node --test tests/integration/*.test.mjs",
     "test:e2e": "playwright test",
     "inspect": "node scripts/inspect.mjs",
@@ -15,6 +16,7 @@
     "dev": "convex dev --start 'next dev'",
     "typecheck": "tsc --noEmit",
     "build": "pnpm run typecheck && next build",
+    "build:vercel": "pnpm test:app && pnpm lint && convex deploy --cmd 'pnpm build' --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL",
     "start": "next start",
     "lint": "pnpm run typecheck && eslint ."
   },
@@ -54,6 +56,9 @@
     ]
   },
   "packageManager": "pnpm@10.12.4",
+  "engines": {
+    "node": "24.x"
+  },
   "devDependencies": {
     "@clerk/testing": "^2.2.43",
     "@edge-runtime/vm": "^5.0.0",
