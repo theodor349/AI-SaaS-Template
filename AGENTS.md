@@ -40,6 +40,7 @@ This template provides shared architecture, UI patterns, and an agent-friendly d
 - Clerk and Polar resources can be shared across worktrees. Use worktree-labeled test resources and separate browser contexts for different users. Shared Polar organizations can deliver events to every listener; `--no-polar` starts the stack without forwarding.
 - `pnpm test:unit` and `pnpm lint` work without running services. Integration tests, E2E tests, and `pnpm inspect` use the running bootstrap environment and check that they target this worktree.
 - Stop your bootstrap with Ctrl+C in its terminal. It cleans up its managed services while leaving other worktrees running.
+- Record persistent commands and their owning terminals as they start, following [resource tracking and cleanup](.agents/skills/complete-worktree/references/cleanup.md). Keep the per-worktree inventory outside tracked source so a later session can recover ownership and finish cleanup.
 
 ## Verifying
 
@@ -51,7 +52,8 @@ This template provides shared architecture, UI patterns, and an agent-friendly d
 ## Pull requests
 
 - Never make a PR unless the developer explicitly asks you to do so.
-- Invoking [$implement](.agents/skills/implement/SKILL.md) with an issue, problem, or feature is an explicit request to implement it in the current T3-assigned worktree, open one PR, and handle bot feedback before asking the maintainer to review. Example: `$implement issue #123`. Do not create another worktree. Follow the skill's completion gates; do not merge the PR.
+- Invoking [$implement](.agents/skills/implement/SKILL.md) with an issue, problem, or feature requests implementation followed automatically by [$complete-worktree](.agents/skills/complete-worktree/SKILL.md). Example: `$implement issue #123`.
+- Invoking `$complete-worktree` directly requests completion of existing task changes, including from a session that never used `$implement`. Both workflows authorize one PR, bot review and fixes, merge after the skill's verification gates, deletion of the task branch, and shutdown of owned services and terminals. Stay in the current T3-assigned worktree; do not create another worktree. Reading or editing these skills does not invoke the workflows. Honor explicit maintainer restrictions such as keeping a PR open.
 - Conventional commit titles, plain language: `fix(web): correctly handle Polar subscription events`.
 - Body: the problem in a sentence or two, then how you fixed it. End with the model and harness that did the work.
 - UI changes need before/after images. Motion or timing needs a short video.
