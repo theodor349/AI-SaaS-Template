@@ -17,8 +17,8 @@ const pages = [
 export function SiteNavigation() {
   const pathname = usePathname();
   const { isLoaded, isSignedIn } = useAuth();
-  const { isAuthenticated, isLoading, isRefreshing } = useConvexAuth();
-  const ready = isAuthenticated && !isLoading && !isRefreshing;
+  const { isLoading, isRefreshing } = useConvexAuth();
+  const pending = isLoading || isRefreshing;
 
   return (
     <header className={styles.bar}>
@@ -29,7 +29,7 @@ export function SiteNavigation() {
             <span>AI SaaS Template</span>
           </Link>
           {isSignedIn && pages.map(({ href, label, icon: Icon }) => {
-            if (label === "Dashboard" && !ready) {
+            if (label === "Dashboard" && pending) {
               return (
                 <span key={href} aria-hidden="true" className={cn(styles.pageLink, styles.disabledLink)}>
                   <Icon size={20} /><span className={styles.pageLabel}>{label}</span>

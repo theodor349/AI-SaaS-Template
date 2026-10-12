@@ -1,15 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { CookiePreferences } from "@/components/layout/cookie-preferences";
 
 export function CookiePreferencesButton() {
   const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   return (
     <>
-      <Button variant="outline" onClick={() => setOpen(true)}>Cookie Preferences</Button>
-      <CookiePreferences open={open} onOpenChange={setOpen} />
+      <Button ref={buttonRef} variant="outline" onClick={() => setOpen(true)}>Cookie Preferences</Button>
+      <CookiePreferences open={open} onOpenChange={setOpen}
+        onCloseAutoFocus={(event) => { event.preventDefault(); buttonRef.current?.focus(); }} />
     </>
   );
 }

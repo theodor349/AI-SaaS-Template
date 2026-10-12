@@ -28,7 +28,6 @@ for (const width of [1280, 390]) {
       expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
       const bar = await page.getByRole("navigation", { name: "Main navigation" }).boundingBox();
       if (width < 768) expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(bar!.y);
-      await page.screenshot({ path: `/tmp/navigation-${width}.png`, fullPage: true, timeout: 5000 });
       // Clicking outside must reach the input without restoring avatar focus.
       const firstName = page.getByLabel("First name", { exact: true });
       await expect(firstName).toBeEnabled();
@@ -69,10 +68,43 @@ for (const width of [1280, 390]) {
         await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
         await expect(page.getByRole("heading", { name: "This page is a placeholder" })).toBeVisible();
       }
-      await page.getByRole("button", { name: "Cookie Preferences" }).click();
+      const cookieButton = page.getByRole("button", { name: "Cookie Preferences" });
+      await cookieButton.click();
       await expect(dialog).toBeVisible();
+      await dialog.getByRole("button", { name: "Done", exact: true }).click();
+      await expect(cookieButton).toBeFocused();
     } finally {
       await user.cleanup();
     }
   });
 }
+
+test("failed Convex authentication keeps Dashboard reachable without exposing protected content", async ({ page }) => {
+  const user = await createClerkTestUser(local);
+  try {
+    await page.goto("/");
+    await clerk.loaded({ page });
+    await page.evaluate(() => {
+      let wrappedSession: string | undefined;
+      window.Clerk.addListener(({ session }) => {
+        if (!session || wrappedSession === session.id) return;
+        wrappedSession = session.id;
+        const getToken = session.getToken.bind(session);
+        session.getToken = async (options) => {
+          if (options?.template === "convex") return null;
+          return getToken(options);
+        };
+      });
+    });
+    await clerk.signIn({ page, emailAddress: user.email });
+    const recovery = page.getByRole("alert").filter({ hasText: "We couldn’t load your account" });
+    await expect(recovery).toBeVisible();
+    await expect(page.getByRole("link", { name: "Dashboard" })).toBeVisible();
+    await page.getByRole("link", { name: "Dashboard" }).click();
+    await expect(page).toHaveURL(/\/app$/);
+    await expect(recovery).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Your application" })).toHaveCount(0);
+  } finally {
+    await user.cleanup();
+  }
+});
