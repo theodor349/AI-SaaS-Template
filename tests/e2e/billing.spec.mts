@@ -198,7 +198,7 @@ test("expiry removes paid pages reactively while billing and account controls re
     await expect(page).toHaveURL(`${local.config.env.APP_URL}/billing`);
     await expect(page.getByRole("heading", { name: "Restore Pro access" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Customer portal" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Open profile menu" })).toBeVisible();
     expect(account.status).toBe("active");
   } finally { await user.cleanup(); }
 });

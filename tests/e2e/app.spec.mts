@@ -299,7 +299,7 @@ test("stalled authentication has a recovery state instead of an endless loading 
     await page.reload();
     await expect(page.getByRole("alert").filter({ hasText: "We couldn’t load your account" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Open profile menu" })).toBeVisible();
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toHaveCount(0);
     expect(page.url()).toBe(`${local.config.env.APP_URL}/app`);
   } finally {

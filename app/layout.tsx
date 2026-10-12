@@ -1,5 +1,5 @@
 import "./globals.css";
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import { ConvexClientProvider } from "./ConvexClientProvider";
 import { ClerkProvider } from "@clerk/nextjs";
@@ -7,10 +7,13 @@ import { cn } from "@/lib/utils";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { AUTHENTICATED_DESTINATION, SIGN_IN_PATH, SIGN_UP_PATH } from "@/lib/auth";
-import { AccountControls } from "@/components/auth/account-controls";
-import { AuthBoundary } from "@/components/auth/auth-boundary";
+import { SiteNavigation } from "@/components/layout/site-navigation";
+import { PageContent } from "@/components/layout/page-content";
+import navigationStyles from "@/components/layout/site-navigation.module.css";
 
 const geist = Geist({subsets:['latin'],variable:'--font-sans'});
+
+export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover" };
 
 export const metadata: Metadata = {
   title: "AI SaaS Template",
@@ -34,14 +37,11 @@ export default function RootLayout({
         >
           <TooltipProvider>
             <ConvexClientProvider>
-              {
-                  <main className="container mx-auto max-w-3xl px-4 py-8">
-                    <AccountControls />
-                    {/* Each component guards its queries and renders its own pending state. */}
-                    <AuthBoundary renderWhilePending>{children}</AuthBoundary>
-                  </main>
-              
-              }</ConvexClientProvider>
+              <SiteNavigation />
+              <main className={cn("container mx-auto max-w-3xl px-4 py-8", navigationStyles.content)}>
+                <PageContent>{children}</PageContent>
+              </main>
+            </ConvexClientProvider>
           </TooltipProvider>
         </ClerkProvider>
         <Toaster closeButton />

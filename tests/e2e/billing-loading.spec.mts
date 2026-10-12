@@ -90,7 +90,7 @@ for (const width of [1280, 390]) {
       const status = page.locator('[data-slot="card"][aria-label="Billing status"]');
       const plans = page.locator('[aria-label="Paid plans"]');
       await expect(page.getByRole("heading", { name: "Billing", exact: true })).toBeVisible();
-      await expect(page.getByRole("navigation", { name: "Account controls" })).toHaveCount(1);
+      await expect(page.getByRole("navigation", { name: "Main navigation" })).toHaveCount(1);
       await expect(status).toHaveAttribute("aria-busy", "true");
       await expect(plans).toHaveAttribute("aria-busy", "true");
       await expect(page.getByRole("button", { name: "Check payment status" })).toHaveCount(0);
