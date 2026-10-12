@@ -64,8 +64,8 @@ function PaymentRedirectContent({ plan }: { plan: Plan }) {
   }, [isLoading, isDeleting, status, plan, router, openPayment]);
 
   if (isLoading) return <AuthPending fallback={<PaymentPending />} />;
-  if (isDeleting) return <PaymentPending heading="Opening your account settings…" />;
-  if (status?.state === "active") return <PaymentPending heading="Opening your billing settings…" />;
+  if (isDeleting) return <PaymentPending heading="Opening your account settings…" message="We’re taking you to your account settings." />;
+  if (status?.state === "active") return <PaymentPending heading="Opening your billing settings…" message="We’re taking you to your billing settings." />;
 
   if (failed) {
     return (
@@ -86,12 +86,15 @@ function PaymentRedirectContent({ plan }: { plan: Plan }) {
   return <PaymentPending />;
 }
 
-function PaymentPending({ heading = "Redirecting to the payment page…" }: { heading?: string }) {
+function PaymentPending({
+  heading = "Redirecting to the payment page…",
+  message = "Please keep this page open while we prepare your secure checkout.",
+}: { heading?: string; message?: string }) {
   return (
     <div role="status" className="flex flex-col gap-5">
       <CreditCard aria-hidden="true" size={32} strokeWidth={1.5} />
       <h1 className="text-3xl font-semibold tracking-tight">{heading}</h1>
-      <p className="leading-relaxed text-muted-foreground">Please keep this page open while we prepare your secure checkout.</p>
+      <p className="leading-relaxed text-muted-foreground">{message}</p>
     </div>
   );
 }
