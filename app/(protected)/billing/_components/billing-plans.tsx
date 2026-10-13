@@ -1,16 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import type { FunctionArgs } from "convex/server";
-import { api } from "@/convex/_generated/api";
+import { toast } from "sonner";
 import { AuthBoundary, AuthPending } from "@/components/auth/auth-boundary";
 import { Pricing, PricingSkeleton } from "@/components/billing/pricing";
 import { useBillingAccount } from "@/components/billing/use-billing-account";
+import type { CheckoutPlan } from "../../_components/use-checkout";
 import { useBillingRequests } from "./billing-actions-provider";
 import { PlanSwitchConfirmation } from "./plan-switch-confirmation";
-
-type Plan = FunctionArgs<typeof api.polar.checkout>["model"];
 
 export function BillingPlans() {
   return (
@@ -33,24 +31,13 @@ function BillingPlansContent() {
   const { actions, checkout } = useBillingRequests();
   const router = useRouter();
   const params = useSearchParams();
+  // Links from pricing and checkout ask subscribers to confirm a recurring plan
+  // switch here. Starting checkout from a URL belongs to /checkout.
   const selected = params.get("plan");
-  const selectedPlan = selected === "monthly" || selected === "yearly" || selected === "lifetime" ? selected : null;
-  const startedCheckout = useRef(false);
+  const selectedPlan = selected === "monthly" || selected === "yearly" ? selected : null;
   const [switchPlan, setSwitchPlan] = useState<"monthly" | "yearly" | null>(null);
   const recurring = status?.state === "active";
   const disabled = actions.isBusy || actions.changePending || checkout.isPending;
-
-  // Resume the plan chosen before sign-in once billing is ready. Consume the
-  // selection before checkout so a failed request or reload cannot repeat it.
-  useEffect(() => {
-    if (!selectedPlan || startedCheckout.current || isLoading || isDeleting ||
-      status?.readiness !== "ready" || status.model === "lifetime" || disabled ||
-      (recurring && selectedPlan !== "lifetime")) return;
-
-    startedCheckout.current = true;
-    router.replace("/billing", { scroll: false });
-    void checkout.purchase(selectedPlan);
-  }, [selectedPlan, isLoading, isDeleting, status, disabled, recurring, router, checkout]);
 
   if (isLoading || !status) {
     return <AuthPending fallback={<BillingPlansSkeleton />} />;
@@ -66,22 +53,26 @@ function BillingPlansContent() {
   else if (actions.isPending("reactivate")) pendingPlan = status.model;
 
   let confirmationPlan = switchPlan;
-  if (recurring && (selectedPlan === "monthly" || selectedPlan === "yearly")) {
+  if (recurring && selectedPlan) {
     confirmationPlan = selectedPlan;
   }
   if (!recurring || status.cancelAtPeriodEnd || confirmationPlan === status.model || confirmationPlan === status.scheduledChange?.model) {
     confirmationPlan = null;
   }
 
-  function selectPlan(model: Plan) {
+  function selectPlan(model: CheckoutPlan) {
     if (disabled) return;
     if (recurring && status.cancelAtPeriodEnd && model === status.model) {
       void actions.run("reactivate");
       return;
     }
     if (recurring && status.cancelAtPeriodEnd && model !== "lifetime") return;
-    if (recurring && model !== "lifetime") setSwitchPlan(model);
-    else void checkout.purchase(model);
+    if (recurring && model !== "lifetime") {
+      setSwitchPlan(model);
+      return;
+    }
+    toast.dismiss("billing-request-error");
+    void checkout.start(model);
   }
 
   function dismissConfirmation() {
