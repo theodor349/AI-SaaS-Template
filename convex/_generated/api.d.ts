@@ -19,6 +19,7 @@ import type * as lib_auth from "../lib/auth.js";
 import type * as lib_billing from "../lib/billing.js";
 import type * as lib_clerk from "../lib/clerk.js";
 import type * as lib_polarWebhook from "../lib/polarWebhook.js";
+import type * as lib_profile from "../lib/profile.js";
 import type * as polar from "../polar.js";
 import type * as profile from "../profile.js";
 import type * as users from "../users.js";
@@ -42,6 +43,7 @@ declare const fullApi: ApiFromModules<{
   "lib/billing": typeof lib_billing;
   "lib/clerk": typeof lib_clerk;
   "lib/polarWebhook": typeof lib_polarWebhook;
+  "lib/profile": typeof lib_profile;
   polar: typeof polar;
   profile: typeof profile;
   users: typeof users;

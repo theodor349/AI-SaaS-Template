@@ -42,7 +42,7 @@ async function* iterate<T>(items: T[]) { yield* items; }
 function setup() { return convexTest(schema, modules); }
 async function provision(t: ReturnType<typeof setup>, identity = tokenIdentifier) {
   return t.run(ctx => ctx.db.insert("users", { tokenIdentifier: identity, clerkId: identity.split("|")[1],
-    email: "alice@example.com", firstName: "Alice", lifecycle: "active", profileUpdatedAt: 1, profileEventAt: 1 }));
+    email: "alice@example.com", displayName: "Alice", lifecycle: "active", profileUpdatedAt: 1, profileEventAt: 1 }));
 }
 function alice(t: ReturnType<typeof setup>) { return t.withIdentity({ tokenIdentifier, subject: "alice", name: "Alice" }); }
 async function reconcile(t: ReturnType<typeof setup>) {
@@ -612,7 +612,7 @@ test("seven day deadline commits deletion, confirms revocation before identity r
   expect(fetchSpy).toHaveBeenCalledWith("https://api.clerk.com/v1/users/alice", expect.objectContaining({ method: "DELETE" }));
   const user = await t.run(ctx => ctx.db.get("users", userId));
   expect((await alice(t).query(api.billing.status, {})).readiness).toBe("deleting");
-  expect(user?.lifecycle).toBe("deleted"); expect(user?.email).toBeUndefined(); expect(user?.firstName).toBeUndefined();
+  expect(user?.lifecycle).toBe("deleted"); expect(user?.email).toBeUndefined(); expect(user?.displayName).toBeUndefined(); expect(user?.firstName).toBeUndefined();
   expect((await t.query(internal.accountLifecycle.context, { requestId: request._id }))?.status).toBe("completed");
   expect(await t.run(ctx => ctx.db.query("billingOrders").take(10))).toEqual([]);
   await t.action(internal.accountLifecycle.process, { requestId: request._id });
@@ -690,18 +690,20 @@ test("another owner cannot see, recover, or supply someone else's deletion id; l
   expect(await t.mutation(internal.accountLifecycle.claim, { requestId: request._id })).toBeNull();
 });
 
-test("locally edited names clear, validate, and survive unrelated Clerk updates while email still synchronizes", async () => {
+test("display names validate and survive Clerk updates while email still synchronizes", async () => {
   const t = setup(); const userId = await provision(t);
-  await alice(t).mutation(api.profile.save, { firstName: "  ", lastName: "  New name  " });
-  expect(await t.run(ctx => ctx.db.get("users", userId))).toMatchObject({ lastName: "New name", profileEdited: true });
-  expect((await t.run(ctx => ctx.db.get("users", userId)))?.firstName).toBeUndefined();
-  for (const invalid of ["a".repeat(101), "bad\u0000name"]) await expect(alice(t).mutation(api.profile.save, { firstName: invalid, lastName: "" })).rejects.toThrow("INVALID_NAME");
-  await t.mutation(internal.users.syncProfile, { profile: { clerkId: "alice", email: "new@example.com", firstName: "Old Clerk name", updatedAt: 100 }, eventAt: 100 });
+  await alice(t).mutation(api.profile.save, { displayName: "  New name  " });
+  expect(await t.run(ctx => ctx.db.get("users", userId))).toMatchObject({ displayName: "New name", profileEdited: true });
+  for (const invalid of ["a".repeat(101), "bad\u0000name"]) await expect(alice(t).mutation(api.profile.save, { displayName: invalid })).rejects.toThrow("INVALID_NAME");
+  await t.mutation(internal.users.syncProfile, { profile: { clerkId: "alice", email: "new@example.com", firstName: "Old Clerk name", lastName: "Surname", updatedAt: 100 }, eventAt: 100 });
   const user = await t.run(ctx => ctx.db.get("users", userId));
-  expect(user?.email).toBe("new@example.com"); expect(user?.firstName).toBeUndefined(); expect(user?.lastName).toBe("New name");
+  expect(user?.email).toBe("new@example.com"); expect(user?.displayName).toBe("New name");
   const bobId = await provision(t, "https://clerk.example|bob");
-  expect((await t.run(ctx => ctx.db.get("users", bobId)))?.firstName).toBe("Alice");
-  await expect(t.mutation(api.profile.save, { firstName: "X", lastName: "" })).rejects.toThrow("UNAUTHENTICATED");
+  expect((await t.run(ctx => ctx.db.get("users", bobId)))?.displayName).toBe("Alice");
+  await expect(t.mutation(api.profile.save, { displayName: "X" })).rejects.toThrow("UNAUTHENTICATED");
+  await alice(t).mutation(api.profile.save, { displayName: "  " });
+  await t.mutation(internal.users.syncProfile, { profile: { clerkId: "alice", email: "new@example.com", firstName: "Provider name", updatedAt: 200 }, eventAt: 200 });
+  expect((await t.run(ctx => ctx.db.get("users", userId)))?.displayName).toBeUndefined();
 });
 
 test("identity cleanup failure retains PII and billing links until retry succeeds, without repeated revocation", async () => {

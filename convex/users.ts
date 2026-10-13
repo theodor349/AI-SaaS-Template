@@ -4,13 +4,14 @@ import { action, env, internalMutation, internalQuery, query } from "./_generate
 import type { Doc } from "./_generated/dataModel";
 import { requireIdentity } from "./lib/auth";
 import { clerkProfile, clerkTokenIdentifier, parseClerkProfile } from "./lib/clerk";
+import { getDisplayName } from "./lib/profile";
 
 export const currentUserResult = v.union(
   v.object({ status: v.literal("provisioning") }),
   v.object({ status: v.literal("deleting") }),
   v.object({ status: v.literal("ready"), user: v.object({
     id: v.id("users"), email: v.string(),
-    firstName: v.union(v.string(), v.null()), lastName: v.union(v.string(), v.null()),
+    displayName: v.union(v.string(), v.null()),
   }) }),
 );
 
@@ -18,7 +19,7 @@ function readiness(user: Doc<"users"> | null) {
   if (user && user.lifecycle !== "active") return { status: "deleting" as const };
   if (!user?.email) return { status: "provisioning" as const };
   return { status: "ready" as const, user: {
-    id: user._id, email: user.email, firstName: user.firstName ?? null, lastName: user.lastName ?? null,
+    id: user._id, email: user.email, displayName: getDisplayName(user) ?? null,
   } };
 }
 
@@ -54,13 +55,13 @@ export const syncProfile = internalMutation({
       return readiness(user);
     }
     const fields = {
-      email: profile.email, firstName: user?.profileEdited ? user.firstName : profile.firstName, lastName: user?.profileEdited ? user.lastName : profile.lastName,
+      email: profile.email, displayName: getDisplayName(user?.profileEdited ? user : profile),
       profileUpdatedAt: profile.updatedAt, profileEventAt: eventAt,
     };
     if (user) {
       // Patch only profile fields; billing and application fields belong to their
       // domain handlers and must survive reconciliation and webhook updates.
-      await ctx.db.patch("users", user._id, fields);
+      await ctx.db.patch("users", user._id, { ...fields, firstName: undefined, lastName: undefined });
       return readiness(await ctx.db.get("users", user._id));
     }
     const id = await ctx.db.insert("users", {

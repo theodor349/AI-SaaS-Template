@@ -29,11 +29,11 @@ for (const width of [1280, 390]) {
       const bar = await page.getByRole("navigation", { name: "Main navigation" }).boundingBox();
       if (width < 768) expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(bar!.y);
       // Clicking outside must reach the input without restoring avatar focus.
-      const firstName = page.getByLabel("First name", { exact: true });
-      await expect(firstName).toBeEnabled();
-      await firstName.click();
+      const displayName = page.getByLabel("Display name", { exact: true });
+      await expect(displayName).toBeEnabled();
+      await displayName.click();
       await expect(menu).toHaveCount(0);
-      await expect(firstName).toBeFocused();
+      await expect(displayName).toBeFocused();
       await expect(trigger).not.toBeFocused();
       await trigger.click();
       await page.keyboard.press("Escape");
