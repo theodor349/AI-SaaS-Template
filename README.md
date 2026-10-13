@@ -1,6 +1,6 @@
 # AI SaaS Template
 
-Next.js, Convex, Clerk, and Shadcn UI, using pnpm.
+Next.js, Convex, Clerk, Polar, and Shadcn UI, using pnpm.
 
 This template supports agents developing and testing features in parallel using Git worktrees through [T3 Code](https://github.com/pingdotgg/t3code).
 
@@ -24,8 +24,9 @@ is needed. Agent guidance lives in [AGENTS.md](AGENTS.md).
 - `pnpm bootstrap` - run an isolated local environment for this worktree.
 - `pnpm bootstrap --print` - print path-derived ports and URLs without starting services.
 - `pnpm bootstrap --no-polar` - run Next.js and local Convex without billing.
+- `pnpm bootstrap:tailscale` - run the worktree environment behind a private Tailscale HTTPS URL.
 - `pnpm test:bootstrap` - test worktree configuration and startup safeguards.
-- `pnpm test:unit` (or `pnpm test`) - run bootstrap checks and any Convex behavior tests added to the app.
+- `pnpm test:unit` (or `pnpm test`) - run bootstrap checks and application tests.
 - `pnpm test:app` - run application unit tests without starting dev-server fixtures.
 - `pnpm test:integration` - check the running worktree's local backend and frontend.
 - `pnpm test:e2e` - test sign-in and sign-out with Clerk and Convex in Chromium.
@@ -41,13 +42,7 @@ is needed. Agent guidance lives in [AGENTS.md](AGENTS.md).
 
 ## CI and hosted development
 
-GitHub Actions runs unit tests and lint (including TypeScript checking) on every
-pull request and pushes to `main`. Only `main` triggers automatic Vercel
-deployments. Vercel runs application unit tests and lint before building Next.js
-and deploying Convex; failed checks or a failed frontend build stop the backend
-deployment. Dev-server fixtures run on GitHub Actions and locally.
-
-See [deployment setup](docs/deployment.md) for the Vercel project, Convex
-environment variables, and Clerk/Polar webhooks. The hosted app currently uses
-Clerk development and Polar sandbox, with Convex's production deployment serving
-as shared cloud development.
+GitHub Actions runs unit tests and lint on every pull request and on pushes to
+`main`. Only `main` deploys to Vercel and Convex. See
+[deployment setup](docs/deployment.md) for the hosted environment, its checks,
+and Clerk/Polar webhooks.
