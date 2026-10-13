@@ -47,6 +47,12 @@ export const syncProfile = internalMutation({
   handler: async (ctx, { profile, eventAt }) => {
     const user = await ctx.db.query("users")
       .withIndex("by_clerkId", (q) => q.eq("clerkId", profile.clerkId)).unique();
+    // Records written while the configured issuer had a trailing slash carry a
+    // key that no caller identity matches; repair it before any early return.
+    const tokenIdentifier = clerkTokenIdentifier(profile.clerkId);
+    if (user && user.tokenIdentifier !== tokenIdentifier) {
+      await ctx.db.patch("users", user._id, { tokenIdentifier });
+    }
     // A Clerk identity cannot be recreated after deletion; a newly registered
     // account has a new Clerk ID. Keep the tombstone even after account cleanup.
     if (user && user.lifecycle !== "active") return readiness(user);
@@ -65,7 +71,7 @@ export const syncProfile = internalMutation({
       return readiness(await ctx.db.get("users", user._id));
     }
     const id = await ctx.db.insert("users", {
-      ...fields, clerkId: profile.clerkId, tokenIdentifier: clerkTokenIdentifier(profile.clerkId), lifecycle: "active",
+      ...fields, clerkId: profile.clerkId, tokenIdentifier, lifecycle: "active",
     });
     return readiness(await ctx.db.get("users", id));
   },
