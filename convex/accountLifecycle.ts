@@ -2,7 +2,7 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import { env, internalAction, internalMutation, internalQuery, mutation, query, type QueryCtx } from "./_generated/server";
 import { requireIdentity } from "./lib/auth";
-import { accountForUser } from "./lib/billing";
+import { accountForUser, syncForCustomer } from "./lib/billing";
 import { clerkTokenIdentifier } from "./lib/clerk";
 import schema from "./schema";
 
@@ -31,7 +31,10 @@ export const requestDeletion = mutation({
     const old = await ctx.db.query("accountLifecycleRequests").withIndex("by_userId", q => q.eq("userId", user._id)).unique();
     if (old?.status === "pending") return null;
     const account = await accountForUser(ctx, user._id);
-    if ((account?.operationLeaseUntil ?? 0) > Date.now()) throw new ConvexError({ code: "BILLING_OPERATION_PENDING" });
+    const sync = account ? await syncForCustomer(ctx, account.customerId) : null;
+    if ((sync?.operationLeaseUntil ?? 0) > Date.now()) {
+      throw new ConvexError({ code: "BILLING_OPERATION_PENDING" });
+    }
     const now = Date.now();
     // Keep paid access recoverable; claim commits terminal lifecycle at the deadline.
     const fields = { userId: user._id, source: "user" as const, requestedAt: now, deleteAfter: now + recoveryWindow,
@@ -156,6 +159,10 @@ export const erase = internalMutation({
         const rows = await ctx.db.query(table).withIndex("by_customerId", q => q.eq("customerId", account.customerId)).take(100);
         for (const row of rows) await ctx.db.delete(table, row._id);
         if (rows.length === 100) return false;
+      }
+      const sync = await syncForCustomer(ctx, account.customerId);
+      if (sync) {
+        await ctx.db.delete("billingSync", sync._id);
       }
       await ctx.db.delete("billingAccounts", account._id);
     }

@@ -1,5 +1,6 @@
 "use client";
 
+import { useQuery } from "convex/react";
 import NextLink from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AuthBoundary, AuthPending } from "@/components/auth/auth-boundary";
@@ -9,6 +10,7 @@ import { Button, ButtonLabel } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { api } from "@/convex/_generated/api";
 import { useBillingAccount } from "@/components/billing/use-billing-account";
 import { useBillingRequests } from "./billing-actions-provider";
 
@@ -46,6 +48,9 @@ export function BillingControlsSkeleton() {
 function BillingControlsContent() {
   const { status, isLoading, isDeleting } = useBillingAccount();
   const { actions, checkout } = useBillingRequests();
+  // Reconciliation problems are separate from the entitlement so bookkeeping
+  // never re-runs every paid page's status subscription.
+  const sync = useQuery(api.billing.syncStatus);
   const params = useSearchParams();
 
   if (isLoading || !status) {
@@ -84,7 +89,7 @@ function BillingControlsContent() {
   const isBusy = actions.isBusy || checkout.isPending;
   const changeDisabled = isBusy || actions.changePending;
   const cancelPending = actions.isPending("cancel") || actions.isPending("reactivate");
-  const hasDetails = lifetime || recurring || isDeleting || confirmationPending || status.failure || actions.isUnconfirmed;
+  const hasDetails = lifetime || recurring || isDeleting || confirmationPending || sync?.failure || actions.isUnconfirmed;
   const hasActions = status.hasCustomer || (recurring && !isDeleting);
   let dateLabel = status.cancelAtPeriodEnd ? "Access ends" : "Paid through";
   let accessDate = status.paidThrough;
@@ -159,11 +164,11 @@ function BillingControlsContent() {
                 Payment confirmation pending. We’ll update this page when paid access is confirmed.
               </p>
             )}
-            {status.failure && (
-              <Alert variant={status.retrying ? "default" : "destructive"}>
-                <AlertTitle>{status.retrying ? "Confirming your billing details" : "We couldn’t update your billing details"}</AlertTitle>
+            {sync?.failure && (
+              <Alert variant={sync.retrying ? "default" : "destructive"}>
+                <AlertTitle>{sync.retrying ? "Confirming your billing details" : "We couldn’t update your billing details"}</AlertTitle>
                 <AlertDescription>
-                  {status.retrying
+                  {sync.retrying
                     ? "We’re retrying the update. Your billing details will refresh when confirmed."
                     : "You can review your subscription in the customer portal."}
                 </AlertDescription>
