@@ -30,7 +30,6 @@ test("unpaid owners edit profiles, preserve drafts, request deletion and recover
     await expect(page.getByLabel("Display name", { exact: true })).toHaveValue("Local name");
     await page.reload();
     await expect(page.getByLabel("Display name", { exact: true })).toHaveValue("Local name");
-    await page.screenshot({ path: "/tmp/issue5-evidence/profile-after.png", fullPage: true });
     await page.getByRole("button", { name: "Open profile menu" }).click();
     await expect(page.getByRole("menu").getByText("Local name", { exact: true })).toBeVisible();
     await page.keyboard.press("Escape");

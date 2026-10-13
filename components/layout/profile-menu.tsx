@@ -32,7 +32,8 @@ export function ProfileMenu() {
   const [signingOut, setSigningOut] = useState(false);
   const [error, setError] = useState<string>();
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const name = current?.status === "ready" && current.user.displayName || "Your account";
+  const displayName = current?.status === "ready" ? current.user.displayName : null;
+  const name = displayName || "Your account";
 
   async function handleSignOut() {
     setSigningOut(true);
