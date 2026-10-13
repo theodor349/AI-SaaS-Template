@@ -2,6 +2,7 @@
 
 import { useAction, useConvexAuth, useQuery } from "convex/react";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
+import { ConvexError } from "convex/values";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
@@ -92,9 +93,13 @@ export function useBillingActions() {
       } else {
         await change({ operation: action });
       }
-    } catch {
+    } catch (error) {
+      const needsReactivation = error instanceof ConvexError &&
+        error.data?.code === "SUBSCRIPTION_REACTIVATION_REQUIRED";
       toast.error("We couldn’t complete the billing request", {
-        description: "Please try again or use the customer portal.",
+        description: needsReactivation
+          ? "Reactivate your subscription before switching plans."
+          : "Please try again or use the customer portal.",
         id: "billing-request-error",
       });
 

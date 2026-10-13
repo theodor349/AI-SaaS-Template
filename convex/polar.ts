@@ -144,10 +144,13 @@ export const changeSubscription = action({
         throw new ConvexError({ code: "SUBSCRIPTION_UNAVAILABLE" });
       }
       if (operation === "monthly" || operation === "yearly") {
+        if (sub.cancel_at_period_end) throw new ConvexError({ code: "SUBSCRIPTION_REACTIVATION_REQUIRED" });
         const product = await validateProduct(p, operation);
         const proration = productModel(sub.product_id) === "yearly" && operation === "monthly" ? "next_period" : "invoice";
         await retry(() => p.subscriptions.update(sub.id, { product_id: product.productId, proration_behavior: proration }));
-      } else await retry(() => p.subscriptions.update(sub.id, { cancel_at_period_end: operation === "cancel" }));
+      } else if (sub.cancel_at_period_end !== (operation === "cancel")) {
+        await retry(() => p.subscriptions.update(sub.id, { cancel_at_period_end: operation === "cancel" }));
+      }
       // The result is confirmed from provider state and paid orders, then published
       // reactively. A successful update alone cannot grant new paid entitlement.
       await ctx.runMutation(internal.billingState.enqueue, { customerId: customer.id });
@@ -185,13 +188,28 @@ export const reconcileCustomer = internalAction({
     const lease = await ctx.runMutation(internal.billingState.lease, { customerId });
     if (!lease) return null;
     let failed = false;
+    let phase = "customer";
     try {
       const p = client(); const customer = await retry(() => p.customers.get(customerId));
       belongs(customer, lease.account.externalId);
+      phase = "history";
       const [subscriptions, orders] = await Promise.all([
         retry(() => bounded(p.subscriptions.iterList({ customer_id: customerId, limit: 100 }), 100)),
         retry(() => bounded(p.orders.iterList({ customer_id: customerId, limit: 100 }), 1000)),
       ]);
+      // Confirm the managed subscription directly: a list captured around an
+      // update can still show the previous renewal flag or plan. Paid orders
+      // remain required when publishing access from this refreshed snapshot.
+      const managedIndex = subscriptions.findIndex(s => s.id === lease.account.subscriptionId);
+      if (managedIndex >= 0) {
+        phase = "managed_subscription";
+        const current = await retry(() => p.subscriptions.get(subscriptions[managedIndex].id));
+        if (current.customer_id !== customerId) throw new Error("Subscription ownership conflict");
+        if (timestamp(current.modified_at ?? current.created_at) >= timestamp(subscriptions[managedIndex].modified_at ?? subscriptions[managedIndex].created_at)) {
+          subscriptions[managedIndex] = current;
+        }
+      }
+      phase = "publish";
       const revoke: string[] = await ctx.runMutation(internal.billingState.apply, { version: lease.version, snapshot: {
         customerId, externalId: customer.external_id ?? undefined,
         subscriptions: subscriptions.map(s => {
@@ -208,6 +226,7 @@ export const reconcileCustomer = internalAction({
           fullyRefunded: o.status === "refunded" || (o.net_amount > 0 && o.refunded_amount >= o.net_amount),
           createdAt: timestamp(o.created_at), modifiedAt: timestamp(o.modified_at ?? o.created_at) })),
       } });
+      phase = "cleanup";
       for (const id of revoke) {
         const sub = await retry(() => p.subscriptions.get(id));
         if (sub.customer_id !== customerId) throw new Error("Subscription ownership conflict");
@@ -215,7 +234,15 @@ export const reconcileCustomer = internalAction({
       }
       // Cleanup has changed provider state; reconcile once again to confirm it.
       if (revoke.length) await ctx.runMutation(internal.billingState.enqueue, { customerId });
-    } catch { failed = true; }
+    } catch (error) {
+      failed = true;
+      console.error("Polar reconciliation failed", {
+        code: "BILLING_RECONCILIATION_FAILED",
+        phase,
+        providerError: error instanceof PolarClientError || error instanceof PolarNetworkError || error instanceof PolarServerError || error instanceof PolarRateLimitError ? error.name : "UnexpectedError",
+        providerStatus: error instanceof PolarClientError || error instanceof PolarServerError ? error.statusCode : null,
+      });
+    }
     await ctx.runMutation(internal.billingState.finish, { customerId, version: lease.version, failed });
     return null;
   },

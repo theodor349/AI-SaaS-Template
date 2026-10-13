@@ -10,6 +10,7 @@ import { ContentSkeleton } from "@/components/loading/content-skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 import { Button, ButtonLabel } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SIGN_UP_PATH } from "@/lib/auth";
 
 const labels = { monthly: "Monthly", yearly: "Yearly", lifetime: "Lifetime" };
@@ -68,6 +69,7 @@ export function Pricing({ onboarding = false, disabled = false, pendingPlan = nu
           signUp={onboarding && !isAuthenticated}
           currentPlan={currentPlan}
           scheduledPlan={status?.scheduledChange?.model}
+          renewalOff={status?.state === "active" && status.cancelAtPeriodEnd}
           disabled={disabled || (isAuthenticated && status?.readiness !== "ready")}
           pendingPlan={pendingPlan}
           onSelect={onSelect}
@@ -97,12 +99,13 @@ export function PricingSkeleton() {
   );
 }
 
-function PlanCard({ product, onboarding = false, signUp = false, disabled = false, loading = false, currentPlan = null, scheduledPlan = null, pendingPlan = null, onSelect }: PricingActions & {
+function PlanCard({ product, onboarding = false, signUp = false, disabled = false, loading = false, currentPlan = null, scheduledPlan = null, renewalOff = false, pendingPlan = null, onSelect }: PricingActions & {
   product: Product;
   signUp?: boolean;
   loading?: boolean;
   currentPlan?: Product["model"] | null;
   scheduledPlan?: Product["model"] | null;
+  renewalOff?: boolean;
 }) {
   const model = product.model;
   const description = model === "lifetime"
@@ -134,19 +137,20 @@ function PlanCard({ product, onboarding = false, signUp = false, disabled = fals
       </div>
       <CardFooter>
         <ContentSkeleton loading={loading}>
-          <PlanAction model={model} onboarding={onboarding} signUp={signUp} currentPlan={currentPlan} scheduledPlan={scheduledPlan} disabled={disabled} pending={pendingPlan === model} onSelect={onSelect} />
+          <PlanAction model={model} onboarding={onboarding} signUp={signUp} currentPlan={currentPlan} scheduledPlan={scheduledPlan} renewalOff={renewalOff} disabled={disabled} pending={pendingPlan === model} onSelect={onSelect} />
         </ContentSkeleton>
       </CardFooter>
     </Card>
   );
 }
 
-function PlanAction({ model, onboarding, signUp, currentPlan, scheduledPlan, disabled, pending, onSelect }: {
+function PlanAction({ model, onboarding, signUp, currentPlan, scheduledPlan, renewalOff, disabled, pending, onSelect }: {
   model: Product["model"];
   onboarding: boolean;
   signUp: boolean;
   currentPlan: Product["model"] | null;
   scheduledPlan: Product["model"] | null;
+  renewalOff: boolean;
   disabled: boolean;
   pending: boolean;
   onSelect?: PricingActions["onSelect"];
@@ -156,6 +160,19 @@ function PlanAction({ model, onboarding, signUp, currentPlan, scheduledPlan, dis
   let label = `Choose ${labels[model].toLowerCase()}`;
   if (model === "lifetime") label = "Get lifetime";
   else if (currentPlan) label = `Switch to ${labels[model].toLowerCase()}`;
+  if (renewalOff && model !== "lifetime") {
+    const explanation = `Renew your subscription to switch to ${labels[model].toLowerCase()}`;
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button type="button" aria-disabled="true" onClick={event => event.preventDefault()}>
+            {label}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{explanation}</TooltipContent>
+      </Tooltip>
+    );
+  }
   if (onSelect || disabled) {
     return (
       <Button disabled={disabled} onClick={() => onSelect?.(model)} aria-busy={pending} aria-live="polite">
