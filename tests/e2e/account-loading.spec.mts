@@ -51,7 +51,7 @@ for (const width of [1280, 390]) {
       await page.goto("/");
       await clerk.signIn({ page, emailAddress: user.email });
       await page.goto("/account");
-      await expect(page.getByLabel("First name", { exact: true })).toBeVisible();
+      await expect(page.getByLabel("Display name", { exact: true })).toBeVisible();
 
       const backend = await holdBackendResponses(page);
       await page.reload();
@@ -73,7 +73,7 @@ for (const width of [1280, 390]) {
 
       backend.release();
 
-      await expect(page.getByLabel("First name", { exact: true })).toBeVisible();
+      await expect(page.getByLabel("Display name", { exact: true })).toBeVisible();
       await expect(page.getByRole("button", { name: "Delete account", exact: true })).toBeVisible();
       await expect(profile).not.toHaveAttribute("aria-busy", "true");
       await expect(deletion).not.toHaveAttribute("aria-busy", "true");
@@ -105,7 +105,7 @@ test("stalled account skeletons offer recovery and resolve when responses arrive
     await page.goto("/");
     await clerk.signIn({ page, emailAddress: user.email });
     await page.goto("/account");
-    await expect(page.getByLabel("First name", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Display name", { exact: true })).toBeVisible();
 
     const backend = await holdBackendResponses(page);
     await page.reload();
@@ -121,7 +121,7 @@ test("stalled account skeletons offer recovery and resolve when responses arrive
 
     backend.release();
 
-    await expect(page.getByLabel("First name", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Display name", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Delete account", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Try again" })).toHaveCount(0);
   } finally {
@@ -136,19 +136,19 @@ test("profile saving uses the button state and persists changes while email stay
     await page.goto("/");
     await clerk.signIn({ page, emailAddress: user.email });
     await page.goto("/account");
-    await expect(page.getByLabel("First name", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Display name", { exact: true })).toBeVisible();
 
     const backend = await holdBackendResponses(page);
     await page.reload();
     await expect(page.locator('[data-slot="card"][aria-busy="true"]')).toHaveCount(2);
     backend.release();
 
-    const lastName = page.getByLabel("Last name", { exact: true });
+    const displayName = page.getByLabel("Display name", { exact: true });
     const email = page.getByLabel("Email", { exact: true });
 
     await expect(email).toHaveValue(user.email);
     await expect(email).toBeDisabled();
-    await lastName.fill("  Saved surname  ");
+    await displayName.fill("  Saved name  ");
 
     backend.hold();
     await page.getByRole("button", { name: "Save profile" }).click();
@@ -156,10 +156,10 @@ test("profile saving uses the button state and persists changes while email stay
 
     backend.release();
     await expect(page.getByRole("button", { name: "Save profile" })).toBeEnabled();
-    await expect(lastName).toHaveValue("Saved surname");
+    await expect(displayName).toHaveValue("Saved name");
 
     await page.reload();
-    await expect(lastName).toHaveValue("Saved surname");
+    await expect(displayName).toHaveValue("Saved name");
     await expect(email).toHaveValue(user.email);
     await expect(email).toBeDisabled();
   } finally {

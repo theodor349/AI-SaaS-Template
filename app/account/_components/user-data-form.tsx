@@ -33,11 +33,7 @@ function UserDataFormSkeleton() {
         </p>
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
-            <Label>First name</Label>
-            <Skeleton size="input" animation="pulse" aria-hidden="true" />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label>Last name</Label>
+            <Label>Display name</Label>
             <Skeleton size="input" animation="pulse" aria-hidden="true" />
           </div>
           <div className="flex flex-col gap-2">
@@ -78,8 +74,7 @@ function UserDataFormContent() {
   const current = useQuery(api.users.current);
   const saveProfile = useMutation(api.profile.save);
   const [draft, setDraft] = useState<{
-    firstName: string;
-    lastName: string;
+    displayName: string;
   } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -93,8 +88,7 @@ function UserDataFormContent() {
 
   const user = current.user;
   const values = draft ?? {
-    firstName: user.firstName ?? "",
-    lastName: user.lastName ?? "",
+    displayName: user.displayName ?? "",
   };
 
   function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
@@ -109,8 +103,7 @@ function UserDataFormContent() {
 
   async function submitProfile() {
     const submitted = {
-      firstName: values.firstName.trim(),
-      lastName: values.lastName.trim(),
+      displayName: values.displayName.trim(),
     };
 
     setIsSaving(true);
@@ -128,7 +121,7 @@ function UserDataFormContent() {
         error.data !== null &&
         error.data.code === "INVALID_NAME"
       ) {
-        description = "Use names up to 100 characters without control characters.";
+        description = "Use a display name up to 100 characters without control characters.";
       }
 
       toast.error("Couldn’t save your profile", {
@@ -148,24 +141,13 @@ function UserDataFormContent() {
       <CardContent>
         <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
           <div className="flex flex-col gap-2">
-            <Label htmlFor="first-name">First name</Label>
+            <Label htmlFor="display-name">Display name</Label>
             <Input
-              id="first-name"
+              id="display-name"
               maxLength={100}
-              value={values.firstName}
+              value={values.displayName}
               onChange={(event) =>
-                setDraft({ ...values, firstName: event.target.value })
-              }
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="last-name">Last name</Label>
-            <Input
-              id="last-name"
-              maxLength={100}
-              value={values.lastName}
-              onChange={(event) =>
-                setDraft({ ...values, lastName: event.target.value })
+                setDraft({ ...values, displayName: event.target.value })
               }
             />
           </div>

@@ -60,7 +60,7 @@ test("signed router requests select the primary email and keep billing fields on
   const t = setup();
   expect((await send(t, event())).status).toBe(200);
   const user = (await rows(t)).users[0];
-  expect(user).toMatchObject({ email: "primary@example.com", firstName: "Alice", lifecycle: "active",
+  expect(user).toMatchObject({ email: "primary@example.com", displayName: "Alice", lifecycle: "active",
     tokenIdentifier: `${issuer}|user_a`, profileUpdatedAt: 100 });
   expect(user.paidEntitlement).toBeUndefined();
   await t.run((ctx) => ctx.db.patch("users", user._id, { paidEntitlement: "pro", applicationPreference: "dark" }));
@@ -69,7 +69,7 @@ test("signed router requests select the primary email and keep billing fields on
   expect((await rows(t)).users).toEqual([expect.objectContaining({
     _id: user._id, email: "other@example.com", paidEntitlement: "pro", applicationPreference: "dark",
   })]);
-  expect((await rows(t)).users[0].firstName).toBeUndefined();
+  expect((await rows(t)).users[0].displayName).toBeUndefined();
 });
 
 test("simultaneous signed duplicates create one user and one successful delivery", async () => {
@@ -87,9 +87,9 @@ test("older updates, including equal object timestamps, cannot overwrite newer p
   await send(t, event(profile("user_a", 200), 220), "new");
   await send(t, event(profile("user_a", 100), 999), "old");
   await send(t, event({ ...profile("user_a", 200), first_name: "stale" }, 210), "older-tie");
-  expect((await rows(t)).users[0]).toMatchObject({ firstName: "Alice", profileUpdatedAt: 200, profileEventAt: 220 });
+  expect((await rows(t)).users[0]).toMatchObject({ displayName: "Alice", profileUpdatedAt: 200, profileEventAt: 220 });
   await send(t, event({ ...profile("user_a", 200), first_name: "new" }, 230), "newer-tie");
-  expect((await rows(t)).users[0].firstName).toBe("new");
+  expect((await rows(t)).users[0].displayName).toBe("new");
 });
 
 test("deletion is durable, idempotent, and terminal even before create or after retention", async () => {
@@ -259,12 +259,12 @@ test("explicit reconciliation preserves paid fields and rejects provider identit
   await t.run((ctx) => ctx.db.patch("users", user._id, { paidEntitlement: "pro" }));
   const alice = t.withIdentity({ issuer, subject: "user_a" });
   const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ ...profile("user_a", 500), first_name: "Updated" }));
-  expect(await alice.action(api.users.ensureCurrentUser, { refresh: true })).toMatchObject({ status: "ready", user: { firstName: "Updated" } });
+  expect(await alice.action(api.users.ensureCurrentUser, { refresh: true })).toMatchObject({ status: "ready", user: { displayName: "Updated" } });
   expect((await rows(t)).users[0].paidEntitlement).toBe("pro");
   fetchMock.mockResolvedValueOnce(Response.json(profile("user_b", 600)));
   await expect(alice.action(api.users.ensureCurrentUser, { refresh: true })).rejects.toThrow("PROVISIONING_FAILED");
   expect((await rows(t)).users).toHaveLength(1);
-  expect((await rows(t)).users[0].firstName).toBe("Updated");
+  expect((await rows(t)).users[0].displayName).toBe("Updated");
 });
 
 test("signed HTTP handler failures return 503, roll back writes, and recover on redelivery", async () => {
