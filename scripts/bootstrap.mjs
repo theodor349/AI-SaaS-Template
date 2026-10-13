@@ -7,6 +7,8 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseEnv } from "node:util";
 
+const polarProductKeys = ["POLAR_PRODUCT_MONTHLY", "POLAR_PRODUCT_YEARLY", "POLAR_PRODUCT_LIFETIME"];
+
 export function worktreeConfig(root) {
   const hash = createHash("sha256").update(root).digest("hex");
   // ponytail: finite port space can collide; fail on occupied ports rather than change URLs.
@@ -46,6 +48,10 @@ export function developmentCredentials(values, polar = true) {
   }
   if (polar && !values.POLAR_ACCESS_TOKEN) {
     throw new Error("POLAR_ACCESS_TOKEN is required. Add a sandbox token to .env.bootstrap.local, or use --no-polar.");
+  }
+  const missingProducts = polarProductKeys.filter(key => !values[key]);
+  if (polar && missingProducts.length) {
+    throw new Error(`Polar plans are missing: ${missingProducts.join(", ")}. Set the sandbox product IDs in the main checkout's .env.bootstrap.local so worktrees inherit them, or use --no-polar.`);
   }
   if (values.CLERK_WEBHOOK_SIGNING_SECRET &&
       !/^whsec_[A-Za-z0-9+/]+={0,2}$/.test(values.CLERK_WEBHOOK_SIGNING_SECRET)) {
@@ -202,10 +208,11 @@ function saveEnvironment(file, values) {
   chmodSync(file, 0o600);
 }
 
-// A copied template's blank signing secret must not replace a persisted secret.
+// Blank optional settings in a copied template keep inherited configuration.
 function credentialOverrides(values) {
+  const inheritedWhenBlank = ["CLERK_WEBHOOK_SIGNING_SECRET", "POLAR_ORGANIZATION_ID", ...polarProductKeys];
   return Object.fromEntries(Object.entries(values).filter(([key, value]) =>
-    key !== "CLERK_WEBHOOK_SIGNING_SECRET" || value !== ""));
+    !inheritedWhenBlank.includes(key) || value !== ""));
 }
 
 export function worktreeCredentials(root, mainRoot, polar = true, inherited = process.env) {
@@ -222,7 +229,7 @@ export function worktreeCredentials(root, mainRoot, polar = true, inherited = pr
   // Re-derive generated issuers after a worktree overrides its Clerk key pair.
   if (localKeys.WORKTREE_ID === worktreeConfig(root).id) delete localKeys.CLERK_JWT_ISSUER_DOMAIN;
   return developmentCredentials({
-    ...providerKeys, ...sharedKeys, ...localKeys,
+    ...credentialOverrides(providerKeys), ...credentialOverrides(sharedKeys), ...credentialOverrides(localKeys),
     ...credentialOverrides(readEnvironment(join(root, ".env.bootstrap.local"))),
     ...credentialOverrides(Object.fromEntries(Object.entries(inherited).filter(([key]) => providerNames.includes(key)))),
   }, polar);
@@ -371,7 +378,7 @@ export async function bootstrap({ browserEnv = {}, onReady } = {}) {
     }
     // Next starts only after the initial Convex push, so its readiness also proves functions exist.
     await waitForServer(config.env.APP_URL, controller.signal);
-    if (polar && ["POLAR_PRODUCT_MONTHLY", "POLAR_PRODUCT_YEARLY", "POLAR_PRODUCT_LIFETIME"].every(key => credentials[key])) {
+    if (polar) {
       await run(["exec", "convex", "run", "--env-file", watchEnvFile, "polar:syncCatalog", "{}"]);
     }
     if (process.platform !== "win32") {

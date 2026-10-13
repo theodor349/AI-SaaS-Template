@@ -3,7 +3,7 @@
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 
-// Wait for deletion state before exposing purchase or subscription actions.
+// Billing and checkout wait for deletion state before exposing payment actions.
 export function useBillingAccount() {
   const status = useQuery(api.billing.status);
   const deletion = useQuery(

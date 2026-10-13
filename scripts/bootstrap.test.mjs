@@ -24,6 +24,9 @@ const credentials = {
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: `pk_test_${Buffer.from("example.clerk.accounts.dev$").toString("base64")}`,
   CLERK_SECRET_KEY: "sk_test_example",
   POLAR_ACCESS_TOKEN: "polar_oat_example",
+  POLAR_PRODUCT_MONTHLY: "monthly",
+  POLAR_PRODUCT_YEARLY: "yearly",
+  POLAR_PRODUCT_LIFETIME: "lifetime",
 };
 
 test("the full worktree path determines stable identifiers and disjoint port blocks", () => {
@@ -47,6 +50,38 @@ test("development credentials derive the Clerk issuer and reject live keys", () 
   assert.throws(() => developmentCredentials({ ...credentials, CLERK_JWT_ISSUER_DOMAIN: "https://wrong.accounts.dev" }), /match/);
   assert.throws(() => developmentCredentials({ ...credentials, POLAR_ACCESS_TOKEN: "" }), /POLAR_ACCESS_TOKEN/);
   assert.doesNotThrow(() => developmentCredentials({ ...credentials, POLAR_ACCESS_TOKEN: "" }, false));
+});
+
+test("billing startup requires every plan while --no-polar works without products", () => {
+  const incomplete = { ...credentials, POLAR_PRODUCT_YEARLY: "" };
+  assert.throws(() => developmentCredentials(incomplete), /POLAR_PRODUCT_YEARLY.*main checkout/);
+  assert.doesNotThrow(() => developmentCredentials(incomplete, false));
+});
+
+test("worktrees inherit shared Polar plans through blank templates and preserve explicit overrides", () => {
+  const fixture = realpathSync(mkdtempSync(join(tmpdir(), "bootstrap billing ")));
+  const mainRoot = join(fixture, "main");
+  const worktreeRoot = join(fixture, "feature");
+  mkdirSync(mainRoot);
+  mkdirSync(worktreeRoot);
+  const products = {
+    POLAR_PRODUCT_MONTHLY: "shared-monthly",
+    POLAR_PRODUCT_YEARLY: "shared-yearly",
+    POLAR_PRODUCT_LIFETIME: "shared-lifetime",
+    POLAR_ORGANIZATION_ID: "shared-org",
+  };
+  try {
+    writeFileSync(join(mainRoot, ".env.bootstrap.local"), environmentFile({ ...credentials, ...products }));
+    const blanks = Object.fromEntries(Object.keys(products).map(key => [key, ""]));
+    writeFileSync(join(worktreeRoot, ".env.local"), environmentFile(blanks));
+    writeFileSync(join(worktreeRoot, ".env.bootstrap.local"), environmentFile(blanks));
+    const inherited = worktreeCredentials(worktreeRoot, mainRoot, true, blanks);
+    for (const [key, value] of Object.entries(products)) assert.equal(inherited[key], value);
+    writeFileSync(join(worktreeRoot, ".env.bootstrap.local"), environmentFile({ ...blanks, POLAR_PRODUCT_YEARLY: "worktree-yearly" }));
+    assert.equal(worktreeCredentials(worktreeRoot, mainRoot, true, {}).POLAR_PRODUCT_YEARLY, "worktree-yearly");
+    assert.equal(worktreeCredentials(worktreeRoot, mainRoot, true, { POLAR_PRODUCT_YEARLY: "shell-yearly" }).POLAR_PRODUCT_YEARLY, "shell-yearly");
+    assert.equal(parseEnv(readFileSync(join(mainRoot, ".env.bootstrap.local"), "utf8")).POLAR_PRODUCT_YEARLY, products.POLAR_PRODUCT_YEARLY);
+  } finally { rmSync(fixture, { recursive: true, force: true }); }
 });
 
 test("child processes cannot inherit a cloud deployment or production Polar environment", () => {

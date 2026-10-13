@@ -4,7 +4,7 @@ import { safeReturnTo } from "./lib/auth";
 
 // Public: /, /layouts, /sign-in, /sign-up, and static assets.
 // Convex HTTP handlers have their own auth boundary; no Next webhook exception exists.
-const isProtectedRoute = createRouteMatcher(["/account(.*)", "/billing(.*)", "/app(.*)", "/api(.*)", "/trpc(.*)"]);
+const isProtectedRoute = createRouteMatcher(["/account(.*)", "/billing(.*)", "/checkout(.*)", "/app(.*)", "/api(.*)", "/trpc(.*)"]);
 const isAuthRoute = createRouteMatcher(["/sign-in(.*)", "/sign-up(.*)"]);
 
 export default clerkMiddleware(async (auth, request) => {
@@ -32,6 +32,7 @@ export const config = {
     "/((?!_next|[^?]*\\.(?:html?|css|js|json|txt|xml|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
     "/app(.*)",
     "/billing(.*)",
+    "/checkout(.*)",
     "/account(.*)",
     "/(api|trpc)(.*)",
   ],

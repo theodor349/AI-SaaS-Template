@@ -38,7 +38,7 @@ export default function RootLayout({
           <TooltipProvider>
             <ConvexClientProvider>
               <SiteNavigation />
-              <main className={cn("container mx-auto max-w-3xl px-4 py-8", navigationStyles.content)}>
+              <main className={cn("container mx-auto max-w-6xl px-4 py-8 sm:px-8", navigationStyles.content)}>
                 <PageContent>{children}</PageContent>
               </main>
             </ConvexClientProvider>
