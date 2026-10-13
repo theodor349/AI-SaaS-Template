@@ -8,6 +8,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseEnv } from "node:util";
 
 const polarProductKeys = ["POLAR_PRODUCT_MONTHLY", "POLAR_PRODUCT_YEARLY", "POLAR_PRODUCT_LIFETIME"];
+// Pushed to the local Convex deployment. Must match the env declared in convex/convex.config.ts.
+export const backendEnvKeys = ["WORKTREE_ID", "APP_URL", "CLERK_JWT_ISSUER_DOMAIN", "CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET", "POLAR_ACCESS_TOKEN", "POLAR_ENVIRONMENT", "POLAR_WEBHOOK_SECRET", "POLAR_ORGANIZATION_ID", ...polarProductKeys];
 
 export function worktreeConfig(root) {
   const hash = createHash("sha256").update(root).digest("hex");
@@ -347,8 +349,7 @@ export async function bootstrap({ browserEnv = {}, onReady } = {}) {
     }
     saveEnvironment(localFile, fileEnv);
     configured = true;
-    const backendEnv = Object.fromEntries(Object.entries(fileEnv).filter(([key]) =>
-      ["WORKTREE_ID", "APP_URL", "CLERK_JWT_ISSUER_DOMAIN", "CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET", "POLAR_ACCESS_TOKEN", "POLAR_ENVIRONMENT", "POLAR_WEBHOOK_SECRET", "POLAR_ORGANIZATION_ID", "POLAR_PRODUCT_MONTHLY", "POLAR_PRODUCT_YEARLY", "POLAR_PRODUCT_LIFETIME"].includes(key)));
+    const backendEnv = Object.fromEntries(Object.entries(fileEnv).filter(([key]) => backendEnvKeys.includes(key)));
     const backendEnvFile = join(root, ".env.convex.local");
     saveEnvironment(backendEnvFile, backendEnv);
     const watchEnvFile = join(root, ".env.convex-watch.local");

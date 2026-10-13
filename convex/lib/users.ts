@@ -1,0 +1,61 @@
+import { v } from "convex/values";
+import type { Doc } from "../_generated/dataModel";
+import type { QueryCtx } from "../_generated/server";
+import { requireIdentity } from "./auth";
+import { appError } from "./errors";
+import { getDisplayName } from "./profile";
+
+type DbCtx = Pick<QueryCtx, "db">;
+type CallerCtx = Pick<QueryCtx, "auth" | "db">;
+
+export const currentUserResult = v.union(
+  v.object({ status: v.literal("provisioning") }),
+  v.object({ status: v.literal("deleting") }),
+  v.object({ status: v.literal("ready"), user: v.object({
+    id: v.id("users"), email: v.string(),
+    displayName: v.union(v.string(), v.null()),
+  }) }),
+);
+
+export function userByTokenIdentifier(ctx: DbCtx, tokenIdentifier: string) {
+  return ctx.db.query("users")
+    .withIndex("by_tokenIdentifier", (q) => q.eq("tokenIdentifier", tokenIdentifier))
+    .unique();
+}
+
+export function userByClerkId(ctx: DbCtx, clerkId: string) {
+  return ctx.db.query("users")
+    .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
+    .unique();
+}
+
+// The caller's record, or null while it is still being provisioned.
+export async function getCurrentUser(ctx: CallerCtx) {
+  const identity = await requireIdentity(ctx);
+  return userByTokenIdentifier(ctx, identity.tokenIdentifier);
+}
+
+// Any provisioned caller, including one whose account is being deleted.
+export async function requireOwner(ctx: CallerCtx) {
+  const user = await getCurrentUser(ctx);
+  if (!user) throw appError("PROVISIONING_REQUIRED");
+  return user;
+}
+
+// A provisioned caller whose account is active.
+export async function requireUser(ctx: CallerCtx) {
+  const user = await getCurrentUser(ctx);
+  if (!user?.email) throw appError("PROVISIONING_REQUIRED");
+  if (user.lifecycle !== "active") throw appError("ACCOUNT_UNAVAILABLE");
+  return user;
+}
+
+// The client-facing account state. Authenticated absence is provisioning, never
+// sign-out. It omits provider identifiers and makes no assertion about paid entitlement.
+export function readiness(user: Doc<"users"> | null) {
+  if (user && user.lifecycle !== "active") return { status: "deleting" as const };
+  if (!user?.email) return { status: "provisioning" as const };
+  return { status: "ready" as const, user: {
+    id: user._id, email: user.email, displayName: getDisplayName(user) ?? null,
+  } };
+}

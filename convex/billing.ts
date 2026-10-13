@@ -1,17 +1,11 @@
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { internalMutation, internalQuery, query, type QueryCtx } from "./_generated/server";
-import { requireIdentity } from "./lib/auth";
-import { accountForUser, billingModel, requirePro, scheduledRetries, syncForCustomer } from "./lib/billing";
+import { accountForUser, requirePro, scheduledRetries, syncForCustomer } from "./lib/billing";
+import { billingModel } from "./lib/billingModel";
 import { getDisplayName } from "./lib/profile";
+import { getCurrentUser, readiness } from "./lib/users";
 import schema, { scheduledPlanChange } from "./schema";
-
-async function currentUser(ctx: QueryCtx) {
-  const identity = await requireIdentity(ctx);
-  return ctx.db.query("users")
-    .withIndex("by_tokenIdentifier", (q) => q.eq("tokenIdentifier", identity.tokenIdentifier))
-    .unique();
-}
 
 async function lifetimePurchasedAt(ctx: QueryCtx, account: Doc<"billingAccounts"> | null) {
   if (account?.status !== "active" || account.model !== "lifetime" || !account.lifetimeOrderId) {
@@ -43,16 +37,10 @@ export const status = query({
     scheduledChange: v.union(scheduledPlanChange, v.null()),
   }),
   handler: async (ctx) => {
-    const user = await currentUser(ctx);
+    const user = await getCurrentUser(ctx);
     const account = user ? await accountForUser(ctx, user._id) : null;
-    let readiness: "provisioning" | "ready" | "deleting" = "ready";
-    if (user && user.lifecycle !== "active") {
-      readiness = "deleting";
-    } else if (!user?.email) {
-      readiness = "provisioning";
-    }
     return {
-      readiness,
+      readiness: readiness(user).status,
       state: account?.status ?? "awaiting_payment",
       model: account?.model ?? null,
       paidThrough: account?.paidThrough ?? null,
@@ -71,7 +59,7 @@ export const syncStatus = query({
   args: {},
   returns: v.object({ failure: v.union(v.string(), v.null()), retrying: v.boolean() }),
   handler: async (ctx) => {
-    const user = await currentUser(ctx);
+    const user = await getCurrentUser(ctx);
     const account = user ? await accountForUser(ctx, user._id) : null;
     const sync = account ? await syncForCustomer(ctx, account.customerId) : null;
     if (!sync?.failureCode) {

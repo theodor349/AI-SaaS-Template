@@ -1,11 +1,11 @@
 "use client";
 
 import { useMutation, useQuery } from "convex/react";
-import { ConvexError } from "convex/values";
 import { AlertCircleIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
+import { hasErrorCode } from "@/convex/lib/errors";
 import { AuthBoundary, AuthPending } from "@/components/auth/auth-boundary";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
@@ -96,12 +96,7 @@ function AccountDeletionContent() {
     } catch (error) {
       let description = "We couldn’t complete the request. Try again in a moment.";
 
-      if (
-        error instanceof ConvexError &&
-        typeof error.data === "object" &&
-        error.data !== null &&
-        error.data.code === "RECOVERY_UNAVAILABLE"
-      ) {
+      if (hasErrorCode(error, "RECOVERY_UNAVAILABLE")) {
         description =
           "The recovery window has closed. Deletion can no longer be undone.";
       }

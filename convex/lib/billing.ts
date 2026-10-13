@@ -1,11 +1,8 @@
-import { ConvexError, v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { env, type QueryCtx } from "../_generated/server";
-import { requireIdentity } from "./auth";
-
-export const billingModel = v.union(v.literal("monthly"), v.literal("yearly"), v.literal("lifetime"));
-export type BillingModel = "monthly" | "yearly" | "lifetime";
-export const models: BillingModel[] = ["monthly", "yearly", "lifetime"];
+import { billingModels, type BillingModel } from "./billingModel";
+import { appError } from "./errors";
+import { requireUser } from "./users";
 
 // Failed reconciliations retry themselves this many times with backoff. Later
 // retries come from the scheduled sweep and are no longer shown as retrying.
@@ -18,34 +15,35 @@ export function configuredProduct(model: BillingModel) {
     lifetime: env.POLAR_PRODUCT_LIFETIME,
   };
   const id = products[model];
-  const incomplete = models.some((m) => !products[m]);
-  const distinct = new Set(Object.values(products)).size === models.length;
+  const incomplete = billingModels.some((m) => !products[m]);
+  const distinct = new Set(Object.values(products)).size === billingModels.length;
   if (!id || incomplete || !distinct) {
-    throw new ConvexError({ code: "BILLING_CONFIGURATION_REQUIRED" });
+    throw appError("BILLING_CONFIGURATION_REQUIRED");
   }
   return id;
 }
 
 export function productModel(id: string) {
-  return models.find((model) => configuredProduct(model) === id);
+  return billingModels.find((model) => configuredProduct(model) === id);
+}
+
+// Polar customers are shared across worktrees, so their external ID scopes the
+// application identity to this worktree: `${WORKTREE_ID}:${tokenIdentifier}`.
+function externalIdPrefix() {
+  return `${env.WORKTREE_ID}:`;
 }
 
 export function externalCustomerId(tokenIdentifier: string) {
-  return `${env.WORKTREE_ID}:${tokenIdentifier}`;
+  return `${externalIdPrefix()}${tokenIdentifier}`;
 }
 
-export async function requireUser(ctx: QueryCtx) {
-  const identity = await requireIdentity(ctx);
-  const user = await ctx.db.query("users")
-    .withIndex("by_tokenIdentifier", (q) => q.eq("tokenIdentifier", identity.tokenIdentifier))
-    .unique();
-  if (!user?.email) {
-    throw new ConvexError({ code: "PROVISIONING_REQUIRED" });
-  }
-  if (user.lifecycle !== "active") {
-    throw new ConvexError({ code: "ACCOUNT_UNAVAILABLE" });
-  }
-  return user;
+export function isWorktreeExternalId(externalId: string | null | undefined) {
+  return externalId?.startsWith(externalIdPrefix()) === true;
+}
+
+// The owner's tokenIdentifier, or null for another worktree's or a foreign ID.
+export function externalIdTokenIdentifier(externalId: string | null | undefined) {
+  return externalId && isWorktreeExternalId(externalId) ? externalId.slice(externalIdPrefix().length) : null;
 }
 
 export async function accountForUser(ctx: QueryCtx, userId: Id<"users">) {
@@ -73,7 +71,7 @@ export async function requirePro(ctx: QueryCtx, now?: number) {
   const account = await accountForUser(ctx, user._id);
   const expired = now !== undefined && account?.paidThrough !== undefined && account.paidThrough <= now;
   if (account?.status !== "active" || expired) {
-    throw new ConvexError({ code: "PAID_ACCESS_REQUIRED" });
+    throw appError("PAID_ACCESS_REQUIRED");
   }
   return user;
 }
@@ -81,11 +79,11 @@ export async function requirePro(ctx: QueryCtx, now?: number) {
 export function billingReturnUrl(value: string) {
   const origin = new URL(env.APP_URL).origin;
   if (/[\\\u0000- ]/.test(value)) {
-    throw new ConvexError({ code: "INVALID_RETURN_URL" });
+    throw appError("INVALID_RETURN_URL");
   }
   const url = new URL(value, origin);
   if (url.origin !== origin || url.username || url.password || url.pathname !== "/billing") {
-    throw new ConvexError({ code: "INVALID_RETURN_URL" });
+    throw appError("INVALID_RETURN_URL");
   }
   return url.toString();
 }

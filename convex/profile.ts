@@ -1,11 +1,12 @@
-import { ConvexError, v } from "convex/values";
+import { v } from "convex/values";
 import { mutation } from "./_generated/server";
-import { requireUser } from "./lib/billing";
+import { appError } from "./lib/errors";
+import { requireUser } from "./lib/users";
 
 // The display name belongs to the application after the first edit; email remains Clerk-owned.
 export function normalizeName(value: string) {
   const name = value.trim();
-  if (name.length > 100 || /[\u0000-\u001f\u007f]/u.test(name)) throw new ConvexError({ code: "INVALID_NAME" });
+  if (name.length > 100 || /[\u0000-\u001f\u007f]/u.test(name)) throw appError("INVALID_NAME");
   return name || undefined;
 }
 export const save = mutation({

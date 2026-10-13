@@ -2,10 +2,10 @@
 
 import { useAction, useConvexAuth, useQuery } from "convex/react";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
-import { ConvexError } from "convex/values";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
+import { hasErrorCode } from "@/convex/lib/errors";
 
 type SubscriptionOperation = FunctionArgs<typeof api.polar.changeSubscription>["operation"];
 type BillingAction = SubscriptionOperation | "portal";
@@ -94,8 +94,7 @@ export function useBillingActions() {
         await change({ operation: action });
       }
     } catch (error) {
-      const needsReactivation = error instanceof ConvexError &&
-        error.data?.code === "SUBSCRIPTION_REACTIVATION_REQUIRED";
+      const needsReactivation = hasErrorCode(error, "SUBSCRIPTION_REACTIVATION_REQUIRED");
       toast.error("We couldn’t complete the billing request", {
         description: needsReactivation
           ? "Reactivate your subscription before switching plans."

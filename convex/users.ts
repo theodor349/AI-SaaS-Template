@@ -1,52 +1,29 @@
-import { ConvexError, v, type Infer } from "convex/values";
+import { v, type Infer } from "convex/values";
 import { internal } from "./_generated/api";
-import { action, env, internalMutation, internalQuery, query } from "./_generated/server";
-import type { Doc } from "./_generated/dataModel";
+import { action, internalMutation, internalQuery, query } from "./_generated/server";
 import { requireIdentity } from "./lib/auth";
 import { clerkIssuer, clerkProfile, clerkTokenIdentifier, parseClerkProfile } from "./lib/clerk";
+import { fetchClerkUser } from "./lib/clerkApi";
+import { appError } from "./lib/errors";
 import { getDisplayName } from "./lib/profile";
+import { currentUserResult, getCurrentUser, readiness, userByClerkId, userByTokenIdentifier } from "./lib/users";
 
-export const currentUserResult = v.union(
-  v.object({ status: v.literal("provisioning") }),
-  v.object({ status: v.literal("deleting") }),
-  v.object({ status: v.literal("ready"), user: v.object({
-    id: v.id("users"), email: v.string(),
-    displayName: v.union(v.string(), v.null()),
-  }) }),
-);
-
-function readiness(user: Doc<"users"> | null) {
-  if (user && user.lifecycle !== "active") return { status: "deleting" as const };
-  if (!user?.email) return { status: "provisioning" as const };
-  return { status: "ready" as const, user: {
-    id: user._id, email: user.email, displayName: getDisplayName(user) ?? null,
-  } };
-}
-
-// Authenticated absence is provisioning, never sign-out. This DTO deliberately
-// omits provider identifiers and makes no assertion about paid entitlement.
 export const current = query({
   args: {}, returns: currentUserResult,
-  handler: async (ctx) => {
-    const identity = await requireIdentity(ctx);
-    return readiness(await ctx.db.query("users")
-      .withIndex("by_tokenIdentifier", (q) => q.eq("tokenIdentifier", identity.tokenIdentifier)).unique());
-  },
+  handler: async (ctx) => readiness(await getCurrentUser(ctx)),
 });
 
 export const byClerkId = internalQuery({
   args: { clerkId: v.string() },
   returns: v.union(v.null(), v.id("users")),
-  handler: async (ctx, { clerkId }) => (await ctx.db.query("users")
-    .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId)).unique())?._id ?? null,
+  handler: async (ctx, { clerkId }) => (await userByClerkId(ctx, clerkId))?._id ?? null,
 });
 
 export const syncProfile = internalMutation({
   args: { profile: clerkProfile, eventAt: v.number() },
   returns: currentUserResult,
   handler: async (ctx, { profile, eventAt }) => {
-    const user = await ctx.db.query("users")
-      .withIndex("by_clerkId", (q) => q.eq("clerkId", profile.clerkId)).unique();
+    const user = await userByClerkId(ctx, profile.clerkId);
     // Records written while the configured issuer had a trailing slash carry a
     // key that no caller identity matches; repair it before any early return.
     const tokenIdentifier = clerkTokenIdentifier(profile.clerkId);
@@ -85,32 +62,22 @@ export const ensureCurrentUser = action({
     const identity = await requireIdentity(ctx);
     if (identity.issuer !== clerkIssuer() ||
         identity.tokenIdentifier !== clerkTokenIdentifier(identity.subject)) {
-      throw new ConvexError({ code: "UNAUTHENTICATED" });
+      throw appError("UNAUTHENTICATED");
     }
     const current = await ctx.runQuery(internal.users.lookupCurrent, { tokenIdentifier: identity.tokenIdentifier });
     if (current.status === "deleting" || (current.status === "ready" && !refresh)) return current;
     try {
-      if (!env.CLERK_SECRET_KEY) throw new Error("Missing configuration");
-      const response = await fetch(`https://api.clerk.com/v1/users/${encodeURIComponent(identity.subject)}`, {
-        headers: { Authorization: `Bearer ${env.CLERK_SECRET_KEY}` },
-        signal: AbortSignal.timeout(15000),
-      });
-      // A 404 can mean the Backend API key belongs to another Clerk instance.
-      // Only signed deletion events may create terminal lifecycle requests.
-      if (!response.ok) throw new Error("Provider request failed");
-      const data: unknown = await response.json();
-      const profile = parseClerkProfile(data);
+      const profile = parseClerkProfile(await fetchClerkUser(identity.subject));
       if (profile.clerkId !== identity.subject) throw new Error("Provider identity mismatch");
       return await ctx.runMutation(internal.users.syncProfile, { profile, eventAt: profile.updatedAt });
     } catch {
       console.error("User provisioning failed", { code: "PROVISIONING_FAILED" });
-      throw new ConvexError({ code: "PROVISIONING_FAILED" });
+      throw appError("PROVISIONING_FAILED");
     }
   },
 });
 
 export const lookupCurrent = internalQuery({
   args: { tokenIdentifier: v.string() }, returns: currentUserResult,
-  handler: async (ctx, { tokenIdentifier }) => readiness(await ctx.db.query("users")
-    .withIndex("by_tokenIdentifier", (q) => q.eq("tokenIdentifier", tokenIdentifier)).unique()),
+  handler: async (ctx, { tokenIdentifier }) => readiness(await userByTokenIdentifier(ctx, tokenIdentifier)),
 });
