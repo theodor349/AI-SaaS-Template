@@ -336,6 +336,54 @@ for (const model of ["monthly", "yearly"] as const) {
   });
 }
 
+test("billing retries show progress until a yearly payment is confirmed", async ({ page, browser }) => {
+  const user = await createClerkTestUser(local);
+  const { client: admin } = billingTestAdmin();
+  let recording;
+  try {
+    const fixture = await seedPaidTestUser(user, "monthly");
+    await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email });
+    recording = await browser.newContext({ baseURL: local.config.env.APP_URL,
+      storageState: await page.context().storageState(),
+      recordVideo: { dir: "/tmp/subscription-pr-evidence/video", size: { width: 1280, height: 800 } } });
+    const recordedPage = await recording.newPage();
+    await recordedPage.goto("/billing");
+    await expect(recordedPage.getByLabel("Plan", { exact: true })).toHaveValue("Monthly Pro");
+
+    const failedLease = await leaseBillingFixture(fixture.customerId);
+    await adminMutation(admin, internal.billingState.finish, { customerId: fixture.customerId, version: failedLease.version, failed: true });
+    await expect(recordedPage.getByText("Confirming your billing details", { exact: true })).toBeVisible();
+    await expect(recordedPage.getByText("We couldn’t update your billing details", { exact: true })).toHaveCount(0);
+    await expect(recordedPage.getByLabel("Plan", { exact: true })).toHaveValue("Monthly Pro");
+    await recordedPage.screenshot({ path: "/tmp/subscription-pr-evidence/after-retrying.png", fullPage: true });
+    await delay(700); // Let the short PR recording show the pending state.
+
+    const lease = await leaseBillingFixture(fixture.customerId);
+    const now = Date.now();
+    const productId = local.env.POLAR_PRODUCT_YEARLY!;
+    await adminMutation(admin, internal.billingState.apply, { version: lease.version, snapshot: {
+      customerId: fixture.customerId, externalId: fixture.externalId,
+      subscriptions: [{ id: fixture.subscriptionId, productId, status: "active", start: now - 1000,
+        end: now + 365 * 24 * 60 * 60_000, modifiedAt: now, cancelAtPeriodEnd: false }],
+      orders: [{ id: `fixture-confirmed-${user.id}`, productId, subscriptionId: fixture.subscriptionId,
+        paid: true, fullyRefunded: false, createdAt: now, modifiedAt: now }],
+    } });
+    await adminMutation(admin, internal.billingState.finish, { customerId: fixture.customerId, version: lease.version, failed: false });
+    await expect(recordedPage.getByLabel("Plan", { exact: true })).toHaveValue("Yearly Pro");
+    await expect(recordedPage.getByText("Confirming your billing details", { exact: true })).toHaveCount(0);
+    await expect(recordedPage.getByText("We couldn’t update your billing details", { exact: true })).toHaveCount(0);
+    await recordedPage.screenshot({ path: "/tmp/subscription-pr-evidence/after-confirmed.png", fullPage: true });
+    await delay(700);
+    const video = recordedPage.video();
+    await recording.close();
+    recording = undefined;
+    await copyFile(await video!.path(), "/tmp/subscription-pr-evidence/billing-confirmation.webm");
+  } finally {
+    await recording?.close();
+    await user.cleanup();
+  }
+});
+
 test("repeated switches and cancellation cycles confirm reactive state; failures clear obsolete expectations", async ({ page }) => {
   const user = await createClerkTestUser(local);
   let release: (() => void) | undefined;

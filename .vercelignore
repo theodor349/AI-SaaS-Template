@@ -3,6 +3,7 @@
 .agents/
 .claude/
 *.tsbuildinfo
+.playwright/
 coverage/
 playwright-report/
 test-results/
