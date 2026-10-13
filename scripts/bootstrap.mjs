@@ -186,6 +186,17 @@ export function descendantProcessGroups(pids, processTable) {
     .filter((group) => Number.isInteger(group) && group > 1);
 }
 
+// macOS returns EPERM for a group whose members are all zombies (Z) or exiting (E),
+// e.g. a backend flushing its database after its CLI leader already exited.
+export function darwinGroupMembers(group, processTable) {
+  const states = processTable.trim().split("\n").map((row) => row.trim().split(/\s+/))
+    .filter(([id, state]) => Number(id) === group && state).map(([, state]) => state);
+  return {
+    live: states.some((state) => !/[ZE]/.test(state)),
+    exiting: states.some((state) => state.includes("E")),
+  };
+}
+
 export function signalProcessGroup(group, signal) {
   if (!Number.isInteger(group) || group <= 1) throw new Error(`Invalid process group ${group}.`);
   try {
@@ -194,13 +205,9 @@ export function signalProcessGroup(group, signal) {
   } catch (error) {
     if (error.code === "ESRCH") return false;
     if (process.platform === "darwin" && error.code === "EPERM") {
-      // macOS returns EPERM for groups with only zombies. They need no signals.
-      const rows = execFileSync("ps", ["-eo", "pgid=,stat="], { encoding: "utf8" }).trim().split("\n");
-      const live = rows.some((row) => {
-        const [id, state] = row.trim().split(/\s+/);
-        return Number(id) === group && state && !state.startsWith("Z");
-      });
-      if (!live) return false;
+      const { live, exiting } = darwinGroupMembers(group, execFileSync("ps", ["-eo", "pgid=,stat="], { encoding: "utf8" }));
+      // Exiting members need no signal but still count as running until they finish.
+      if (!live) return signal === 0 && exiting;
     }
     throw error;
   }

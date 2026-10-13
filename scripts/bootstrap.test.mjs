@@ -308,6 +308,14 @@ test("macOS zombie-only groups cannot interrupt cleanup, while live permission e
   assert.throws(() => bootstrap.signalProcessGroup(ownGroup, "SIGTERM"), (actual) => actual === error);
 });
 
+test("macOS groups with only exiting members need no signal but still count as running", () => {
+  // A local Convex backend can keep exiting after its CLI leader became a zombie.
+  const exiting = "4242 Z\n4242 ?E\n99 S";
+  assert.deepEqual(bootstrap.darwinGroupMembers(4242, exiting), { live: false, exiting: true });
+  assert.deepEqual(bootstrap.darwinGroupMembers(4242, "4242 Z\n99 S"), { live: false, exiting: false });
+  assert.deepEqual(bootstrap.darwinGroupMembers(4242, "4242 Ss\n4242 ?E"), { live: true, exiting: true });
+});
+
 test("Clerk webhook secrets are validated and available without Polar forwarding", () => {
   const secret = `whsec_${Buffer.from("local test secret").toString("base64")}`;
   assert.equal(developmentCredentials({ ...credentials, CLERK_WEBHOOK_SIGNING_SECRET: secret }, false).CLERK_WEBHOOK_SIGNING_SECRET, secret);
