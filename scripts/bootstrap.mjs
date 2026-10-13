@@ -2,7 +2,7 @@ import { spawn, execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, realpathSync, writeFileSync, chmodSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseEnv } from "node:util";
@@ -32,7 +32,7 @@ export function worktreeConfig(root) {
   };
 }
 
-export function developmentCredentials(values, polar = true) {
+export function developmentCredentials(values, polar = true, settingsFile = "the main checkout's .env.bootstrap.local") {
   if (!values.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.startsWith("pk_test_") ||
       !values.CLERK_SECRET_KEY?.startsWith("sk_test_")) {
     throw new Error("Clerk development keys are required in .env.bootstrap.local (pk_test_ and sk_test_).");
@@ -51,7 +51,13 @@ export function developmentCredentials(values, polar = true) {
   }
   const missingProducts = polarProductKeys.filter(key => !values[key]);
   if (polar && missingProducts.length) {
-    throw new Error(`Polar plans are missing: ${missingProducts.join(", ")}. Set the sandbox product IDs in the main checkout's .env.bootstrap.local so worktrees inherit them, or use --no-polar.`);
+    throw new Error([
+      `Polar sandbox product IDs are missing: ${missingProducts.join(", ")}.`,
+      `Add these lines to ${settingsFile}, which every worktree inherits:`,
+      ...missingProducts.map(key => `  ${key}=<product ID>`),
+      "Copy each ID from sandbox.polar.sh > Products: a monthly, a yearly, and a one-time fixed-price product.",
+      "Or run pnpm bootstrap --no-polar to start without billing.",
+    ].join("\n"));
   }
   if (values.CLERK_WEBHOOK_SIGNING_SECRET &&
       !/^whsec_[A-Za-z0-9+/]+={0,2}$/.test(values.CLERK_WEBHOOK_SIGNING_SECRET)) {
@@ -232,7 +238,7 @@ export function worktreeCredentials(root, mainRoot, polar = true, inherited = pr
     ...credentialOverrides(providerKeys), ...credentialOverrides(sharedKeys), ...credentialOverrides(localKeys),
     ...credentialOverrides(readEnvironment(join(root, ".env.bootstrap.local"))),
     ...credentialOverrides(Object.fromEntries(Object.entries(inherited).filter(([key]) => providerNames.includes(key)))),
-  }, polar);
+  }, polar, join(mainRoot, ".env.bootstrap.local"));
 }
 
 async function processTable() {
@@ -300,11 +306,18 @@ export async function bootstrap({ browserEnv = {}, onReady } = {}) {
   process.stdout.on("error", outputErrorHandler);
   process.stderr.on("error", outputErrorHandler);
 
+  // Project CLIs run from node_modules/.bin instead of `pnpm exec`. The standalone
+  // pnpm executable embeds a Node runtime that reads `--env-file <path>` anywhere in
+  // its own argv, so `pnpm exec convex run --env-file <absolute path>` exits 9 before
+  // the CLI starts; a relative path works only by accident.
+  const tool = (name) => join(root, "node_modules/.bin", name);
+  const describe = (command, commandArgs) => `${basename(command)} ${commandArgs.slice(0, 2).join(" ")}`;
+
   function start(command, commandArgs, persistent = false, capture = false) {
     controller.signal.throwIfAborted();
     // Polar prints its signing secret during startup. Capture only --print-secret;
     // discard other Polar output, including stderr, to keep credentials private.
-    const quiet = command === "pnpm" && commandArgs[0] === "exec" && commandArgs[1] === "polar";
+    const quiet = command === tool("polar");
     const child = spawn(command, commandArgs, {
       cwd: root, env, detached: process.platform !== "win32",
       stdio: ["ignore", capture ? "pipe" : quiet ? "ignore" : "inherit", quiet ? "ignore" : "inherit"],
@@ -318,28 +331,28 @@ export async function bootstrap({ browserEnv = {}, onReady } = {}) {
     children.push({ child, done, persistent });
     if (persistent) {
       void done.then(() => {
-        if (!stopping) controller.abort(new Error(`${command} ${commandArgs.slice(0, 2).join(" ")} exited unexpectedly.`));
+        if (!stopping) controller.abort(new Error(`${describe(command, commandArgs)} exited unexpectedly.`));
       });
     }
     return done;
   }
 
-  async function run(commandArgs, capture = false) {
-    const result = await start("pnpm", commandArgs, false, capture);
+  async function run(command, commandArgs, capture = false) {
+    const result = await start(command, commandArgs, false, capture);
     controller.signal.throwIfAborted();
     if (result.error || result.code !== 0) {
-      throw new Error(`pnpm ${commandArgs.slice(0, 3).join(" ")} failed${result.error ? `: ${result.error.message}` : ` (exit ${result.code})`}.`);
+      throw new Error(`${describe(command, commandArgs)} failed${result.error ? `: ${result.error.message}` : ` (exit ${result.code})`}.`);
     }
     return result.output;
   }
 
   try {
     if (!existsSync(join(root, "node_modules/convex")) || (polar && !existsSync(join(root, "node_modules/@polar-sh/cli")))) {
-      await run(["install", "--frozen-lockfile"]);
+      await run("pnpm", ["install", "--frozen-lockfile"]);
     }
     if (polar) {
       const orgArgs = credentials.POLAR_ORGANIZATION_ID ? ["--org", credentials.POLAR_ORGANIZATION_ID] : [];
-      const secret = (await run(["exec", "polar", "listen", "--print-secret", ...orgArgs], true)).trim();
+      const secret = (await run(tool("polar"), ["listen", "--print-secret", ...orgArgs], true)).trim();
       if (!secret || /\s/.test(secret)) throw new Error("Polar did not return a webhook signing secret. Check the sandbox token and CLI installation.");
       env.POLAR_WEBHOOK_SECRET = fileEnv.POLAR_WEBHOOK_SECRET = secret;
     }
@@ -364,22 +377,23 @@ export async function bootstrap({ browserEnv = {}, onReady } = {}) {
     console.log(`Worktree: ${config.id}\nApp: ${config.env.APP_URL}\nConvex: ${config.env.NEXT_PUBLIC_CONVEX_URL}\nTarget: local-anonymous (database in this worktree's .convex directory)`);
     // Keep the backend alive while the nested watcher syncs code. This avoids the
     // anonymous CLI's extra dashboard server, whose port cannot be configured.
-    const watchCommand = `pnpm exec convex dev --env-file .env.convex-watch.local --start "pnpm exec next dev --hostname 127.0.0.1 --port ${config.ports.next}"`;
-    start("pnpm", ["exec", "convex", "dev", "--until-success", "--tail-logs", "disable", "--run-sh", watchCommand, "--local-cloud-port", String(config.ports.convex), "--local-site-port", String(config.ports.site)], true);
+    // Its shell runs in the worktree root; relative tool paths avoid quoting the root.
+    const watchCommand = `./node_modules/.bin/convex dev --env-file .env.convex-watch.local --start "./node_modules/.bin/next dev --hostname 127.0.0.1 --port ${config.ports.next}"`;
+    start(tool("convex"), ["dev", "--until-success", "--tail-logs", "disable", "--run-sh", watchCommand, "--local-cloud-port", String(config.ports.convex), "--local-site-port", String(config.ports.site)], true);
     const backendHealthUrl = `${config.env.NEXT_PUBLIC_CONVEX_URL}/version`;
     await waitForServer(backendHealthUrl, controller.signal);
     supervision.push(superviseConvex(backendHealthUrl, controller));
     saveWatchEnvironment();
-    await run(["exec", "convex", "env", "set", "--from-file", backendEnvFile, "--force"]);
+    await run(tool("convex"), ["env", "set", "--from-file", backendEnvFile, "--force"]);
     if (polar) {
       const orgArgs = credentials.POLAR_ORGANIZATION_ID ? ["--org", credentials.POLAR_ORGANIZATION_ID] : [];
-      start("pnpm", ["exec", "polar", "listen", config.env.POLAR_WEBHOOK_URL, ...orgArgs], true);
+      start(tool("polar"), ["listen", config.env.POLAR_WEBHOOK_URL, ...orgArgs], true);
       console.log(`Polar sandbox webhooks: ${config.env.POLAR_WEBHOOK_URL}`);
     }
     // Next starts only after the initial Convex push, so its readiness also proves functions exist.
     await waitForServer(config.env.APP_URL, controller.signal);
     if (polar) {
-      await run(["exec", "convex", "run", "--env-file", watchEnvFile, "polar:syncCatalog", "{}"]);
+      await run(tool("convex"), ["run", "--env-file", watchEnvFile, "polar:syncCatalog", "{}"]);
     }
     if (process.platform !== "win32") {
       serviceGroups = descendantProcessGroups(children.filter(({ persistent }) => persistent).map(({ child }) => child.pid),
