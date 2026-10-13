@@ -1,45 +1,16 @@
-import { clerk, clerkSetup } from "@clerk/testing/playwright";
+import { clerk } from "@clerk/testing/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
+import { interceptConvexSync } from "./convex-sync.mjs";
+import { captureEvidence } from "./evidence.mjs";
 
 const local = resolveLocalTestConfig();
 
-test.beforeAll(async () => {
-  await clerkSetup({
-    publishableKey: local.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
-    secretKey: local.env.CLERK_SECRET_KEY,
-    dotenv: false,
-  });
-});
-
 async function holdBackendResponses(page: Page) {
-  let holdingResponses = true;
-  const responses: Array<() => void> = [];
-  const backendHost = new URL(local.config.env.NEXT_PUBLIC_CONVEX_URL).host;
-
-  await page.routeWebSocket((url) => url.host === backendHost, (socket) => {
-    const server = socket.connectToServer();
-
-    server.onMessage((message) => {
-      if (holdingResponses) {
-        responses.push(() => socket.send(message));
-      } else {
-        socket.send(message);
-      }
-    });
-  });
-
-  return {
-    pendingResponseCount: () => responses.length,
-    hold() {
-      holdingResponses = true;
-    },
-    release() {
-      holdingResponses = false;
-      responses.splice(0).forEach((send) => send());
-    },
-  };
+  const sync = await interceptConvexSync(page);
+  sync.holdResponses();
+  return sync;
 }
 
 for (const width of [1280, 390]) {
@@ -65,13 +36,13 @@ for (const width of [1280, 390]) {
       await expect(page.getByRole("button", { name: "Save profile" })).toHaveCount(0);
       await expect(page.getByRole("button", { name: "Delete account", exact: true })).toHaveCount(0);
       await expect(page.getByRole("link", { name: "Manage subscription" })).toHaveCount(0);
-      await expect.poll(backend.pendingResponseCount).toBeGreaterThan(0);
+      await expect.poll(backend.pendingResponses).toBeGreaterThan(0);
 
       const profileBefore = await profile.boundingBox();
       const deletionBefore = await deletion.boundingBox();
-      await page.screenshot({ path: `/tmp/account-loading-${width}.png`, fullPage: true });
+      await captureEvidence(page, `account-loading-${width}`);
 
-      backend.release();
+      backend.releaseResponses();
 
       await expect(page.getByLabel("Display name", { exact: true })).toBeVisible();
       await expect(page.getByRole("button", { name: "Delete account", exact: true })).toBeVisible();
@@ -91,7 +62,7 @@ for (const width of [1280, 390]) {
         expect(deletionAfter![dimension]).toBeCloseTo(deletionBefore![dimension], 0);
       }
 
-      await page.screenshot({ path: `/tmp/account-loaded-${width}.png`, fullPage: true });
+      await captureEvidence(page, `account-loaded-${width}`);
     } finally {
       await user.cleanup();
     }
@@ -119,7 +90,7 @@ test("stalled account skeletons offer recovery and resolve when responses arrive
     await expect(page.locator('[data-slot="card"][aria-busy="true"]')).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Delete account", exact: true })).toHaveCount(0);
 
-    backend.release();
+    backend.releaseResponses();
 
     await expect(page.getByLabel("Display name", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Delete account", exact: true })).toBeVisible();
@@ -141,7 +112,7 @@ test("profile saving uses the button state and persists changes while email stay
     const backend = await holdBackendResponses(page);
     await page.reload();
     await expect(page.locator('[data-slot="card"][aria-busy="true"]')).toHaveCount(2);
-    backend.release();
+    backend.releaseResponses();
 
     const displayName = page.getByLabel("Display name", { exact: true });
     const email = page.getByLabel("Email", { exact: true });
@@ -150,11 +121,11 @@ test("profile saving uses the button state and persists changes while email stay
     await expect(email).toBeDisabled();
     await displayName.fill("  Saved name  ");
 
-    backend.hold();
+    backend.holdResponses();
     await page.getByRole("button", { name: "Save profile" }).click();
     await expect(page.getByRole("button", { name: "Saving...", exact: true })).toBeDisabled();
 
-    backend.release();
+    backend.releaseResponses();
     await expect(page.getByRole("button", { name: "Save profile" })).toBeEnabled();
     await expect(displayName).toHaveValue("Saved name");
 
