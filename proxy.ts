@@ -2,9 +2,24 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { safeReturnTo } from "./lib/auth";
 
-// Public: /, /layouts, /sign-in, /sign-up, and static assets.
+// The first pattern runs this proxy for pages but skips file-like paths. Each
+// later entry is a protected prefix, matched even for paths such as
+// /app/private.json. Next reads `config` statically, so the prefixes are
+// literals: keep them in sync with the top-level folders in app/(protected),
+// which proxy.test.ts checks. That group's layout repeats the check on the server.
 // Convex HTTP handlers have their own auth boundary; no Next webhook exception exists.
-const isProtectedRoute = createRouteMatcher(["/account(.*)", "/billing(.*)", "/checkout(.*)", "/app(.*)", "/api(.*)", "/trpc(.*)"]);
+export const config = {
+  matcher: [
+    "/((?!_next|[^?]*\\.(?:html?|css|js|json|txt|xml|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
+    "/account(.*)",
+    "/app(.*)",
+    "/billing(.*)",
+    "/checkout(.*)",
+    "/(api|trpc)(.*)",
+  ],
+};
+
+const isProtectedRoute = createRouteMatcher(config.matcher.slice(1));
 const isAuthRoute = createRouteMatcher(["/sign-in(.*)", "/sign-up(.*)"]);
 
 export default clerkMiddleware(async (auth, request) => {
@@ -26,14 +41,3 @@ export default clerkMiddleware(async (auth, request) => {
   }
   if (isProtectedRoute(request)) await auth.protect();
 });
-
-export const config = {
-  matcher: [
-    "/((?!_next|[^?]*\\.(?:html?|css|js|json|txt|xml|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
-    "/app(.*)",
-    "/billing(.*)",
-    "/checkout(.*)",
-    "/account(.*)",
-    "/(api|trpc)(.*)",
-  ],
-};
