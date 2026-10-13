@@ -89,7 +89,7 @@ Most code changes do not need an internal documentation change. Agents can read 
 - Make errors easy to notice and understand. Choose feedback that fits the error’s context and duration, keeping ongoing failures visible near the affected content until resolved. Avoid repeated notifications for the same failure.
 - If a rule here fights the task in front of you, say so loudly and get a human sign-off before breaking it.
 
-For examples of page composition, component-owned skeletons, and action versus job errors, see the [account page](app/account/page.tsx). Apply the rules above to new features, using these examples to understand the intended structure and state placement.
+For examples of page composition, component-owned skeletons, and action versus job errors, see the [account page](app/(protected)/account/page.tsx). Apply the rules above to new features, using these examples to understand the intended structure and state placement.
 
 ## Additional tips
 

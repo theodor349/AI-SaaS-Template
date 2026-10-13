@@ -40,13 +40,16 @@ test("selected plan opens checkout once after authentication; success URL alone 
     });
   });
   try {
-    await page.goto("/billing?plan=yearly");
+    await page.goto("/checkout?plan=yearly");
     await expect(page).toHaveURL(/\/sign-in\?/);
     await clerk.signIn({ page, emailAddress: user.email });
-    await expect(page.getByText("We couldn’t open checkout")).toBeVisible();
-    await expect(page).toHaveURL(`${local.config.env.APP_URL}/billing`);
+    await expect(page.getByText("We couldn’t open the payment page")).toBeVisible();
+    await expect(page).toHaveURL(`${local.config.env.APP_URL}/checkout`);
     expect(checkoutModels).toEqual(["yearly"]);
     await page.reload();
+    await expect(page).toHaveURL(`${local.config.env.APP_URL}/#pricing`);
+    // Billing only confirms subscriber plan switches from its URL; it never starts checkout.
+    await page.goto("/billing?plan=yearly");
     await expect(page.getByRole("button", { name: "Choose yearly" })).toBeEnabled();
     expect(checkoutModels).toEqual(["yearly"]);
     await page.goto("/app");

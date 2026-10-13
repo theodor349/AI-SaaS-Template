@@ -65,7 +65,6 @@ export function Pricing({ onboarding = false, disabled = false, pendingPlan = nu
         <PlanCard
           key={product.model}
           product={product}
-          onboarding={onboarding}
           signUp={onboarding && !isAuthenticated}
           currentPlan={currentPlan}
           scheduledPlan={status?.scheduledChange?.model}
@@ -99,7 +98,7 @@ export function PricingSkeleton() {
   );
 }
 
-function PlanCard({ product, onboarding = false, signUp = false, disabled = false, loading = false, currentPlan = null, scheduledPlan = null, renewalOff = false, pendingPlan = null, onSelect }: PricingActions & {
+function PlanCard({ product, signUp = false, disabled = false, loading = false, currentPlan = null, scheduledPlan = null, renewalOff = false, pendingPlan = null, onSelect }: PricingActions & {
   product: Product;
   signUp?: boolean;
   loading?: boolean;
@@ -137,16 +136,15 @@ function PlanCard({ product, onboarding = false, signUp = false, disabled = fals
       </div>
       <CardFooter>
         <ContentSkeleton loading={loading}>
-          <PlanAction model={model} onboarding={onboarding} signUp={signUp} currentPlan={currentPlan} scheduledPlan={scheduledPlan} renewalOff={renewalOff} disabled={disabled} pending={pendingPlan === model} onSelect={onSelect} />
+          <PlanAction model={model} signUp={signUp} currentPlan={currentPlan} scheduledPlan={scheduledPlan} renewalOff={renewalOff} disabled={disabled} pending={pendingPlan === model} onSelect={onSelect} />
         </ContentSkeleton>
       </CardFooter>
     </Card>
   );
 }
 
-function PlanAction({ model, onboarding, signUp, currentPlan, scheduledPlan, renewalOff, disabled, pending, onSelect }: {
+function PlanAction({ model, signUp, currentPlan, scheduledPlan, renewalOff, disabled, pending, onSelect }: {
   model: Product["model"];
-  onboarding: boolean;
   signUp: boolean;
   currentPlan: Product["model"] | null;
   scheduledPlan: Product["model"] | null;
@@ -182,7 +180,8 @@ function PlanAction({ model, onboarding, signUp, currentPlan, scheduledPlan, ren
       </Button>
     );
   }
-  const destination = onboarding && !currentPlan ? `/checkout?plan=${model}` : `/billing?plan=${model}`;
+  // Subscribers confirm recurring plan switches in billing; other choices start checkout.
+  const destination = currentPlan && model !== "lifetime" ? `/billing?plan=${model}` : `/checkout?plan=${model}`;
   const href = signUp ? `${SIGN_UP_PATH}?redirect_url=${encodeURIComponent(destination)}` : destination;
   return <Button asChild><NextLink href={href} prefetch={false}>{label}</NextLink></Button>;
 }

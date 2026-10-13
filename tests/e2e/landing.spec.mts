@@ -80,16 +80,25 @@ test("checkout shows progress after sign-in and for signed-in users, with explic
     await expect(page.getByRole("heading", { name: "Redirecting to the payment page…" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Retry checkout" })).toHaveCount(0);
     await expect.poll(() => checkoutModels.length).toBe(2);
+    // Back from the provider can restore this page from cache mid-checkout. It
+    // must offer checkout again instead of a pending state that never resolves.
+    await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
+    await expect(page.getByRole("button", { name: "Continue to checkout" })).toBeVisible();
+    await expect(page.getByRole("alert").filter({ hasText: "We couldn’t open the payment page" })).toHaveCount(0);
+    release!();
+    await page.getByRole("button", { name: "Continue to checkout" }).click();
+    await expect(page.getByRole("heading", { name: "Redirecting to the payment page…" })).toBeVisible();
+    await expect.poll(() => checkoutModels.length).toBe(3);
     release!();
     await expect(page.getByRole("alert").filter({ hasText: "We couldn’t open the payment page" })).toBeVisible();
     await page.reload();
     await expect(page).toHaveURL(`${local.config.env.APP_URL}/#pricing`);
     await expect(page.getByRole("link", { name: "Get lifetime" })).toBeVisible();
-    expect(checkoutModels).toEqual(["lifetime", "lifetime"]);
+    expect(checkoutModels).toEqual(["lifetime", "lifetime", "lifetime"]);
     await page.getByRole("link", { name: "Choose yearly" }).click();
     await expect(page.getByRole("heading", { name: "Redirecting to the payment page…" })).toBeVisible();
-    await expect.poll(() => checkoutModels.length).toBe(3);
-    expect(checkoutModels).toEqual(["lifetime", "lifetime", "yearly"]);
+    await expect.poll(() => checkoutModels.length).toBe(4);
+    expect(checkoutModels).toEqual(["lifetime", "lifetime", "lifetime", "yearly"]);
     release!();
     await expect(page.getByRole("alert").filter({ hasText: "We couldn’t open the payment page" })).toBeVisible();
   } finally {
@@ -163,16 +172,18 @@ test("a new visitor creates an account and reaches Polar sandbox checkout for th
   }
 });
 
-test("existing Pro users manage plan changes through billing without starting another checkout", async ({ page }) => {
+test("existing Pro users switch recurring plans through billing and buy lifetime through checkout", async ({ page }) => {
   const user = await createClerkTestUser(local);
-  let checkoutRequests = 0;
+  const checkoutModels: string[] = [];
   await page.routeWebSocket(/\/sync$/, socket => {
     const server = socket.connectToServer();
     server.onMessage(message => socket.send(message));
     socket.onMessage(message => {
-      const frame = JSON.parse(message.toString()) as { type: string; udfPath?: string };
-      if (frame.type === "Action" && frame.udfPath === "polar:checkout") checkoutRequests++;
-      server.send(message);
+      const frame = JSON.parse(message.toString()) as { type: string; udfPath?: string; requestId: number; args: [{ model: string }] };
+      if (frame.type !== "Action" || frame.udfPath !== "polar:checkout") { server.send(message); return; }
+      checkoutModels.push(frame.args[0].model);
+      socket.send(JSON.stringify({ type: "ActionResponse", requestId: frame.requestId, success: false,
+        result: "Fixture checkout failure", logLines: [] }));
     });
   });
   try {
@@ -187,8 +198,14 @@ test("existing Pro users manage plan changes through billing without starting an
     await page.goto("/checkout?plan=yearly");
     await expect(page).toHaveURL(`${local.config.env.APP_URL}/billing?plan=yearly`);
     await expect(page.getByRole("alertdialog", { name: "Switch to yearly?" })).toBeVisible();
-    expect(checkoutRequests).toBe(0);
-  } finally { await user.cleanup(); }
+    expect(checkoutModels).toEqual([]);
+    await page.getByRole("button", { name: "Keep current plan" }).click();
+    await page.goto("/");
+    await page.getByRole("link", { name: "Get lifetime" }).click();
+    await expect(page.getByRole("alert").filter({ hasText: "We couldn’t open the payment page" })).toBeVisible();
+    await expect(page).toHaveURL(`${local.config.env.APP_URL}/checkout`);
+    expect(checkoutModels).toEqual(["lifetime"]);
+  } finally { await page.unrouteAll({ behavior: "wait" }); await user.cleanup(); }
 });
 
 for (const transition of ["paid", "deleting", "manual"] as const) {
