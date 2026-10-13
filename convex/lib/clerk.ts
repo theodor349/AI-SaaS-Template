@@ -71,7 +71,13 @@ export function parseClerkEvent(value: unknown) {
   return { kind: "ignored" as const, type, eventAt };
 }
 
+// The configured issuer as Clerk writes it in JWTs. Deployment settings may add
+// a trailing slash that the token's issuer and tokenIdentifier never contain.
+export function clerkIssuer() {
+  return env.CLERK_JWT_ISSUER_DOMAIN.replace(/\/+$/, "");
+}
+
 export function clerkTokenIdentifier(clerkId: string) {
   // Matches Convex's issuer|subject identity key, including the configured issuer.
-  return `${env.CLERK_JWT_ISSUER_DOMAIN}|${clerkId}`;
+  return `${clerkIssuer()}|${clerkId}`;
 }

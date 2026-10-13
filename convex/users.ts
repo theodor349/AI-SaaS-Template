@@ -3,7 +3,7 @@ import { internal } from "./_generated/api";
 import { action, env, internalMutation, internalQuery, query } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { requireIdentity } from "./lib/auth";
-import { clerkProfile, clerkTokenIdentifier, parseClerkProfile } from "./lib/clerk";
+import { clerkIssuer, clerkProfile, clerkTokenIdentifier, parseClerkProfile } from "./lib/clerk";
 import { getDisplayName } from "./lib/profile";
 
 export const currentUserResult = v.union(
@@ -47,6 +47,12 @@ export const syncProfile = internalMutation({
   handler: async (ctx, { profile, eventAt }) => {
     const user = await ctx.db.query("users")
       .withIndex("by_clerkId", (q) => q.eq("clerkId", profile.clerkId)).unique();
+    // Records written while the configured issuer had a trailing slash carry a
+    // key that no caller identity matches; repair it before any early return.
+    const tokenIdentifier = clerkTokenIdentifier(profile.clerkId);
+    if (user && user.tokenIdentifier !== tokenIdentifier) {
+      await ctx.db.patch("users", user._id, { tokenIdentifier });
+    }
     // A Clerk identity cannot be recreated after deletion; a newly registered
     // account has a new Clerk ID. Keep the tombstone even after account cleanup.
     if (user && user.lifecycle !== "active") return readiness(user);
@@ -65,7 +71,7 @@ export const syncProfile = internalMutation({
       return readiness(await ctx.db.get("users", user._id));
     }
     const id = await ctx.db.insert("users", {
-      ...fields, clerkId: profile.clerkId, tokenIdentifier: clerkTokenIdentifier(profile.clerkId), lifecycle: "active",
+      ...fields, clerkId: profile.clerkId, tokenIdentifier, lifecycle: "active",
     });
     return readiness(await ctx.db.get("users", id));
   },
@@ -77,7 +83,7 @@ export const ensureCurrentUser = action({
   args: { refresh: v.optional(v.boolean()) }, returns: currentUserResult,
   handler: async (ctx, { refresh }): Promise<Infer<typeof currentUserResult>> => {
     const identity = await requireIdentity(ctx);
-    if (identity.issuer !== env.CLERK_JWT_ISSUER_DOMAIN ||
+    if (identity.issuer !== clerkIssuer() ||
         identity.tokenIdentifier !== clerkTokenIdentifier(identity.subject)) {
       throw new ConvexError({ code: "UNAUTHENTICATED" });
     }

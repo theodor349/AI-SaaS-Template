@@ -9,7 +9,6 @@
  */
 
 import type * as accountLifecycle from "../accountLifecycle.js";
-import type * as auth from "../auth.js";
 import type * as billing from "../billing.js";
 import type * as billingState from "../billingState.js";
 import type * as clerkWebhooks from "../clerkWebhooks.js";
@@ -34,7 +33,6 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   accountLifecycle: typeof accountLifecycle;
-  auth: typeof auth;
   billing: typeof billing;
   billingState: typeof billingState;
   clerkWebhooks: typeof clerkWebhooks;
