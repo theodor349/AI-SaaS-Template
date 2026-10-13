@@ -374,9 +374,8 @@ test("a superseded reconciliation cannot publish stale state and account deletio
   expect((await state(t))?.status).toBe("active");
   await t.mutation(internal.billingState.finish, { customerId: "customer-a", version: lease.version, failed: false });
   await t.run(ctx => ctx.db.patch("users", userId, { lifecycle: "deletion_requested" }));
-  expect(await t.mutation(internal.billingState.cleanup, { userId })).toEqual({ complete: false });
-  await reconcile(t); await reconcile(t);
-  expect(await t.mutation(internal.billingState.cleanup, { userId })).toEqual({ complete: true });
+  expect(await t.action(internal.polar.cleanupAccount, { userId })).toMatchObject({ complete: false });
+  expect(await t.action(internal.polar.cleanupAccount, { userId })).toEqual({ complete: true });
   await expect(alice(t).query(api.billing.application, {})).rejects.toThrow("ACCOUNT_UNAVAILABLE");
 });
 
