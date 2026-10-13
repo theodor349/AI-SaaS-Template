@@ -232,23 +232,6 @@ export const confirmProviderCleanup = internalMutation({
     return null;
   },
 });
-// Legacy reconciliation callers can poll their already-bounded snapshot.
-export const cleanup = internalMutation({
-  args: { userId: v.id("users") }, returns: v.object({ complete: v.boolean() }),
-  handler: async (ctx, { userId }) => {
-    const user = await ctx.db.get("users", userId);
-    if (!user || user.lifecycle === "active") throw new Error("Deletion must be requested first");
-    const account = await accountForUser(ctx, userId);
-    if (!account) return { complete: true };
-    const subs = await ctx.db.query("billingSubscriptions").withIndex("by_customerId", q => q.eq("customerId", account.customerId)).take(101);
-    if (subs.length > 100) throw new Error("Billing history needs archival");
-    const request = await ctx.db.query("accountLifecycleRequests").withIndex("by_userId", q => q.eq("userId", userId)).unique();
-    const complete = account.status === "ended" && account.reconciledAt > 0 && account.reconciledAt >= (request?.requestedAt ?? 0) && !account.failureCode && subs.every(s => ["canceled", "unpaid"].includes(s.status));
-    if (!complete) await ctx.scheduler.runAfter(0, internal.polar.reconcileCustomer, { customerId: account.customerId });
-    return { complete };
-  },
-});
-
 // An operation lease serializes checkout creation and subscription commands.
 // Lost checkout responses recover by listing provider sessions after the lease.
 export const beginOperation = internalMutation({
