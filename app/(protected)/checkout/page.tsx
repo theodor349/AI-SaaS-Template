@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { isBillingModel } from "@/convex/lib/billingModel";
 import { PaymentRedirect } from "./_components/payment-redirect";
 
 export const metadata: Metadata = { title: "Checkout — AI SaaS Template" };
@@ -9,7 +10,7 @@ export default async function CheckoutPage({ searchParams }: {
   searchParams: Promise<{ plan?: string | string[] }>;
 }) {
   const { plan } = await searchParams;
-  if (plan !== "monthly" && plan !== "yearly" && plan !== "lifetime") redirect("/#pricing");
+  if (!isBillingModel(plan)) redirect("/#pricing");
 
   return (
     <div className="mx-auto max-w-lg py-16">

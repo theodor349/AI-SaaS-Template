@@ -5,6 +5,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useConvexAuth, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
+import { billingModels } from "@/convex/lib/billingModel";
 import { AuthPending, AuthRecovery } from "@/components/auth/auth-boundary";
 import { ContentSkeleton } from "@/components/loading/content-skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -85,7 +86,7 @@ export function PricingSkeleton() {
     <div aria-busy="true" aria-label="Plan prices">
       <p role="status" className="sr-only">Loading paid plans…</p>
       <div className="grid gap-4 sm:grid-cols-3">
-        {(["monthly", "yearly", "lifetime"] as const).map((model) => (
+        {billingModels.map((model) => (
           <PlanCard
             key={model}
             product={{ model, name: labels[model], amount: 0, currency: "USD", taxBehavior: "provider" }}

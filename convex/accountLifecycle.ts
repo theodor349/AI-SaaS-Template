@@ -1,24 +1,21 @@
-import { ConvexError, v } from "convex/values";
+import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { env, internalAction, internalMutation, internalQuery, mutation, query, type QueryCtx } from "./_generated/server";
-import { requireIdentity } from "./lib/auth";
+import { internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { accountForUser, syncForCustomer } from "./lib/billing";
 import { clerkTokenIdentifier } from "./lib/clerk";
+import { deleteClerkUser } from "./lib/clerkApi";
+import { appError } from "./lib/errors";
+import { isLeased, leaseDeadline, retryDelay } from "./lib/retry";
+import { requireOwner, userByClerkId } from "./lib/users";
 import schema from "./schema";
 
 const recoveryWindow = 7 * 24 * 60 * 60_000;
-async function owner(ctx: QueryCtx) {
-  const identity = await requireIdentity(ctx);
-  const user = await ctx.db.query("users").withIndex("by_tokenIdentifier", q => q.eq("tokenIdentifier", identity.tokenIdentifier)).unique();
-  if (!user) throw new ConvexError({ code: "PROVISIONING_REQUIRED" });
-  return user;
-}
 export const current = query({
   args: {}, returns: v.union(v.null(), v.object({ status: v.union(v.literal("pending"), v.literal("cancelled"), v.literal("completed")),
     source: v.union(v.literal("user"), v.literal("clerk")), deleteAfter: v.union(v.number(), v.null()),
     finalizing: v.boolean(), cancellationConfirmed: v.boolean(), failure: v.boolean() })),
   handler: async ctx => {
-    const user = await owner(ctx);
+    const user = await requireOwner(ctx);
     const request = await ctx.db.query("accountLifecycleRequests").withIndex("by_userId", q => q.eq("userId", user._id)).unique();
     return request ? { status: request.status, source: request.source, deleteAfter: request.deleteAfter ?? null,
       finalizing: user.lifecycle !== "active", cancellationConfirmed: request.cancellationConfirmed ?? false, failure: !!request.failureCode } : null;
@@ -26,14 +23,14 @@ export const current = query({
 });
 export const requestDeletion = mutation({
   args: {}, returns: v.null(), handler: async ctx => {
-    const user = await owner(ctx);
-    if (user.lifecycle !== "active") throw new ConvexError({ code: "ACCOUNT_UNAVAILABLE" });
+    const user = await requireOwner(ctx);
+    if (user.lifecycle !== "active") throw appError("ACCOUNT_UNAVAILABLE");
     const old = await ctx.db.query("accountLifecycleRequests").withIndex("by_userId", q => q.eq("userId", user._id)).unique();
     if (old?.status === "pending") return null;
     const account = await accountForUser(ctx, user._id);
     const sync = account ? await syncForCustomer(ctx, account.customerId) : null;
-    if ((sync?.operationLeaseUntil ?? 0) > Date.now()) {
-      throw new ConvexError({ code: "BILLING_OPERATION_PENDING" });
+    if (isLeased(sync?.operationLeaseUntil)) {
+      throw appError("BILLING_OPERATION_PENDING");
     }
     const now = Date.now();
     // Keep paid access recoverable; claim commits terminal lifecycle at the deadline.
@@ -47,13 +44,13 @@ export const requestDeletion = mutation({
 });
 export const recover = mutation({
   args: {}, returns: v.null(), handler: async ctx => {
-    const user = await owner(ctx);
+    const user = await requireOwner(ctx);
     const request = await ctx.db.query("accountLifecycleRequests").withIndex("by_userId", q => q.eq("userId", user._id)).unique();
     if (!request || request.status !== "pending" || request.source !== "user" || user.lifecycle !== "active" || (request.deleteAfter ?? 0) <= Date.now()) {
-      throw new ConvexError({ code: "RECOVERY_UNAVAILABLE" });
+      throw appError("RECOVERY_UNAVAILABLE");
     }
     // A cancellation in flight must settle before recovery can allow reactivation.
-    if ((request.leaseUntil ?? 0) > Date.now()) throw new ConvexError({ code: "ACCOUNT_OPERATION_PENDING" });
+    if (isLeased(request.leaseUntil)) throw appError("ACCOUNT_OPERATION_PENDING");
     await ctx.db.patch("accountLifecycleRequests", request._id, { status: "cancelled", nextAttemptAt: undefined, failureCode: undefined });
     return null;
   },
@@ -62,7 +59,7 @@ export const recover = mutation({
 export const requestClerkDeletion = internalMutation({
   args: { clerkId: v.string(), eventAt: v.number(), deliveryId: v.string() }, returns: v.id("accountLifecycleRequests"),
   handler: async (ctx, { clerkId, eventAt, deliveryId }) => {
-    const user = await ctx.db.query("users").withIndex("by_clerkId", q => q.eq("clerkId", clerkId)).unique();
+    const user = await userByClerkId(ctx, clerkId);
     const userId = user?._id ?? await ctx.db.insert("users", { clerkId, tokenIdentifier: clerkTokenIdentifier(clerkId), lifecycle: "deletion_requested", profileUpdatedAt: 0, profileEventAt: 0 });
     const request = await ctx.db.query("accountLifecycleRequests").withIndex("by_userId", q => q.eq("userId", userId)).unique();
     if (request?.status === "completed") return request._id;
@@ -84,11 +81,11 @@ export const claim = internalMutation({
   returns: v.union(v.null(), v.object({ request: schema.doc("accountLifecycleRequests"), user: schema.doc("users"), lease: v.number(), finalizing: v.boolean() })),
   handler: async (ctx, { requestId }) => {
     const request = await ctx.db.get("accountLifecycleRequests", requestId);
-    if (!request || request.status !== "pending" || (request.leaseUntil ?? 0) > Date.now()) return null;
+    if (!request || request.status !== "pending" || isLeased(request.leaseUntil)) return null;
     const user = await ctx.db.get("users", request.userId);
     if (!user) throw new Error("Lifecycle owner missing");
     const finalizing = request.source === "clerk" || (request.deleteAfter ?? 0) <= Date.now();
-    const lease = Date.now() + 120_000;
+    const lease = leaseDeadline();
     await ctx.db.patch("accountLifecycleRequests", requestId, { leaseUntil: lease, nextAttemptAt: lease });
     if (finalizing && user.lifecycle === "active") await ctx.db.patch("users", user._id, { lifecycle: "deletion_requested" });
     return { request, user, lease, finalizing };
@@ -100,7 +97,7 @@ export const finishAttempt = internalMutation({
     const request = await ctx.db.get("accountLifecycleRequests", requestId);
     if (!request || request.status !== "pending" || request.leaseUntil !== lease) return null;
     const attempts = success ? 0 : (request.attempts ?? 0) + 1;
-    const nextAttemptAt = success && !finalizing && request.source === "user" ? request.deleteAfter ?? Date.now() : Date.now() + Math.min(60 * 60_000, 1000 * 2 ** Math.min(attempts, 12));
+    const nextAttemptAt = success && !finalizing && request.source === "user" ? request.deleteAfter ?? Date.now() : Date.now() + retryDelay(attempts);
     await ctx.db.patch("accountLifecycleRequests", requestId, { leaseUntil: 0, attempts, nextAttemptAt,
       cancellationConfirmed: success, failureCode: success ? undefined : "ACCOUNT_CLEANUP_PENDING" });
     await ctx.scheduler.runAt(nextAttemptAt, internal.accountLifecycle.process, { requestId });
@@ -111,7 +108,7 @@ export const sweep = internalMutation({
   args: {}, returns: v.null(), handler: async ctx => {
     const requests = await ctx.db.query("accountLifecycleRequests").withIndex("by_status_and_nextAttemptAt", q => q.eq("status", "pending").lte("nextAttemptAt", Date.now())).take(50);
     for (const request of requests) {
-      await ctx.db.patch("accountLifecycleRequests", request._id, { nextAttemptAt: Date.now() + 120_000 });
+      await ctx.db.patch("accountLifecycleRequests", request._id, { nextAttemptAt: leaseDeadline() });
       await ctx.scheduler.runAfter(0, internal.accountLifecycle.process, { requestId: request._id });
     }
     return null;
@@ -192,11 +189,7 @@ export const process = internalAction({
       if (success && claimed.finalizing) {
         const latest = await ctx.runQuery(internal.accountLifecycle.context, { requestId });
         if (latest?.source !== "clerk") {
-          if (!env.CLERK_SECRET_KEY) throw new Error("Clerk configuration missing");
-          const response = await fetch(`https://api.clerk.com/v1/users/${encodeURIComponent(claimed.user.clerkId)}`, {
-            method: "DELETE", headers: { Authorization: `Bearer ${env.CLERK_SECRET_KEY}` }, signal: AbortSignal.timeout(15000),
-          });
-          if (!response.ok && response.status !== 404) throw new Error("Identity deletion failed");
+          await deleteClerkUser(claimed.user.clerkId);
         }
         const erasing = await ctx.runMutation(internal.accountLifecycle.beginErasure, { requestId, lease: claimed.lease });
         if (!erasing) return null;
