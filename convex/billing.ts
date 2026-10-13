@@ -11,7 +11,7 @@ export const status = query({
     lifetimePurchasedAt: v.union(v.number(), v.null()),
     cancelAtPeriodEnd: v.boolean(), hasCustomer: v.boolean(), revision: v.number(),
     scheduledChange: v.union(scheduledPlanChange, v.null()),
-    reconciledAt: v.number(), failure: v.union(v.string(), v.null()) }),
+    reconciledAt: v.number(), failure: v.union(v.string(), v.null()), retrying: v.boolean() }),
   handler: async ctx => {
     const identity = await requireIdentity(ctx);
     const user = await ctx.db.query("users").withIndex("by_tokenIdentifier", q => q.eq("tokenIdentifier", identity.tokenIdentifier)).unique();
@@ -26,7 +26,8 @@ export const status = query({
         ? lifetimeOrder.createdAt : null,
       scheduledChange: account?.status === "active" ? account.scheduledChange ?? null : null,
       hasCustomer: !!account, revision: account?.revision ?? 0, reconciledAt: account?.reconciledAt ?? 0,
-      failure: account?.failureCode ?? null };
+      failure: account?.failureCode ?? null,
+      retrying: account?.failureCode === "RECONCILIATION_FAILED" && account.attempts <= 8 };
   },
 });
 export const products = query({

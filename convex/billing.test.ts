@@ -115,6 +115,69 @@ test("anonymous and unpaid callers cannot invoke paid application queries; provi
   expect(await t.query(api.billing.products, {})).toEqual([]);
 });
 
+test.each(["cancel", "reactivate"] as const)("repeating %s confirms provider state without issuing a rejected update", async operation => {
+  const t = setup(); await provision(t); await link(t); await reconcile(t);
+  subscriptions[0].cancel_at_period_end = operation === "cancel";
+  subscriptions[0].modified_at = new Date(Date.now() + 1000).toISOString();
+  provider.subscriptions.update.mockRejectedValue(new PolarClientError(operation === "cancel" ? 403 : 409, { detail: "Already in requested state" }));
+
+  await alice(t).action(api.polar.changeSubscription, { operation });
+
+  expect(provider.subscriptions.update).not.toHaveBeenCalled();
+  expect(await state(t)).toMatchObject({ status: "active", cancelAtPeriodEnd: operation === "cancel" });
+});
+
+test("subscription changes confirm the direct provider read when the subscription list is stale", async () => {
+  const t = setup(); await provision(t); await link(t); await reconcile(t);
+  const stale = { ...subscriptions[0] };
+  provider.subscriptions.iterList.mockImplementation(() => iterate([stale]));
+
+  await alice(t).action(api.polar.changeSubscription, { operation: "cancel" });
+  expect(await state(t)).toMatchObject({ status: "active", cancelAtPeriodEnd: true });
+
+  await alice(t).action(api.polar.changeSubscription, { operation: "reactivate" });
+  expect(await state(t)).toMatchObject({ status: "active", cancelAtPeriodEnd: false });
+
+  await alice(t).action(api.polar.changeSubscription, { operation: "yearly" });
+  expect(await state(t)).toMatchObject({ status: "active", model: "yearly" });
+});
+
+test("a canceled subscription requires reactivation before switching plans", async () => {
+  const t = setup(); await provision(t); await link(t); await reconcile(t);
+  subscriptions[0].cancel_at_period_end = true;
+  await expect(alice(t).action(api.polar.changeSubscription, { operation: "yearly" }))
+    .rejects.toThrow("SUBSCRIPTION_REACTIVATION_REQUIRED");
+  expect(provider.subscriptions.update).not.toHaveBeenCalled();
+});
+
+test("billing distinguishes automatic reconciliation retries from an exhausted failure", async () => {
+  const t = setup(); await provision(t); await link(t); await reconcile(t);
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  for (let attempt = 1; attempt <= 9; attempt++) {
+    const lease = (await t.mutation(internal.billingState.lease, { customerId: "customer-a" }))!;
+    await t.mutation(internal.billingState.finish, { customerId: "customer-a", version: lease.version, failed: true });
+    expect(await alice(t).query(api.billing.status, {})).toMatchObject({
+      state: "active", failure: "RECONCILIATION_FAILED", retrying: attempt <= 8,
+    });
+  }
+  await reconcile(t);
+  expect(await alice(t).query(api.billing.status, {})).toMatchObject({ state: "active", failure: null, retrying: false });
+});
+
+test("reconciliation failures retain paid access and log provider status without sensitive details", async () => {
+  const t = setup(); await provision(t); await link(t); await reconcile(t);
+  const logging = vi.spyOn(console, "error").mockImplementation(() => {});
+  provider.subscriptions.get.mockRejectedValueOnce(new PolarClientError(404, { detail: "alice@example.com sensitive provider response" }));
+  await reconcile(t);
+  expect(await alice(t).query(api.billing.status, {})).toMatchObject({ state: "active", retrying: true });
+  expect(logging).toHaveBeenCalledWith("Polar reconciliation failed", {
+    code: "BILLING_RECONCILIATION_FAILED", phase: "managed_subscription", providerError: "PolarClientError", providerStatus: 404,
+  });
+  expect(JSON.stringify(logging.mock.calls)).not.toContain("alice@example.com");
+  await reconcile(t);
+  expect(await alice(t).query(api.billing.status, {})).toMatchObject({ state: "active", failure: null, retrying: false });
+});
+
 test("first payment, repeated plan switches, renewal, cancel and uncancel use confirmed owned subscription state", async () => {
   const t = setup(); await provision(t); await link(t);
   await send(t, "subscription.active", { ...sub(), customer }); await reconcile(t);

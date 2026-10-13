@@ -1,0 +1,8 @@
+.convex/
+.env*.local
+.agents/
+.claude/
+*.tsbuildinfo
+coverage/
+playwright-report/
+test-results/

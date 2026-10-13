@@ -160,10 +160,12 @@ function BillingControlsContent() {
               </p>
             )}
             {status.failure && (
-              <Alert variant="destructive">
-                <AlertTitle>We couldn’t update your billing details</AlertTitle>
+              <Alert variant={status.retrying ? "default" : "destructive"}>
+                <AlertTitle>{status.retrying ? "Confirming your billing details" : "We couldn’t update your billing details"}</AlertTitle>
                 <AlertDescription>
-                  You can review your subscription in the customer portal.
+                  {status.retrying
+                    ? "We’re retrying the update. Your billing details will refresh when confirmed."
+                    : "You can review your subscription in the customer portal."}
                 </AlertDescription>
               </Alert>
             )}

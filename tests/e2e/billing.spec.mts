@@ -299,6 +299,43 @@ test("yearly-to-monthly requires confirmation and shows the scheduled plan witho
   } finally { await user.cleanup(); }
 });
 
+for (const model of ["monthly", "yearly"] as const) {
+  test(`canceled ${model} subscriptions block plan switching with an accessible renewal explanation`, async ({ page }) => {
+    const user = await createClerkTestUser(local);
+    const { client: admin } = billingTestAdmin();
+    const target = model === "monthly" ? "yearly" : "monthly";
+    try {
+      const fixture = await seedPaidTestUser(user, model);
+      const account = (await adminQuery(admin, internal.billingState.get, { customerId: fixture.customerId }))!;
+      const lease = await leaseBillingFixture(fixture.customerId);
+      const now = Date.now();
+      const productId = local.env[`POLAR_PRODUCT_${model.toUpperCase()}`]!;
+      await adminMutation(admin, internal.billingState.apply, { version: lease.version, snapshot: {
+        customerId: fixture.customerId, externalId: fixture.externalId,
+        subscriptions: [{ id: fixture.subscriptionId, productId, status: "active", start: now - 1000,
+          end: account.paidThrough!, modifiedAt: now, cancelAtPeriodEnd: true }],
+        orders: [{ id: `fixture-canceled-${user.id}`, productId, subscriptionId: fixture.subscriptionId,
+          paid: true, fullyRefunded: false, createdAt: now, modifiedAt: now }],
+      } });
+      await adminMutation(admin, internal.billingState.finish, { customerId: fixture.customerId, version: lease.version, failed: false });
+      await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email });
+      await page.goto(`/billing?plan=${target}`);
+      await expect(page.getByRole("button", { name: "Reactivate subscription" })).toBeEnabled();
+      await expect(page.getByRole("button", { name: `Switch to ${target}` })).toBeDisabled();
+      await expect(page.getByRole("button", { name: "Get lifetime" })).toBeEnabled();
+      await expect(page.getByRole("alertdialog")).toHaveCount(0);
+      const explanation = `Renew your subscription to switch to ${target}`;
+      const trigger = page.locator("span").filter({ has: page.getByRole("button", { name: `Switch to ${target}` }) });
+      await trigger.hover();
+      await expect(page.getByRole("tooltip")).toHaveText(explanation);
+      await page.screenshot({ path: `/tmp/billing-canceled-${model}-tooltip.png`, fullPage: true });
+      await page.mouse.move(0, 0);
+      await trigger.focus();
+      await expect(page.getByRole("tooltip")).toHaveText(explanation);
+    } finally { await user.cleanup(); }
+  });
+}
+
 test("repeated switches and cancellation cycles confirm reactive state; failures clear obsolete expectations", async ({ page }) => {
   const user = await createClerkTestUser(local);
   let release: (() => void) | undefined;

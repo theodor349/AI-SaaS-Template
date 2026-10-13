@@ -68,12 +68,12 @@ function BillingPlansContent() {
   if (recurring && (selectedPlan === "monthly" || selectedPlan === "yearly")) {
     confirmationPlan = selectedPlan;
   }
-  if (!recurring || confirmationPlan === status.model || confirmationPlan === status.scheduledChange?.model) {
+  if (!recurring || status.cancelAtPeriodEnd || confirmationPlan === status.model || confirmationPlan === status.scheduledChange?.model) {
     confirmationPlan = null;
   }
 
   function selectPlan(model: Plan) {
-    if (disabled) return;
+    if (disabled || (recurring && status.cancelAtPeriodEnd && model !== "lifetime")) return;
     if (recurring && model !== "lifetime") setSwitchPlan(model);
     else void checkout.purchase(model);
   }
