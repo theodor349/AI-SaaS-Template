@@ -3,7 +3,7 @@ import { internal } from "./_generated/api";
 import { action, env, internalMutation, internalQuery, query } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { requireIdentity } from "./lib/auth";
-import { clerkProfile, clerkTokenIdentifier, parseClerkProfile } from "./lib/clerk";
+import { clerkIssuer, clerkProfile, clerkTokenIdentifier, parseClerkProfile } from "./lib/clerk";
 import { getDisplayName } from "./lib/profile";
 
 export const currentUserResult = v.union(
@@ -77,7 +77,7 @@ export const ensureCurrentUser = action({
   args: { refresh: v.optional(v.boolean()) }, returns: currentUserResult,
   handler: async (ctx, { refresh }): Promise<Infer<typeof currentUserResult>> => {
     const identity = await requireIdentity(ctx);
-    if (identity.issuer !== env.CLERK_JWT_ISSUER_DOMAIN ||
+    if (identity.issuer !== clerkIssuer() ||
         identity.tokenIdentifier !== clerkTokenIdentifier(identity.subject)) {
       throw new ConvexError({ code: "UNAUTHENTICATED" });
     }
