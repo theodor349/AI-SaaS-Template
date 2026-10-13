@@ -155,12 +155,16 @@ function PlanAction({ model, onboarding, signUp, currentPlan, scheduledPlan, ren
   pending: boolean;
   onSelect?: PricingActions["onSelect"];
 }) {
-  if (model === currentPlan) return <Button disabled variant="outline">Current</Button>;
+  if (model === currentPlan && !renewalOff) return <Button disabled variant="outline">Current</Button>;
   if (model === scheduledPlan) return <Button disabled variant="outline">Scheduled</Button>;
   let label = `Choose ${labels[model].toLowerCase()}`;
   if (model === "lifetime") label = "Get lifetime";
   else if (currentPlan) label = `Switch to ${labels[model].toLowerCase()}`;
-  if (renewalOff && model !== "lifetime") {
+  if (model === currentPlan) label = "Renew";
+  let loadingText = "Confirming plan…";
+  if (model === "lifetime" || !currentPlan) loadingText = "Opening checkout…";
+  else if (model === currentPlan) loadingText = "Confirming renewal…";
+  if (renewalOff && model !== currentPlan && model !== "lifetime") {
     const explanation = `Renew your subscription to switch to ${labels[model].toLowerCase()}`;
     return (
       <Tooltip>
@@ -176,7 +180,7 @@ function PlanAction({ model, onboarding, signUp, currentPlan, scheduledPlan, ren
   if (onSelect || disabled) {
     return (
       <Button disabled={disabled} onClick={() => onSelect?.(model)} aria-busy={pending} aria-live="polite">
-        <ButtonLabel loading={pending} loadingText={model === "lifetime" || !currentPlan ? "Opening checkout…" : "Confirming plan…"}>
+        <ButtonLabel loading={pending} loadingText={loadingText}>
           {label}
         </ButtonLabel>
       </Button>
