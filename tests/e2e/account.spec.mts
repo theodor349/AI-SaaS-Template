@@ -6,6 +6,7 @@ import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 import { billingTestAdmin } from "../../scripts/billing-test-fixtures.mjs";
 import { adminMutation, adminQuery } from "../../scripts/billing-test-admin";
+import { testTokenIdentifier } from "../../scripts/test-identity.mjs";
 import { captureEvidence } from "./evidence.mjs";
 
 const local = resolveLocalTestConfig();
@@ -80,7 +81,7 @@ test("provider deletion supersedes an open user request and completes cleanup", 
     // deletion consumer after removing the actual worktree-labelled identity.
     const requestId = await adminMutation(admin, internal.accountLifecycle.requestClerkDeletion, { clerkId: user.id, eventAt: Date.now(), deliveryId: `e2e-${user.id}` });
     await expect.poll(async () => (await adminQuery(admin, internal.accountLifecycle.context, { requestId }))?.status).toBe("completed");
-    expect(await adminQuery(admin, internal.users.lookupCurrent, { tokenIdentifier: `${local.env.CLERK_JWT_ISSUER_DOMAIN}|${user.id}` })).toEqual({ status: "deleting" });
+    expect(await adminQuery(admin, internal.users.lookupCurrent, { tokenIdentifier: testTokenIdentifier(local.env, user.id) })).toEqual({ status: "deleting" });
     await page.reload();
     await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Account", exact: true })).toHaveCount(0);

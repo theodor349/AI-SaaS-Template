@@ -4,6 +4,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { ConvexHttpClient } from "convex/browser";
 import { internal } from "../convex/_generated/api.js";
 import { resolveLocalTestConfig } from "./local-test-config.mjs";
+import { testExternalCustomerId } from "./test-identity.mjs";
 
 // Admin-only deterministic fixtures. No test endpoints or fake payments are
 // exposed by the application. Synthetic records never create provider payments.
@@ -41,11 +42,10 @@ export async function publishBillingSnapshot(snapshot, client = billingTestAdmin
 
 export async function seedPaidTestUser(user, model = "lifetime", paid = true) {
   const { local, client } = billingTestAdmin();
-  const tokenIdentifier = `${local.env.CLERK_JWT_ISSUER_DOMAIN}|${user.id}`;
   await client.mutation(internal.users.syncProfile, { profile: { clerkId: user.id, email: user.email,
     firstName: user.name, updatedAt: Date.now() }, eventAt: Date.now() });
   const customerId = `fixture-${local.config.id}-${user.id}`;
-  const externalId = `${local.config.id}:${tokenIdentifier}`;
+  const externalId = testExternalCustomerId(local, user.id);
   await client.mutation(internal.billingState.enqueue, { customerId, externalId });
   const now = Date.now();
   const productId = local.env[`POLAR_PRODUCT_${model.toUpperCase()}`];

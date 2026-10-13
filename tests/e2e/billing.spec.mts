@@ -7,6 +7,7 @@ import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
 import { billingTestAdmin, leaseBillingFixture, publishBillingSnapshot, seedPaidTestUser } from "../../scripts/billing-test-fixtures.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 import { adminQuery, adminMutation } from "../../scripts/billing-test-admin";
+import { testExternalCustomerId } from "../../scripts/test-identity.mjs";
 import { interceptConvexSync } from "./convex-sync.mjs";
 import { captureEvidence } from "./evidence.mjs";
 
@@ -187,7 +188,7 @@ test("sandbox checkout and recovery work when another customer uses the sign-in 
     const { client: admin } = billingTestAdmin();
     const userId = await adminQuery(admin, internal.users.byClerkId, { clerkId: user.id });
     const account = (await adminQuery(admin, internal.billing.accountByUser, { userId: userId! }))!;
-    expect(account.externalId).toBe(`${local.config.id}:${local.env.CLERK_JWT_ISSUER_DOMAIN}|${user.id}`);
+    expect(account.externalId).toBe(testExternalCustomerId(local, user.id));
     expect(account.customerId).not.toBe(collisionCustomerId);
     const owned = await polar.customers.get(account.customerId);
     expect(owned.email).toBe(user.email.replace("@", `+${local.config.id}@`));
