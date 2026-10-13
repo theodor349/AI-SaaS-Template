@@ -63,6 +63,7 @@ function BillingPlansContent() {
   let pendingPlan = checkout.pendingPlan;
   if (actions.isPending("monthly")) pendingPlan = "monthly";
   else if (actions.isPending("yearly")) pendingPlan = "yearly";
+  else if (actions.isPending("reactivate")) pendingPlan = status.model;
 
   let confirmationPlan = switchPlan;
   if (recurring && (selectedPlan === "monthly" || selectedPlan === "yearly")) {
@@ -73,7 +74,12 @@ function BillingPlansContent() {
   }
 
   function selectPlan(model: Plan) {
-    if (disabled || (recurring && status.cancelAtPeriodEnd && model !== "lifetime")) return;
+    if (disabled) return;
+    if (recurring && status.cancelAtPeriodEnd && model === status.model) {
+      void actions.run("reactivate");
+      return;
+    }
+    if (recurring && status.cancelAtPeriodEnd && model !== "lifetime") return;
     if (recurring && model !== "lifetime") setSwitchPlan(model);
     else void checkout.purchase(model);
   }

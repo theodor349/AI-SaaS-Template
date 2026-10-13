@@ -197,13 +197,13 @@ function BillingControlsContent() {
             {recurring && !isDeleting && (
               <Button
                 disabled={changeDisabled}
-                variant="outline"
+                variant={status.cancelAtPeriodEnd ? "default" : "destructive"}
                 onClick={() => void actions.run(cancellation)}
                 aria-busy={cancelPending}
                 aria-live="polite"
               >
                 <ButtonLabel loading={cancelPending} loadingText="Confirming renewal…">
-                  {status.cancelAtPeriodEnd ? "Reactivate subscription" : "Cancel subscription"}
+                  {status.cancelAtPeriodEnd ? "Renew subscription" : "Cancel subscription"}
                 </ButtonLabel>
               </Button>
             )}
