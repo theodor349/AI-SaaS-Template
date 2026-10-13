@@ -1,6 +1,7 @@
 "use client";
 
 import { useClerk, useUser } from "@clerk/nextjs";
+import { useConvexAuth, useQuery } from "convex/react";
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { DropdownMenu as MenuPrimitive } from "radix-ui";
@@ -8,6 +9,7 @@ import { Cookie, CreditCard, FileText, LogOut, Settings, Shield, SlidersHorizont
 import { DropdownMenu, DropdownMenuPortal, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { CookiePreferences } from "./cookie-preferences";
+import { api } from "@/convex/_generated/api";
 import styles from "./site-navigation.module.css";
 
 const accountPages = [
@@ -22,13 +24,15 @@ const legalPages = [
 
 export function ProfileMenu() {
   const { user } = useUser();
+  const { isAuthenticated } = useConvexAuth();
+  const current = useQuery(api.users.current, isAuthenticated ? {} : "skip");
   const { signOut } = useClerk();
   const [open, setOpen] = useState(false);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [error, setError] = useState<string>();
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const name = user?.fullName || user?.username || "Your account";
+  const name = current?.status === "ready" && current.user.displayName || "Your account";
 
   async function handleSignOut() {
     setSigningOut(true);

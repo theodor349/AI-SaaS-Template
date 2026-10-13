@@ -34,7 +34,8 @@ test("a first signed-in visit provisions through Clerk without a loopback webhoo
       expect(current.status).toBe("ready");
       if (current.status !== "ready") throw new Error("Account provisioning did not finish");
       expect(current.user.email).toBe(user.email);
-      expect(Object.keys(current.user).sort()).toEqual(["email", "firstName", "id", "lastName"]);
+      expect(current.user.displayName).toBe(user.name);
+      expect(Object.keys(current.user).sort()).toEqual(["displayName", "email", "id"]);
       records.push(current.user.id);
       await target.reload();
       await expect.poll(async () => (await client.query(api.users.current, {})).status).toBe("ready");

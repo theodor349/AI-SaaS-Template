@@ -16,6 +16,8 @@ export default defineSchema(
       tokenIdentifier: v.string(),
       clerkId: v.string(),
       email: v.optional(v.string()),
+      displayName: v.optional(v.string()),
+      // Accepted for existing profiles; new writes use displayName.
       firstName: v.optional(v.string()),
       lastName: v.optional(v.string()),
       profileEdited: v.optional(v.boolean()),

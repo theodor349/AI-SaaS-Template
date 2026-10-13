@@ -3,6 +3,7 @@ import { internalMutation, internalQuery, query } from "./_generated/server";
 import { accountForUser, billingModel, requirePro } from "./lib/billing";
 import schema, { scheduledPlanChange } from "./schema";
 import { requireIdentity } from "./lib/auth";
+import { getDisplayName } from "./lib/profile";
 
 export const status = query({
   args: {}, returns: v.object({ readiness: v.union(v.literal("provisioning"), v.literal("ready"), v.literal("deleting")),
@@ -46,7 +47,7 @@ export const accountByUser = internalQuery({
 // Paid application data always uses this boundary, including direct API calls.
 export const application = query({
   args: {}, returns: v.object({ name: v.string() }), handler: async ctx => {
-    const user = await requirePro(ctx); return { name: [user.firstName, user.lastName].filter(Boolean).join(" ") || "there" };
+    const user = await requirePro(ctx); return { name: getDisplayName(user) || "there" };
   },
 });
 
