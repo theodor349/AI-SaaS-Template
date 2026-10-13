@@ -1,13 +1,13 @@
 # Hosted development deployment
 
-The `ai-saas-template` Vercel project deploys `main` from
-`theodor349/AI-SaaS-Template` to the `ai-saas-template` Convex project's production
-deployment. This is a shared development environment with disposable test data,
-Clerk development keys, and Polar sandbox payments.
+A Vercel project deploys `main` to a Convex project's production deployment.
+This is a shared development environment with disposable test data, Clerk
+development keys, and Polar sandbox payments.
 
-The default production deployment is `kindhearted-bandicoot-875` (reference
-`cloud-dev`) in the `jes` team. The stable frontend URL is
-`https://ai-saas-template-hazel.vercel.app`.
+This repository's instance: Vercel project `ai-saas-template`
+(`https://ai-saas-template-hazel.vercel.app`), Convex deployment
+`kindhearted-bandicoot-875` (reference `cloud-dev`) in the `jes` team's
+`ai-saas-template` project. Downstream projects replace these values.
 
 ## Vercel
 
@@ -26,7 +26,7 @@ Set these environment variables for **Production only**:
 | `CONVEX_DEPLOY_KEY` | Production deployment key generated in Convex; grant `deployment:deploy`. |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Existing Clerk development publishable key (`pk_test_...`). |
 | `CLERK_SECRET_KEY` | Matching Clerk development secret key (`sk_test_...`). |
-| `NEXT_PUBLIC_APP_URL` | `https://ai-saas-template-hazel.vercel.app` (the project's stable application URL). |
+| `NEXT_PUBLIC_APP_URL` | The Vercel project's stable application URL. |
 | `NEXT_PUBLIC_AUTHENTICATED_DESTINATION` | `/app`, or the intended authenticated landing route. |
 
 Do not set `CONVEX_DEPLOYMENT` or copy a worktree's `.env.local` into Vercel.
@@ -44,7 +44,7 @@ with that frontend; a Vercel rollback does not roll back Convex.
 
 ## Convex
 
-On the `ai-saas-template` project's **production deployment**, set:
+On the Convex project's **production deployment**, set:
 
 | Variable | Value |
 | --- | --- |
@@ -112,7 +112,7 @@ to the stable app URL, paid access, and delivery of both providers' webhooks.
 Initialize the public product catalog after deploying to a fresh database:
 
 ```sh
-pnpm exec convex run --deployment jes:ai-saas-template:cloud-dev polar:syncCatalog '{}'
+pnpm exec convex run --deployment <team>:<project>:cloud-dev polar:syncCatalog '{}'
 ```
 
 The catalog is subsequently refreshed by the existing six-hour cron job.
