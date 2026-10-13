@@ -19,7 +19,7 @@ try {
   const destinations = [...new Set(result.output.match(/http:\/\/127\.0\.0\.1:\d+\/webhooks\/polar/g) ?? [])];
   for (const destination of destinations) console.log(`CLI reported forwarding: ${destination}`);
   const status = result.output.match(/Response\s+(\d{3})/)?.[1];
-  if (status) console.log(`Delivery response: HTTP ${status}.`);
+  if (status) console.log(`Delivery response: HTTP ${status}${status === "404" ? " (billing handler is unimplemented)" : ""}.`);
   console.log("Shared organization listeners can receive this event. CLI output alone cannot verify delivery to every worktree or billing isolation.");
   if (result.error) throw new Error("Polar sample delivery failed. Check sandbox credentials and the webhook handler. Raw provider diagnostics are suppressed.");
 } catch (error) {
