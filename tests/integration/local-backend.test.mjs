@@ -22,10 +22,10 @@ test("the worktree frontend serves successfully", { timeout: 30000 }, async () =
 });
 
 test("protected backend calls reject anonymous and invalid-token callers", async () => {
-  await assert.rejects(client.query(api.auth.currentIdentity, {}), /UNAUTHENTICATED/);
+  await assert.rejects(client.query(api.users.current, {}), /UNAUTHENTICATED/);
   const invalid = new ConvexHttpClient(config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
   invalid.setAuth("invalid-token");
-  await assert.rejects(invalid.query(api.auth.currentIdentity, {}));
+  await assert.rejects(invalid.query(api.users.current, {}));
 });
 
 test("public pages and JSON/TXT/XML assets stay public while application routes require sign-in", { timeout: 60000 }, async () => {

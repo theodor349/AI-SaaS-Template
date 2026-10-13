@@ -17,7 +17,6 @@ test("Tailscale URLs are stable, isolated from local listener ports, and retain 
   for (const port of Object.values(remote.ports)) assert.ok(port >= 50000 && port < 65000);
   assert.notDeepEqual(remote.ports, tailscaleConfig(worktreeConfig("/tmp/another-worktree"), remote.hostname).ports);
   assert.equal(remote.env.APP_URL, `https://${authority(remote.ports.next)}`);
-  assert.equal(remote.env.POLAR_SUCCESS_URL, `${remote.env.APP_URL}/`);
   assert.equal(remote.env.POLAR_WEBHOOK_URL, undefined);
   assert.throws(() => tailscaleConfig(local, "evil.example/path"), /MagicDNS/);
 });

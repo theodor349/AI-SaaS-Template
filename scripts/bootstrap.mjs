@@ -26,7 +26,6 @@ export function worktreeConfig(root) {
       NEXT_PUBLIC_CONVEX_URL: `http://127.0.0.1:${ports.convex}`,
       NEXT_PUBLIC_CONVEX_SITE_URL: `http://127.0.0.1:${ports.site}`,
       POLAR_ENVIRONMENT: "sandbox",
-      POLAR_SUCCESS_URL: `${appUrl}/`,
       POLAR_WEBHOOK_URL: `http://127.0.0.1:${ports.site}/webhooks/polar`,
     },
   };
@@ -362,7 +361,7 @@ export async function bootstrap({ browserEnv = {}, onReady } = {}) {
     saveEnvironment(localFile, fileEnv);
     configured = true;
     const backendEnv = Object.fromEntries(Object.entries(fileEnv).filter(([key]) =>
-      ["WORKTREE_ID", "APP_URL", "CLERK_JWT_ISSUER_DOMAIN", "CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET", "POLAR_ACCESS_TOKEN", "POLAR_ENVIRONMENT", "POLAR_WEBHOOK_SECRET", "POLAR_SUCCESS_URL", "POLAR_ORGANIZATION_ID", "POLAR_PRODUCT_MONTHLY", "POLAR_PRODUCT_YEARLY", "POLAR_PRODUCT_LIFETIME"].includes(key)));
+      ["WORKTREE_ID", "APP_URL", "CLERK_JWT_ISSUER_DOMAIN", "CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET", "POLAR_ACCESS_TOKEN", "POLAR_ENVIRONMENT", "POLAR_WEBHOOK_SECRET", "POLAR_ORGANIZATION_ID", "POLAR_PRODUCT_MONTHLY", "POLAR_PRODUCT_YEARLY", "POLAR_PRODUCT_LIFETIME"].includes(key)));
     const backendEnvFile = join(root, ".env.convex.local");
     saveEnvironment(backendEnvFile, backendEnv);
     const watchEnvFile = join(root, ".env.convex-watch.local");

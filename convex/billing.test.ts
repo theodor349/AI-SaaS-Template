@@ -67,7 +67,7 @@ beforeEach(() => {
   vi.stubEnv("POLAR_ACCESS_TOKEN", "sandbox-test"); vi.stubEnv("POLAR_ENVIRONMENT", "sandbox");
   vi.stubEnv("POLAR_WEBHOOK_SECRET", secret); vi.stubEnv("POLAR_PRODUCT_MONTHLY", "monthly");
   vi.stubEnv("POLAR_PRODUCT_YEARLY", "yearly"); vi.stubEnv("POLAR_PRODUCT_LIFETIME", "lifetime");
-  vi.stubEnv("POLAR_ORGANIZATION_ID", "");
+  vi.stubEnv("POLAR_ORGANIZATION_ID", ""); vi.stubEnv("CLERK_JWT_ISSUER_DOMAIN", "https://clerk.example");
   subscriptions = [sub()]; orders = [order()];
   customer = { id: "customer-a", external_id: externalId, metadata: { worktree_id: "wt-test" } };
   provider.customers.get.mockImplementation(async () => customer);
