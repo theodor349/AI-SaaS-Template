@@ -1,18 +1,26 @@
 "use client";
 
 import { createContext, useContext, type ReactNode } from "react";
+import { toast } from "sonner";
+import { useCheckout } from "../../_components/use-checkout";
 import { useBillingActions } from "./use-billing-actions";
-import { useBillingCheckout } from "./use-billing-checkout";
 
 const BillingActionsContext = createContext<{
   actions: ReturnType<typeof useBillingActions>;
-  checkout: ReturnType<typeof useBillingCheckout>;
+  checkout: ReturnType<typeof useCheckout>;
 } | null>(null);
+
+function checkoutFailed() {
+  toast.error("We couldn’t open checkout", {
+    description: "Please try again in a moment.",
+    id: "billing-request-error",
+  });
+}
 
 // Status controls and plan cards share pending state to prevent competing requests.
 export function BillingActionsProvider({ children }: { children: ReactNode }) {
   const actions = useBillingActions();
-  const checkout = useBillingCheckout();
+  const checkout = useCheckout({ onError: checkoutFailed });
   return <BillingActionsContext.Provider value={{ actions, checkout }}>{children}</BillingActionsContext.Provider>;
 }
 
