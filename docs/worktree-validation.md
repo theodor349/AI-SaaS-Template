@@ -24,8 +24,7 @@ cookies, tokens, or auth URLs are included here.
 | Database isolation | PASS | A held `81013118`; B held `82029351`. Neither query contained the other worktree's marker. |
 | Persistence | PASS | Stopping and restarting A preserved its ID, ports, and numbers; B remained operational. |
 | Clerk authentication | PASS | Distinct labeled development users signed into both URLs. Authenticated Convex queries recognized their names. The new official-helper E2E test passed in each tree. Credential override regression was fixed and retested. |
-| Polar forwarding | PASS | Labeled `customer.created` sandbox samples reached both destinations. Temporary raw-body observation probes verified HMAC signatures, while retaining response 404. The real endpoint remains unimplemented. |
-| Billing boundaries | BLOCKED | No billing handler, billing state, signature-verifying application endpoint, or event filter exists. A-tagged and B-tagged samples each reached both listeners in the shared organization. Worktree labels do not provide hosted isolation. |
+| Polar forwarding | PASS | Labeled `customer.created` sandbox samples reached both destinations. Temporary raw-body observation probes verified HMAC signatures. A-tagged and B-tagged samples each reached both listeners in the shared organization. |
 | Port conflicts | PASS | A separately owned wildcard listener occupied B's Next port. Bootstrap failed clearly, left `.env.local` unchanged, and preserved the listener's response. |
 | Failure cleanup | PASS | Ctrl+C released A's three ports while B stayed healthy. Killing only B's Next listener caused bootstrap exit 1 and released all three B ports while A remained healthy. No owned orphan processes remained. |
 | Configuration safeguards | PASS | Missing credentials/live keys produced safe errors; generated files and storage were ignored; env files were private; the original env backup matched; cloud selectors were excluded; Polar used sandbox. Live-test guards refuse missing, cloud, and mismatched targets. |
@@ -50,19 +49,21 @@ unchanged. A second independent hosted Clerk application was not provisioned.
 **Shared organization broadcasts events.** Start two stacks with the same
 Polar sandbox organization and run `pnpm polar:trigger`. Both organization
 listeners can receive the labeled sample. The command safely prints the local
-delivery URL and HTTP status and exits unsuccessfully on the currently expected
-404. Polar's CLI shares a delivery log across listeners, so a trigger from A
-can report B's destination. Verify delivery at each handler; do not infer
-worktree isolation from the CLI's single reported destination.
+delivery URL and HTTP status. Polar's CLI shares a delivery log across
+listeners, so a trigger from A can report B's destination. Verify delivery at
+each handler; do not infer worktree isolation from the CLI's single reported
+destination.
 
 **Cookies share the loopback hostname.** Different ports on `127.0.0.1` share
 cookies within one browser profile. Use separate browser contexts or profiles
 for concurrent users. E2E and inspection use dedicated contexts.
 
-**Billing processing remains unimplemented.** Successful forwarding and the
-temporary probe's signature check do not establish billing correctness.
-Implement `/webhooks/polar` with signature verification and worktree filtering,
-or use separate sandbox organizations, before asserting billing isolation.
+**Worktree labels filter events; they do not isolate delivery.**
+`/webhooks/polar` verifies signatures, then acts only on customers labeled with
+its own worktree ID (external ID prefix or `worktree_id` metadata) or already
+linked locally; see [polarWebhook.ts](../convex/lib/polarWebhook.ts). Events
+for other worktrees still arrive at every listener and are ignored there. Use
+separate sandbox organizations when a test needs hosted isolation.
 
 See [the agent workflow](../README.md#testing-a-feature-in-a-worktree) for the
 repeatable unit, integration, E2E, manual inspection, and Polar commands.
