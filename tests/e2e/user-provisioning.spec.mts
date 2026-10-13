@@ -1,4 +1,4 @@
-import { clerk, clerkSetup } from "@clerk/testing/playwright";
+import { clerk } from "@clerk/testing/playwright";
 import { expect, test } from "@playwright/test";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../convex/_generated/api";
@@ -8,8 +8,6 @@ import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 const local = resolveLocalTestConfig();
 
 test("a first signed-in visit provisions through Clerk without a loopback webhook", async ({ page, browser }) => {
-  await clerkSetup({ publishableKey: local.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
-    secretKey: local.env.CLERK_SECRET_KEY, dotenv: false });
   const alice = await createClerkTestUser(local);
   const bob = await createClerkTestUser(local);
   const otherContext = await browser.newContext({ baseURL: local.config.env.APP_URL });

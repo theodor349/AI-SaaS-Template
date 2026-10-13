@@ -24,6 +24,7 @@ test("killing only the Next listener shuts down Convex, the watcher, and Polar",
     await mkdir(join(fixture, "node_modules/convex"), { recursive: true });
     await mkdir(join(fixture, "node_modules/@polar-sh/cli"), { recursive: true });
     await mkdir(join(fixture, "bin"));
+    await mkdir(join(fixture, "node_modules/.bin"));
     await copyFile(fileURLToPath(new URL("./bootstrap.mjs", import.meta.url)), join(fixture, "bootstrap.mjs"));
     await copyFile(fileURLToPath(new URL("./bootstrap-output-guard.mjs", import.meta.url)), join(fixture, "bootstrap-output-guard.mjs"));
     // A previous run's derived issuer must not block a different app's key override.
@@ -39,20 +40,23 @@ test("killing only the Next listener shuts down Convex, the watcher, and Polar",
       "POLAR_PRODUCT_MONTHLY=monthly", "POLAR_PRODUCT_YEARLY=yearly", "POLAR_PRODUCT_LIFETIME=lifetime",
     ].join("\n"), { mode: 0o600 });
     // Stand-ins preserve the failure shape: both wrapping CLIs survive Next's exit.
-    await writeFile(join(fixture, "bin/pnpm"), `#!/usr/bin/env node
+    // Bootstrap runs project CLIs from node_modules/.bin, so one stand-in serves both.
+    const cli = `#!/usr/bin/env node
       const { spawn } = require("node:child_process");
       const { mkdirSync, writeFileSync } = require("node:fs");
       const { createServer } = require("node:http");
+      const { basename } = require("node:path");
       const args = process.argv.slice(2);
       if (args.includes("--print-secret")) { console.log("whsec_example"); console.error("whsec_example"); }
       else if (args.includes("polar:syncCatalog")) {
+        if (!require("node:fs").existsSync(args[args.indexOf("--env-file") + 1])) process.exit(9);
         fetch(process.env.APP_URL).then(response => {
           if (!response.ok) process.exit(1);
           writeFileSync("catalog-synced", "ready");
         }).catch(() => process.exit(1));
       }
       else if (args.includes("set")) { /* env upload */ }
-      else if (args.includes("polar")) {
+      else if (basename(process.argv[1]) === "polar") {
         console.log("Signing secret: whsec_example");
         console.error("Signing secret: whsec_example");
         writeFileSync("polar.pid", String(process.pid));
@@ -68,7 +72,8 @@ test("killing only the Next listener shuts down Convex, the watcher, and Polar",
           writeFileSync("convex.pid", String(process.pid));
         }, 500);
       }
-    `, { mode: 0o700 });
+    `;
+    for (const name of ["convex", "polar"]) await writeFile(join(fixture, "node_modules/.bin", name), cli, { mode: 0o700 });
     // A Ctrl+C can interrupt ps itself during cleanup; retry before signalling descendants.
     await writeFile(join(fixture, "bin/ps"), `#!/usr/bin/env node
       const { existsSync, writeFileSync } = require("node:fs");

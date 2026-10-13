@@ -30,6 +30,7 @@ is needed. Agent guidance lives in [AGENTS.md](AGENTS.md).
 - `pnpm test:app` - run application unit tests without starting dev-server fixtures.
 - `pnpm test:integration` - check the running worktree's local backend and frontend.
 - `pnpm test:e2e` - test sign-in and sign-out with Clerk and Convex in Chromium.
+  `E2E_EVIDENCE=1 pnpm test:e2e <spec>` also saves screenshots and videos for PR evidence in `.playwright/results`.
 - `pnpm inspect` - open the running worktree for manual browser inspection.
 - `pnpm polar:trigger` - send a labeled Polar sandbox sample event to organization listeners.
 - `pnpm dev` - start Convex and Next.js using the regular deployment setup.
