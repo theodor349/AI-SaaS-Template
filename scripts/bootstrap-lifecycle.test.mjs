@@ -78,7 +78,7 @@ test("killing only the Next listener shuts down Convex, the watcher, and Polar",
         process.kill(process.pid, "SIGINT");
       } else {
         writeFileSync("inspect-started", "yes");
-        process.stdout.write(execFileSync("/usr/bin/ps", process.argv.slice(2)));
+        process.stdout.write(execFileSync("/bin/ps", process.argv.slice(2)));
       }
     `, { mode: 0o700 });
     child = spawn(process.execPath, [join(root, "bootstrap.mjs")], {

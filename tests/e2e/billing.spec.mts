@@ -333,7 +333,8 @@ for (const model of ["monthly", "yearly"] as const) {
       await adminMutation(admin, internal.billingState.finish, { customerId: fixture.customerId, version: lease.version, failed: false });
       await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email });
       await page.goto(`/billing?plan=${target}`);
-      await expect(page.getByRole("button", { name: "Reactivate subscription" })).toBeEnabled();
+      await expect(page.getByRole("button", { name: "Renew subscription", exact: true })).toBeEnabled();
+      await expect(page.getByRole("button", { name: "Renew", exact: true })).toBeEnabled();
       await expect(page.getByRole("button", { name: `Switch to ${target}` })).toBeDisabled();
       await expect(page.getByRole("button", { name: "Get lifetime" })).toBeEnabled();
       await expect(page.getByRole("alertdialog")).toHaveCount(0);
@@ -480,12 +481,17 @@ test("repeated switches and cancellation cycles confirm reactive state; failures
       await expect(planCard(target).getByRole("button", { name: "Current", exact: true })).toBeDisabled();
       await expect(page.getByRole("button", { name: `Switch to ${target === "yearly" ? "monthly" : "yearly"}` })).toBeEnabled();
     }
-    for (const action of ["Cancel subscription", "Reactivate subscription", "Cancel subscription", "Reactivate subscription"]) {
+    for (const action of ["Cancel subscription", "Renew", "Cancel subscription", "Renew subscription"]) {
+      const previousSequence = sequence;
       await page.getByRole("button", { name: action, exact: true }).click();
-      await expect(page.getByRole("button", { name: "Confirming renewal…" })).toBeDisabled();
+      await expect(page.getByRole("button", { name: "Confirming renewal…" })).toHaveCount(action === "Cancel subscription" ? 1 : 2);
+      await expect(page.getByRole("button", { name: "Confirming renewal…" }).first()).toBeDisabled();
+      await expect(page.getByRole("button", { name: "Confirming renewal…" }).last()).toBeDisabled();
+      await expect(page.getByRole("button", { name: "Get lifetime" })).toBeDisabled();
       release!();
-      const nextAction = action === "Cancel subscription" ? "Reactivate subscription" : "Cancel subscription";
+      const nextAction = action === "Cancel subscription" ? "Renew subscription" : "Cancel subscription";
       await expect(page.getByRole("button", { name: nextAction, exact: true })).toBeEnabled();
+      expect(sequence).toBe(previousSequence + 1);
       const dateLabel = action === "Cancel subscription" ? "Access ends" : "Paid through";
       await expect(page.getByLabel(dateLabel, { exact: true })).toBeDisabled();
     }
