@@ -165,9 +165,9 @@ function PlanAction({ model, onboarding, signUp, currentPlan, scheduledPlan, ren
     return (
       <Tooltip>
         <TooltipTrigger asChild>
-          <span tabIndex={0} aria-label={explanation}>
-            <Button disabled>{label}</Button>
-          </span>
+          <Button type="button" aria-disabled="true" onClick={event => event.preventDefault()}>
+            {label}
+          </Button>
         </TooltipTrigger>
         <TooltipContent>{explanation}</TooltipContent>
       </Tooltip>

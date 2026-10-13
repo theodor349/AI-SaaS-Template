@@ -304,6 +304,16 @@ for (const model of ["monthly", "yearly"] as const) {
     const user = await createClerkTestUser(local);
     const { client: admin } = billingTestAdmin();
     const target = model === "monthly" ? "yearly" : "monthly";
+    let switchRequests = 0;
+    await page.routeWebSocket(/\/sync$/, socket => {
+      const server = socket.connectToServer();
+      server.onMessage(message => socket.send(message));
+      socket.onMessage(message => {
+        const frame = JSON.parse(message.toString()) as { type: string; udfPath?: string };
+        if (frame.type === "Action" && frame.udfPath === "polar:changeSubscription") switchRequests++;
+        server.send(message);
+      });
+    });
     try {
       const fixture = await seedPaidTestUser(user, model);
       const account = (await adminQuery(admin, internal.billingState.get, { customerId: fixture.customerId }))!;
@@ -325,13 +335,29 @@ for (const model of ["monthly", "yearly"] as const) {
       await expect(page.getByRole("button", { name: "Get lifetime" })).toBeEnabled();
       await expect(page.getByRole("alertdialog")).toHaveCount(0);
       const explanation = `Renew your subscription to switch to ${target}`;
-      const trigger = page.locator("span").filter({ has: page.getByRole("button", { name: `Switch to ${target}` }) });
+      const trigger = page.getByRole("button", { name: `Switch to ${target}` });
       await trigger.hover();
       await expect(page.getByRole("tooltip")).toHaveText(explanation);
       await page.screenshot({ path: `/tmp/billing-canceled-${model}-tooltip.png`, fullPage: true });
       await page.mouse.move(0, 0);
       await trigger.focus();
       await expect(page.getByRole("tooltip")).toHaveText(explanation);
+      await trigger.click({ force: true });
+      await trigger.press("Enter");
+      await trigger.press("Space");
+      await expect(page.getByRole("alertdialog")).toHaveCount(0);
+      expect(switchRequests).toBe(0);
+
+      const renewedLease = await leaseBillingFixture(fixture.customerId);
+      const renewedAt = Date.now();
+      await adminMutation(admin, internal.billingState.apply, { version: renewedLease.version, snapshot: {
+        customerId: fixture.customerId, externalId: fixture.externalId,
+        subscriptions: [{ id: fixture.subscriptionId, productId, status: "active", start: renewedAt - 1000,
+          end: account.paidThrough!, modifiedAt: renewedAt, cancelAtPeriodEnd: false }], orders: [],
+      } });
+      await adminMutation(admin, internal.billingState.finish, { customerId: fixture.customerId, version: renewedLease.version, failed: false });
+      await expect(page.getByRole("button", { name: `Switch to ${target}` })).toBeEnabled();
+      await expect(page.getByRole("alertdialog")).toBeVisible();
     } finally { await user.cleanup(); }
   });
 }
