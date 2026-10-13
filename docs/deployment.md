@@ -34,9 +34,10 @@ Do not set `CONVEX_DEPLOYMENT` or copy a worktree's `.env.local` into Vercel.
 secrets belong on Convex, not in browser variables or GitHub Actions.
 
 `pnpm build:vercel` runs application unit tests and lint before invoking
-`convex deploy --cmd 'pnpm build' --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL`.
-Convex builds the frontend first and only pushes the backend after a successful
-build. Vercel then publishes the frontend. This is not an atomic release across
+`convex deploy --cmd 'pnpm exec next build' --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL`.
+Lint has already typechecked, so the build command skips `pnpm build`'s separate
+`tsc` pass. Convex builds the frontend first and only pushes the backend after a
+successful build. Vercel then publishes the frontend. This is not an atomic release across
 both providers: if publication fails after Convex deploys, the previous frontend
 continues running against the updated backend. Keep API/schema changes compatible
 with that frontend; a Vercel rollback does not roll back Convex.
@@ -89,13 +90,17 @@ namespaces. Changing shared products affects every environment using them.
 
 ## Checks and launch
 
-GitHub Actions runs `Unit tests` and `Lint and typecheck` on every pull request,
-regardless of source or target branch, and on pushes to `main`. The checks need
-no hosted credentials and run independently so both report failures. New pushes
-cancel outdated check runs. Integration and browser tests use worktree bootstrap
-services and are run separately when relevant.
+GitHub Actions runs `Unit tests`, `Lint and typecheck`, and `Next.js build` on
+every pull request, regardless of source or target branch, and on pushes to
+`main`. There are no preview deployments, so `Next.js build` is what catches a
+broken production build before Vercel does. It runs `next build` with fake,
+well-formed placeholders for the browser variables read while building and
+prerendering; the checks need no hosted credentials. They run independently so
+each reports its failures, and new pushes cancel outdated runs. Integration and
+browser tests use worktree bootstrap services and are run separately when
+relevant.
 
-Require both checks in a GitHub branch ruleset for `main` if merges should be
+Require the checks in a GitHub branch ruleset for `main` if merges should be
 blocked on failures. Vercel independently runs `pnpm test:app` and `pnpm lint`
 before deployment. The dev-server fixtures in `test:bootstrap` run in GitHub
 Actions and locally: Vercel's build worker does not reliably support the
