@@ -477,6 +477,37 @@ export const sweep = internalMutation({
   },
 });
 
+// One-time migration for accounts created before billingSync existed. Run once
+// after deploy with `{ cursor: null }`; it pages through every account, keeps
+// legacy failure state, and makes each one due so the sweep reconciles it and
+// applies the current schedule. Accounts that already have a sync row are skipped.
+export const backfillSync = internalMutation({
+  args: { cursor: v.union(v.string(), v.null()) },
+  returns: v.null(),
+  handler: async (ctx, { cursor }) => {
+    const page = await ctx.db.query("billingAccounts").paginate({ cursor, numItems: sweepPage });
+    for (const account of page.page) {
+      if (await syncForCustomer(ctx, account.customerId)) {
+        continue;
+      }
+      await ctx.db.insert("billingSync", {
+        customerId: account.customerId,
+        requestedVersion: account.requestedVersion ?? 0,
+        leaseUntil: 0,
+        attempts: account.attempts ?? 0,
+        nextCheckAt: Date.now(),
+        reconciledAt: account.reconciledAt,
+        failureCode: account.failureCode,
+        lastDeliveryAt: account.lastDeliveryAt,
+      });
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.billingState.backfillSync, { cursor: page.continueCursor });
+    }
+    return null;
+  },
+});
+
 // Called only after provider pages confirm that no live subscriptions remain.
 export const confirmProviderCleanup = internalMutation({
   args: { userId: v.id("users") },

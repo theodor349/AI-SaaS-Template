@@ -154,6 +154,27 @@ test("timed checks follow paid access instead of polling every account", async (
   expect((await sync(t))?.nextCheckAt).toBeUndefined();
 });
 
+test("the backfill gives legacy accounts sync rows without overwriting existing ones", async () => {
+  const t = setup(); await link(t);
+  const existing = await sync(t);
+  await t.run(async ctx => {
+    for (let i = 0; i < 120; i++) {
+      await ctx.db.insert("billingAccounts", { customerId: `legacy-${i}`, status: "active", cancelAtPeriodEnd: false,
+        revision: 1, failureCode: "RECONCILIATION_FAILED", attempts: 9, nextCheckAt: 0 });
+    }
+  });
+  await t.mutation(internal.billingState.backfillSync, { cursor: null });
+  await t.finishInProgressScheduledFunctions();
+  vi.runAllTimers();
+  await t.finishInProgressScheduledFunctions();
+  const rows = await t.run(ctx => ctx.db.query("billingSync").take(200));
+  expect(rows).toHaveLength(121);
+  expect(rows.filter(row => row.customerId === "customer-a").map(row => row._id)).toEqual([existing!._id]);
+  expect(rows.find(row => row.customerId === "legacy-7")).toMatchObject({
+    failureCode: "RECONCILIATION_FAILED", attempts: 9, nextCheckAt: Date.now(),
+  });
+});
+
 test("the sweep pages through every due account without a fixed ceiling", async () => {
   const t = setup();
   await t.run(async ctx => {
