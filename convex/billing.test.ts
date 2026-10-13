@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { PolarClientError, PolarNetworkError } from "@polar-sh/sdk";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
-import { billingReturnUrl } from "./lib/billing";
+import { billingReturnUrl, externalCustomerId, externalIdTokenIdentifier } from "./lib/billing";
 
 const provider = vi.hoisted(() => ({
   customers: { get: vi.fn(), getExternal: vi.fn(), create: vi.fn() },
@@ -835,4 +835,12 @@ test("deletion cancels and revokes every subscription across provider pages desp
   expect(fetchSpy).toHaveBeenCalledTimes(1);
   expect((await t.run(ctx => ctx.db.get("users", userId)))?.lifecycle).toBe("deleted");
   expect(await t.run(ctx => ctx.db.query("billingSubscriptions").take(200))).toEqual([]);
+});
+
+test("external customer IDs resolve to an owner only within this worktree", () => {
+  expect(externalCustomerId(tokenIdentifier)).toBe(externalId);
+  expect(externalIdTokenIdentifier(externalId)).toBe(tokenIdentifier);
+  expect(externalIdTokenIdentifier(`wt-other:${tokenIdentifier}`)).toBeNull();
+  expect(externalIdTokenIdentifier(`wt-test-2:${tokenIdentifier}`)).toBeNull();
+  expect(externalIdTokenIdentifier(undefined)).toBeNull();
 });

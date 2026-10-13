@@ -1,13 +1,13 @@
-import { ConvexError, v, type Infer } from "convex/values";
+import { v, type Infer } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { env, internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./_generated/server";
 import {
   accountForCustomer,
   accountForUser,
   externalCustomerId,
+  externalIdTokenIdentifier,
   productModel,
-  requireUser,
   scheduledRetries,
   syncForCustomer,
 } from "./lib/billing";
@@ -21,10 +21,12 @@ import {
   sameValues,
   type Entitlement,
 } from "./lib/entitlement";
+import { appError } from "./lib/errors";
+import { isLeased, leaseDeadline, retryDelay } from "./lib/retry";
+import { requireUser, userByTokenIdentifier } from "./lib/users";
 import schema, { scheduledPlanChange } from "./schema";
 import { deliveryArgs, deliveryResult, processDelivery } from "./webhooks";
 
-const leaseMs = 120_000;
 const sweepPage = 100;
 
 const subscription = v.object({
@@ -94,7 +96,7 @@ async function requestReconciliation(ctx: MutationCtx, customerId: string) {
   const sync = await ensureSync(ctx, customerId);
   await ctx.db.patch("billingSync", sync._id, {
     requestedVersion: sync.requestedVersion + 1,
-    nextCheckAt: Date.now() + leaseMs,
+    nextCheckAt: leaseDeadline(),
     attempts: 0,
   });
   await ctx.scheduler.runAfter(0, internal.polar.reconcileCustomer, { customerId });
@@ -189,17 +191,17 @@ export const claim = internalMutation({
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
     if (args.externalId !== externalCustomerId(user.tokenIdentifier)) {
-      throw new ConvexError({ code: "CUSTOMER_IDENTITY_CONFLICT" });
+      throw appError("CUSTOMER_IDENTITY_CONFLICT");
     }
     const existing = await accountForUser(ctx, user._id);
     if (existing && existing.customerId !== args.customerId) {
-      throw new ConvexError({ code: "CUSTOMER_IDENTITY_CONFLICT" });
+      throw appError("CUSTOMER_IDENTITY_CONFLICT");
     }
     const account = await accountForCustomer(ctx, args.customerId);
     const otherOwner = account?.userId && account.userId !== user._id;
     const otherIdentity = account?.externalId && account.externalId !== args.externalId;
     if (!account || otherOwner || otherIdentity) {
-      throw new ConvexError({ code: "CUSTOMER_IDENTITY_CONFLICT" });
+      throw appError("CUSTOMER_IDENTITY_CONFLICT");
     }
     await linkIdentity(ctx, account, user._id, args.externalId);
     return null;
@@ -216,7 +218,7 @@ export const lease = internalMutation({
     }
     const sync = await ensureSync(ctx, customerId);
     const now = Date.now();
-    if (sync.leaseUntil > now) {
+    if (isLeased(sync.leaseUntil, now)) {
       return null;
     }
     const version = sync.requestedVersion + 1;
@@ -224,8 +226,8 @@ export const lease = internalMutation({
     await ctx.db.patch("billingSync", sync._id, {
       requestedVersion: version,
       leaseVersion: version,
-      leaseUntil: now + leaseMs,
-      nextCheckAt: now + leaseMs,
+      leaseUntil: leaseDeadline(now),
+      nextCheckAt: leaseDeadline(now),
     });
     return { version, account };
   },
@@ -240,14 +242,8 @@ async function snapshotOwner(ctx: QueryCtx, account: Doc<"billingAccounts">, ext
   if (account.userId) {
     return ctx.db.get("users", account.userId);
   }
-  const prefix = `${env.WORKTREE_ID}:`;
-  if (!externalId?.startsWith(prefix)) {
-    return null;
-  }
-  const tokenIdentifier = externalId.slice(prefix.length);
-  return ctx.db.query("users")
-    .withIndex("by_tokenIdentifier", (q) => q.eq("tokenIdentifier", tokenIdentifier))
-    .unique();
+  const tokenIdentifier = externalIdTokenIdentifier(externalId);
+  return tokenIdentifier === null ? null : userByTokenIdentifier(ctx, tokenIdentifier);
 }
 
 async function saveOrder(ctx: MutationCtx, customerId: string, item: SnapshotOrder) {
@@ -388,10 +384,6 @@ export const apply = internalMutation({
   },
 });
 
-function retryDelay(attempts: number) {
-  return Math.min(60 * 60_000, 1000 * 2 ** Math.min(attempts, 12));
-}
-
 export const finish = internalMutation({
   args: { customerId: v.string(), version: v.number(), failed: v.boolean() },
   returns: v.null(),
@@ -409,7 +401,7 @@ export const finish = internalMutation({
     if (failed) {
       nextCheckAt = now + delay;
     } else if (pending) {
-      nextCheckAt = now + leaseMs;
+      nextCheckAt = leaseDeadline(now);
     } else if (account) {
       const subscriptions = await ctx.db.query("billingSubscriptions")
         .withIndex("by_customerId", (q) => q.eq("customerId", customerId))
@@ -467,7 +459,7 @@ export const sweep = internalMutation({
       .take(sweepPage);
     for (const row of due) {
       // Moving the check out of range lets the next page start after this one.
-      await ctx.db.patch("billingSync", row._id, { nextCheckAt: now + leaseMs });
+      await ctx.db.patch("billingSync", row._id, { nextCheckAt: leaseDeadline(now) });
       await ctx.scheduler.runAfter(0, internal.polar.reconcileCustomer, { customerId: row.customerId });
     }
     if (due.length === sweepPage) {
@@ -545,19 +537,19 @@ export const beginOperation = internalMutation({
     const user = await requireUser(ctx);
     const account = await accountForUser(ctx, user._id);
     if (!account) {
-      throw new ConvexError({ code: "CUSTOMER_NOT_FOUND" });
+      throw appError("CUSTOMER_NOT_FOUND");
     }
     const sync = await ensureSync(ctx, account.customerId);
-    if ((sync.operationLeaseUntil ?? 0) > Date.now()) {
-      throw new ConvexError({ code: "BILLING_OPERATION_PENDING" });
+    if (isLeased(sync.operationLeaseUntil)) {
+      throw appError("BILLING_OPERATION_PENDING");
     }
     const deletion = await ctx.db.query("accountLifecycleRequests")
       .withIndex("by_userId", (q) => q.eq("userId", user._id))
       .unique();
     if (deletion?.status === "pending") {
-      throw new ConvexError({ code: "DELETION_PENDING" });
+      throw appError("DELETION_PENDING");
     }
-    const lease = Date.now() + leaseMs;
+    const lease = leaseDeadline();
     await ctx.db.patch("billingSync", sync._id, { operationLeaseUntil: lease });
     return lease;
   },

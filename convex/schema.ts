@@ -1,8 +1,9 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { billingModel, recurringModel } from "./lib/billingModel";
 
 export const scheduledPlanChange = v.object({
-  model: v.union(v.literal("monthly"), v.literal("yearly")),
+  model: recurringModel,
   at: v.number(),
 });
 
@@ -57,7 +58,7 @@ export default defineSchema(
       externalId: v.optional(v.string()),
       userId: v.optional(v.id("users")),
       status: v.union(v.literal("awaiting_payment"), v.literal("active"), v.literal("ended")),
-      model: v.optional(v.union(v.literal("monthly"), v.literal("yearly"), v.literal("lifetime"))),
+      model: v.optional(billingModel),
       subscriptionId: v.optional(v.string()),
       lifetimeOrderId: v.optional(v.string()),
       paidThrough: v.optional(v.number()),
@@ -111,7 +112,7 @@ export default defineSchema(
     }).index("by_orderId", ["orderId"])
       .index("by_customerId", ["customerId"]),
     billingProducts: defineTable({
-      model: v.union(v.literal("monthly"), v.literal("yearly"), v.literal("lifetime")),
+      model: billingModel,
       productId: v.string(), name: v.string(), amount: v.number(), currency: v.string(),
       taxBehavior: v.string(), syncedAt: v.number(),
     }).index("by_model", ["model"]),

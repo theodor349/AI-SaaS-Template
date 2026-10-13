@@ -10,9 +10,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import type { RecurringModel } from "@/convex/lib/billingModel";
 
 export function PlanSwitchConfirmation({ plan, disabled, onCancel, onConfirm }: {
-  plan: "monthly" | "yearly" | null;
+  plan: RecurringModel | null;
   disabled: boolean;
   onCancel: () => void;
   onConfirm: () => void;

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { env } from "../_generated/server";
+import { isWorktreeExternalId } from "./billing";
 
 // SDK 1.x verifies signatures and recognizes event names, but doesn't validate
 // resource fields at runtime. Normalize only the association we consume; all
@@ -23,6 +24,6 @@ export function normalizePolarEvent(value: unknown) {
     resource = { id, external_id: data.customer?.external_id ?? data.external_customer_id, metadata: data.customer?.metadata ?? data.metadata };
   } else return { type: event.type, association: null };
   const externalId = resource.external_id || undefined;
-  const scoped = externalId?.startsWith(`${env.WORKTREE_ID}:`) === true || resource.metadata?.worktree_id === env.WORKTREE_ID;
+  const scoped = isWorktreeExternalId(externalId) || resource.metadata?.worktree_id === env.WORKTREE_ID;
   return { type: event.type, association: { customerId: resource.id, externalId, scoped } };
 }

@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { AuthBoundary, AuthPending } from "@/components/auth/auth-boundary";
 import { Pricing, PricingSkeleton } from "@/components/billing/pricing";
 import { useBillingAccount } from "@/components/billing/use-billing-account";
+import { isRecurringModel, type RecurringModel } from "@/convex/lib/billingModel";
 import type { CheckoutPlan } from "../../_components/use-checkout";
 import { useBillingRequests } from "./billing-actions-provider";
 import { PlanSwitchConfirmation } from "./plan-switch-confirmation";
@@ -34,8 +35,8 @@ function BillingPlansContent() {
   // Links from pricing and checkout ask subscribers to confirm a recurring plan
   // switch here. Starting checkout from a URL belongs to /checkout.
   const selected = params.get("plan");
-  const selectedPlan = selected === "monthly" || selected === "yearly" ? selected : null;
-  const [switchPlan, setSwitchPlan] = useState<"monthly" | "yearly" | null>(null);
+  const selectedPlan = isRecurringModel(selected) ? selected : null;
+  const [switchPlan, setSwitchPlan] = useState<RecurringModel | null>(null);
   const recurring = status?.state === "active";
   const disabled = actions.isBusy || actions.changePending || checkout.isPending;
 

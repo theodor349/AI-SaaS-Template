@@ -1,10 +1,10 @@
 "use client";
 
 import { useMutation, useQuery } from "convex/react";
-import { ConvexError } from "convex/values";
 import { useState, type SubmitEvent } from "react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
+import { hasErrorCode } from "@/convex/lib/errors";
 import { AuthBoundary, AuthPending } from "@/components/auth/auth-boundary";
 import { Button, ButtonLabel } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -115,12 +115,7 @@ function UserDataFormContent() {
     } catch (error) {
       let description = "We couldn’t complete the request. Try again in a moment.";
 
-      if (
-        error instanceof ConvexError &&
-        typeof error.data === "object" &&
-        error.data !== null &&
-        error.data.code === "INVALID_NAME"
-      ) {
+      if (hasErrorCode(error, "INVALID_NAME")) {
         description = "Use a display name up to 100 characters without control characters.";
       }
 

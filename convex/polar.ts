@@ -4,21 +4,21 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import { action, env, internalAction, type ActionCtx } from "./_generated/server";
 import {
-  billingModel,
   billingReturnUrl,
   configuredProduct,
   externalCustomerId,
-  models,
+  isWorktreeExternalId,
   productModel,
   timestamp,
-  type BillingModel,
 } from "./lib/billing";
+import { billingModel, billingModels, recurringModel, type BillingModel } from "./lib/billingModel";
+import { appError } from "./lib/errors";
 
 type Polar = ReturnType<typeof createPolar>;
 
 function client() {
   if (!env.POLAR_ACCESS_TOKEN || !env.POLAR_ENVIRONMENT) {
-    throw new ConvexError({ code: "BILLING_CONFIGURATION_REQUIRED" });
+    throw appError("BILLING_CONFIGURATION_REQUIRED");
   }
   return createPolar({
     accessToken: env.POLAR_ACCESS_TOKEN,
@@ -72,17 +72,16 @@ async function userFacing<T>(operation: () => Promise<T>): Promise<T> {
       throw error;
     }
     console.error("Polar operation failed", { code: "BILLING_REQUEST_FAILED", ...providerFailure(error) });
-    throw new ConvexError({ code: "BILLING_REQUEST_FAILED" });
+    throw appError("BILLING_REQUEST_FAILED");
   }
 }
 
 function belongs(customer: PolarModels.Customer, expected?: string) {
-  const scoped = customer.external_id?.startsWith(`${env.WORKTREE_ID}:`) ||
-    customer.metadata.worktree_id === env.WORKTREE_ID;
+  const scoped = isWorktreeExternalId(customer.external_id) || customer.metadata.worktree_id === env.WORKTREE_ID;
   const otherIdentity = expected && customer.external_id !== expected;
   const otherOrganization = env.POLAR_ORGANIZATION_ID && customer.organization_id !== env.POLAR_ORGANIZATION_ID;
   if (!scoped || otherIdentity || otherOrganization) {
-    throw new ConvexError({ code: "CUSTOMER_IDENTITY_CONFLICT" });
+    throw appError("CUSTOMER_IDENTITY_CONFLICT");
   }
 }
 
@@ -149,7 +148,7 @@ async function validateProduct(p: Polar, model: BillingModel) {
     (model === "lifetime" || product.recurring_interval_count === 1) &&
     (!env.POLAR_ORGANIZATION_ID || product.organization_id === env.POLAR_ORGANIZATION_ID);
   if (!valid || price.amount_type !== "fixed") {
-    throw new ConvexError({ code: "BILLING_CONFIGURATION_REQUIRED" });
+    throw appError("BILLING_CONFIGURATION_REQUIRED");
   }
   return {
     model,
@@ -167,7 +166,7 @@ export const syncCatalog = internalAction({
   returns: v.null(),
   handler: async (ctx) => {
     const p = client();
-    for (const model of models) {
+    for (const model of billingModels) {
       await ctx.runMutation(internal.billing.saveProduct, await validateProduct(p, model));
     }
     return null;
@@ -186,7 +185,7 @@ export const checkout = action({
       const { account } = await ctx.runQuery(internal.billingState.owned, {});
       const recurringActive = account?.status === "active" && model !== "lifetime";
       if (account?.model === "lifetime" || recurringActive) {
-        throw new ConvexError({ code: "USE_SUBSCRIPTION_MANAGEMENT" });
+        throw appError("USE_SUBSCRIPTION_MANAGEMENT");
       }
       const product = await validateProduct(p, model);
       // Recover ambiguous creates and repeated clicks without generating duplicate
@@ -226,7 +225,7 @@ export const portal = action({
     const destination = billingReturnUrl(returnUrl);
     const { account } = await ctx.runQuery(internal.billingState.owned, {});
     if (!account) {
-      throw new ConvexError({ code: "CUSTOMER_NOT_FOUND" });
+      throw appError("CUSTOMER_NOT_FOUND");
     }
     const { p, customer } = await ownedCustomer(ctx);
     const session = await p.customerSessions.create({ customer_id: customer.id, return_url: destination });
@@ -235,7 +234,7 @@ export const portal = action({
 });
 
 export const changeSubscription = action({
-  args: { operation: v.union(v.literal("cancel"), v.literal("reactivate"), v.literal("monthly"), v.literal("yearly")) },
+  args: { operation: v.union(v.literal("cancel"), v.literal("reactivate"), ...recurringModel.members) },
   returns: v.null(),
   handler: (ctx, { operation }) => userFacing(async () => {
     const { p, customer } = await ownedCustomer(ctx);
@@ -245,16 +244,16 @@ export const changeSubscription = action({
       const { account } = await ctx.runQuery(internal.billingState.owned, {});
       const subscriptionId = account?.subscriptionId;
       if (!account || account.model === "lifetime" || !subscriptionId) {
-        throw new ConvexError({ code: "SUBSCRIPTION_UNAVAILABLE" });
+        throw appError("SUBSCRIPTION_UNAVAILABLE");
       }
       const sub = await retry(() => p.subscriptions.get(subscriptionId));
       const currentModel = productModel(sub.product_id);
       if (sub.customer_id !== customer.id || !currentModel || sub.status !== "active") {
-        throw new ConvexError({ code: "SUBSCRIPTION_UNAVAILABLE" });
+        throw appError("SUBSCRIPTION_UNAVAILABLE");
       }
       if (operation === "monthly" || operation === "yearly") {
         if (sub.cancel_at_period_end) {
-          throw new ConvexError({ code: "SUBSCRIPTION_REACTIVATION_REQUIRED" });
+          throw appError("SUBSCRIPTION_REACTIVATION_REQUIRED");
         }
         const product = await validateProduct(p, operation);
         // Downgrades keep the paid year and switch at renewal; upgrades invoice now.
