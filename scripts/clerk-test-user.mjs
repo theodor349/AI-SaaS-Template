@@ -5,8 +5,15 @@ import { setTimeout as delay } from "node:timers/promises";
 // Next's server export needs CommonJS when used directly by a Node script.
 const { createClerkClient } = createRequire(import.meta.url)("@clerk/nextjs/server");
 
+// Purposes label every generated Clerk resource so pnpm clerk:sweep can find orphans.
+export const TEST_USER_PURPOSES = ["local-agent-test", "maintainer-review"];
+
+export function clerkBackend(env) {
+  return createClerkClient({ secretKey: env.CLERK_SECRET_KEY });
+}
+
 // Parallel worktrees share the development instance's provider rate limits.
-async function withProviderRetry(operation) {
+export async function withProviderRetry(operation) {
   for (let attempt = 0; ; attempt++) {
     try {
       return await operation();
@@ -17,8 +24,9 @@ async function withProviderRetry(operation) {
   }
 }
 
-export async function createClerkTestUser({ config, env }) {
-  const client = createClerkClient({ secretKey: env.CLERK_SECRET_KEY });
+export async function createClerkTestUser({ config, env }, { purpose = "local-agent-test" } = {}) {
+  if (!TEST_USER_PURPOSES.includes(purpose)) throw new Error(`Unknown Clerk test-user purpose: ${purpose}`);
+  const client = clerkBackend(env);
   const label = `${config.id}-${randomUUID().slice(0, 8)}`;
   // Clerk recognizes +clerk_test; Polar also requires a domain with valid MX.
   const email = `${label}+clerk_test@gmail.com`;
@@ -30,7 +38,7 @@ export async function createClerkTestUser({ config, env }) {
       firstName,
       lastName: "Account",
       skipPasswordRequirement: true,
-      publicMetadata: { WORKTREE_ID: config.id, purpose: "local-agent-test" },
+      publicMetadata: { WORKTREE_ID: config.id, purpose },
     }));
   } catch (error) {
     const codes = error.errors?.map((detail) => `${detail.code}: ${detail.meta?.paramName ?? "unknown field"}`).join(", ") ?? "unknown";
@@ -40,6 +48,11 @@ export async function createClerkTestUser({ config, env }) {
     id: user.id,
     email,
     name: `${firstName} Account`,
+    // Single-use credential for Clerk's ticket sign-in; never log it.
+    async createSignInToken(expiresInSeconds) {
+      const { token } = await withProviderRetry(() => client.signInTokens.createSignInToken({ userId: user.id, expiresInSeconds }));
+      return token;
+    },
     async revokeSessions() {
       const sessions = await withProviderRetry(() => client.sessions.getSessionList({ userId: user.id, status: "active" }));
       await Promise.all(sessions.data.map((session) => withProviderRetry(() => client.sessions.revokeSession(session.id))));
@@ -55,7 +68,7 @@ export async function createClerkTestUser({ config, env }) {
 }
 
 export async function createClerkTestOrganization({ config, env }, userId) {
-  const client = createClerkClient({ secretKey: env.CLERK_SECRET_KEY });
+  const client = clerkBackend(env);
   let organization;
   try {
     organization = await withProviderRetry(() => client.organizations.createOrganization({

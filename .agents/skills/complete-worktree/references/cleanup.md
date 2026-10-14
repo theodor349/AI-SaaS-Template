@@ -1,35 +1,41 @@
 # Track and clean up task resources
 
-Read this before starting persistent commands and again when completing a worktree. Cleanup covers bootstrap, Next.js, local Convex and its watcher, Polar forwarding, Tailscale proxies created by the task, test watchers, inspection/browser sessions, and other task-owned background commands and terminals, including those from earlier sessions.
+Read this before starting persistent commands and again when completing a worktree. Cleanup covers the bootstrap stack (Next.js, local Convex and its watcher, Polar forwarding, and Tailscale proxies it created), test watchers, inspection/browser sessions, and other task-owned background commands and terminals, including those from earlier sessions.
 
-## Keep recoverable ownership records
+## Bootstrap owns its own record
 
-Use a per-worktree inventory outside tracked source. Resolve its path with:
+`pnpm bootstrap` writes this worktree's ownership record to `$(git rev-parse --path-format=absolute --git-path bootstrap-state.json)`: supervisor PID and start time, status, mode, ports, URLs, created and preserved Tailscale routes, and the log path (`--git-path bootstrap.log`). It lives in the worktree's Git admin directory, outside tracked source, and survives the session.
+
+- `pnpm bootstrap:status` shows status, URLs, mode, PID, and log path; `--json` for scripts. A recorded PID that is gone or has a different start time is reported as `stale`.
+- `pnpm bootstrap:wait [--timeout <seconds>]` exits 0 once ready and prints the log tail on failure. Use it after starting bootstrap in the background.
+- `pnpm bootstrap:stop [--timeout <seconds>]` rechecks PID and start time, sends SIGINT to the supervisor only, then waits for exit and for this worktree's ports to be free. If it does not exit, it sends SIGTERM to the same verified supervisor once. Bootstrap's own shutdown stops Convex, Next, and Polar and removes only Tailscale routes that run created.
+
+Do not copy bootstrap PIDs into another inventory. If `bootstrap:stop` reports a failure, read the log and the reported survivors; do not signal anything it did not verify.
+
+## Record other task resources
+
+Keep a small inventory for everything bootstrap does not own, at:
 
 ```bash
 git rev-parse --path-format=absolute --git-path agent-session-resources.md
 ```
 
-In a linked worktree this lives in its own Git administrative directory, outside the worktree. Keep it small and update it as resources start and stop, preserving entries from earlier sessions. Record the worktree root/branch, owning session and terminal or tool session ID, sanitized launch command, supervisor PID and start time, observed child PIDs/process groups and start times, and resources such as ports or proxies created by that run. Do not record credentials, environment dumps, or commands containing secrets. Record pre-existing/reused proxies separately so they are preserved. Before deleting a merged branch, also record the PR URL, confirmed merged head, merge commit, and branch/remote so interrupted cleanup can resume without the branch.
+Record separately started commands (test watchers, extra servers), their owning terminal or tool session ID, sanitized launch command, and PID with start time; task-opened browser or inspection sessions and terminal panels; and before deleting a merged branch, the PR URL, confirmed merged head, merge commit, and branch/remote so interrupted cleanup can resume. Never record credentials, environment dumps, or commands containing secrets. Preserve entries from earlier sessions.
 
-Recover the inventory in a fresh session. Check current process identity against its recorded PID/start time; PIDs can be reused. Reconstruct missing ownership only from reliable launch/session records or a verified supervisor and its process ancestry. A command name, path, port, or working directory by itself is not proof. Discover candidate resources with read-only inspection; do not turn search matches into kill targets. If ownership or control of a live resource cannot be established, leave that resource untouched and report the exact cleanup blocker.
+In a fresh session, check each recorded PID against its start time; PIDs are reused. A command name, path, port, or working directory alone is not proof of ownership. Discover candidates with read-only inspection and never turn search matches into kill targets. If ownership cannot be established, leave the resource untouched and report the blocker.
 
-## Stop services through their owner
+## Stop services
 
-1. Finish checks and evidence capture. Stop `pnpm bootstrap` or `pnpm bootstrap:tailscale` with Ctrl+C in its original terminal. If a harness provides terminal input, send Ctrl+C to that recorded terminal/session. Wait for the supervisor to exit and its shutdown to finish. Do not kill only the Next listener, close the terminal first, or stop a shared provider daemon.
-2. The shutdown in [bootstrap.mjs](../../../../scripts/bootstrap.mjs) terminates its owned child groups, including Convex, Next, and Polar. [bootstrap-tailscale.mjs](../../../../scripts/bootstrap-tailscale.mjs) also removes only proxies created by that run. Confirm completion rather than assuming Ctrl+C was enough. If an original terminal is inaccessible, a verified supervisor can receive SIGINT or SIGTERM by its exact PID to invoke the same shutdown path; check PID/start time immediately before signaling.
-3. Stop separately started task commands through their owning terminals or verified supervisors. Wait for exit. For manual fallback, establish the exact descendants/groups belonging to that launch before signaling, recheck identity, and use graceful termination first. Escalate only for those verified survivors after a bounded wait. Never use broad `pkill`/`killall`, process-search pipelines that kill matches, port-based killing, or Tailscale-wide resets. Do not signal the agent/harness or unrelated/shared services.
-4. Confirm the recorded supervisor and descendants have exited and task-owned listeners have stopped. Use `pnpm bootstrap --print` to obtain this worktree's local ports if needed; it starts nothing. Ports are a secondary check, not ownership evidence. For Tailscale, verify task-created routes are gone and pre-existing routes remain. An occupied port reused by an unrelated process is not permission to stop it.
-
-The controlling supervisor may exit before a child. Keep the ownership record until both are confirmed gone. If graceful shutdown fails, inspect the bootstrap cleanup error and surviving verified resources; do not report shutdown as successful.
+1. Finish checks and evidence capture.
+2. Run `pnpm bootstrap:stop`. It works from any session and is equivalent to Ctrl+C in bootstrap's terminal. Confirm it reports the stack stopped and ports free; `pnpm bootstrap:status` should then show `stopped`.
+3. Stop other task commands through their owning terminals or verified supervisors and wait for exit. For a manual fallback, establish the exact descendants belonging to that launch, recheck identity, and terminate gracefully before escalating only verified survivors after a bounded wait.
+4. Never use `pkill`/`killall`, kill-by-search pipelines, port-based killing, or Tailscale-wide resets. Do not signal the agent/harness or unrelated/shared services. An occupied port held by an unrelated process is not permission to stop it.
 
 ## Close sessions and terminals
 
-- Stop task-owned recordings and close task-opened inspection/browser sessions when the available tool supports closure. Preserve sessions or tabs owned by the maintainer or another task.
-- Distinguish command execution sessions from visible terminal panels. Codex's `exec_command` and `write_stdin` control commands; a returned session ID does not establish that a T3 terminal panel was opened. Verify command exit and owned descendants separately from panel closure.
-- End task-owned idle shell processes as well as service commands. After their processes exit, close panels actually opened for this task when a terminal/harness close operation is exposed, and verify closure with a list/status operation when available. Sending `exit` can end an owned shell but does not prove its panel closed.
-- If no panel-close API is exposed, panel closure is unsupported UI cleanup, not a resource-shutdown blocker. Do not invent a tool, infer surviving processes or panels from missing controls, or retain the inventory solely for panel closure. Mention manual closure only for a known task-owned panel; do not add a generic terminal-panel warning to every completion report.
-- A new session may lack an earlier session's terminal handles. Use available session controls or the verified supervisor fallback above to stop live resources. Retain the inventory if their shutdown cannot be verified, even when panel controls are unavailable.
-- Do not terminate the current agent/harness to close its own execution channel. Finish the final report normally and let the harness release that channel.
+- Stop task-owned recordings and close task-opened inspection/browser sessions when the tool supports it. Preserve sessions owned by the maintainer or another task.
+- Command sessions (for example Codex's `exec_command`) are not T3 terminal panels. Verify command exit separately from panel closure.
+- End task-owned idle shells, then close panels opened for this task if a close operation is exposed. If none is exposed, panel closure is unsupported UI cleanup, not a blocker; mention it only for a known task-owned panel.
+- Do not terminate the current agent/harness to close its own execution channel.
 
-Continue cleaning independently verified resources if another item fails. Clean Git status does not require removing ignored `.convex`, `.next`, or generated environment files. Preserve the worktree directory and database. Delete the inventory after all recorded task processes, services, supported session/panel cleanup, and branch-cleanup items are verified complete. Unsupported panel closure alone does not require retaining it; on a resource or branch-cleanup blocker, mark completed items and retain the unresolved ones.
+Continue cleaning independently verified resources if another item fails. Clean Git status does not require removing ignored `.convex`, `.next`, generated environment files, or the bootstrap state and log. Preserve the worktree directory and database. Delete the inventory after its items are verified complete; on a blocker, mark completed items and keep the unresolved ones.

@@ -26,21 +26,22 @@ This template provides shared architecture, UI patterns, and an agent-friendly d
 
 ## The ways to hurt yourself
 
-1. Never kill processes solely by matching a name, path, or worktree string. Multiple agents and dev servers share this machine, and those matches can include unrelated processes or the agent itself. Stop `pnpm bootstrap` with Ctrl+C in its original terminal so it cleans up its managed services. If manual cleanup is necessary, target only processes you started or have verified belong to that bootstrap instance. A matching port or working directory alone does not prove ownership.
+1. Never kill processes solely by matching a name, path, or worktree string. Multiple agents and dev servers share this machine, and those matches can include unrelated processes or the agent itself. Stop `pnpm bootstrap` with Ctrl+C in its original terminal or `pnpm bootstrap:stop`, which verifies the recorded supervisor before signaling it, so it cleans up its managed services. If manual cleanup is necessary, target only processes you started or have verified belong to that bootstrap instance. A matching port or working directory alone does not prove ownership.
 
 ## Worktree development
 
 - Use pnpm for all package management and scripts.
-- `pnpm bootstrap` starts Next.js, local Convex, and Polar sandbox forwarding, installing missing dependencies along the way. Run it in a persistent terminal and wait for `Ready:` before opening the printed app URL. This is the worktree entry point instead of `pnpm dev`.
-- Share application inspection links with the maintainer over Tailscale HTTPS. Start `pnpm bootstrap:tailscale`, wait for its `Ready:` URL, and verify the URL responds before sharing it. Do not share localhost or loopback URLs for maintainer inspection.
-- For remote testing over Tailscale, use `pnpm bootstrap:tailscale` after stopping the current bootstrap in its owning terminal. It prints a private HTTPS URL and configures frontend/backend connections and checkout redirects. `--print` shows the URLs without starting services. Ctrl+C removes only the Tailscale proxies created by that run.
-- Ports and `WORKTREE_ID` derive from the worktree path and stay stable across restarts. `pnpm bootstrap --print` shows them without starting anything. Occupied ports cause a startup error.
-- Local database state lives in the worktree's gitignored `.convex`; Next.js output lives in `.next`. Restarting bootstrap keeps the database. Each worktree gets its own generated environment files.
+- `pnpm setup:check` checks prerequisites and provider setup. Run it first when a worktree misbehaves.
+- `pnpm bootstrap` starts Next.js, local Convex, and Polar sandbox forwarding, syncing dependencies along the way. Run it in a persistent terminal (or the background) and use `pnpm bootstrap:wait` to block until it is ready. This is the worktree entry point instead of `pnpm dev`.
+- Bootstrap uses private Tailscale HTTPS URLs when Tailscale is connected with HTTPS, and loopback URLs otherwise. `--local` forces loopback; `--tailscale` requires Tailscale. The URLs are fixed at startup, so switching modes needs a restart.
+- `pnpm bootstrap:status` shows the run's state, URLs, and log file; `pnpm bootstrap:stop` stops this worktree's verified bootstrap from any terminal. Service output is also written to the log, so read it there when you do not own the terminal.
+- Share inspection links with the maintainer only over Tailscale HTTPS, verified to respond first. `pnpm review-link [--plan …] [--path …]` prints a single-use signed-in link for them; never paste it into PRs or issues. Do not share localhost or loopback URLs for maintainer inspection.
+- Ports and `WORKTREE_ID` derive from the worktree path and stay stable across restarts. `pnpm bootstrap --print` shows the effective configuration. On a port collision, set `BOOTSTRAP_PORT_BLOCK` in this worktree's `.env.bootstrap.local`.
+- Local database state lives in the worktree's gitignored `.convex`; Next.js output lives in `.next`. Restarting bootstrap keeps the database; `pnpm db:reset --yes` clears it while bootstrap is stopped. Each worktree gets its own generated environment files.
 - Development credentials come from the main checkout's gitignored `.env.bootstrap.local`. Worktree files and process variables can override them. Bootstrap generates the local URLs, so there is no need to copy another checkout's environment files.
-- Clerk and Polar resources can be shared across worktrees. Use worktree-labeled test resources and separate browser contexts for different users. Shared Polar organizations can deliver events to every listener; `--no-polar` starts the stack without forwarding.
-- `pnpm test:unit` and `pnpm lint` work without running services. Integration tests, E2E tests, and `pnpm inspect` use the running bootstrap environment and check that they target this worktree.
-- Stop your bootstrap with Ctrl+C in its terminal. It cleans up its managed services while leaving other worktrees running.
-- Record persistent commands and their owning terminals as they start, following [resource tracking and cleanup](.agents/skills/complete-worktree/references/cleanup.md). Keep the per-worktree inventory outside tracked source so a later session can recover ownership and finish cleanup.
+- Clerk and Polar resources can be shared across worktrees. Use worktree-labeled test resources and separate browser contexts for different users. Shared Polar organizations can deliver events to every listener; `--no-polar` starts the stack without forwarding. `pnpm clerk:sweep` removes this worktree's leftover test users.
+- `pnpm test:unit` and `pnpm lint` work without running services. Integration tests, E2E tests, `pnpm inspect`, `pnpm capture`, and `pnpm review-link` use the running bootstrap environment and check that they target this worktree.
+- Record persistent commands other than bootstrap and their owning terminals as they start, following [resource tracking and cleanup](.agents/skills/complete-worktree/references/cleanup.md). Bootstrap's own state file is its ownership record.
 
 ## Verifying
 
@@ -56,10 +57,10 @@ This template provides shared architecture, UI patterns, and an agent-friendly d
 - Invoking `$complete-worktree` directly requests completion of existing task changes, including from a session that never used `$implement`. Both workflows authorize one PR, bot review and fixes, merge after the skill's verification gates, deletion of the task branch, and shutdown of owned services and terminals. Stay in the current T3-assigned worktree; do not create another worktree. Reading or editing these skills does not invoke the workflows. Honor explicit maintainer restrictions such as keeping a PR open.
 - Conventional commit titles, plain language: `fix(web): correctly handle Polar subscription events`.
 - Body: the problem in a sentence or two, then how you fixed it. End with the model and harness that did the work.
-- UI changes need before/after images. Motion or timing needs a short video.
+- UI changes need before/after images. Motion or timing needs a short video. Capture them with `pnpm capture <path…> --label before|after [--video <seconds>]` and attach them with `gh pr create|edit|comment --attach` (gh 2.99.0+).
 - Upload PR evidence to GitHub. Never commit PR-only screenshots or assets such as `.github/pr-assets/`.
 - One request is one PR. Split it only when the maintainer asks.
-- When babysitting: poll checks and comments newer than the last push, verify each bot finding against the source, fix real ones, dismiss false positives with a written reason. Stay quiet when nothing is new. Stop when the bots are green on the latest commit.
+- When babysitting: poll `pnpm pr:gate` for checks and comments newer than the last push, verify each bot finding against the source, fix real ones, dismiss false positives with a written reason. Stay quiet when nothing is new. Stop when the bots are green on the latest commit.
 
 ## Documentation
 

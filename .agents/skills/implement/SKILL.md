@@ -14,14 +14,15 @@ Invoking this skill with a task authorizes implementation followed by the [compl
 - Read the applicable `AGENTS.md` and relevant skills. For an issue, read its body and discussion; identify the intended behavior and acceptance criteria. Resolve ordinary implementation choices yourself. Ask only about missing information that materially changes scope or behavior, while continuing independent work.
 - T3 Code assigns the task's worktree before this skill starts. Work in that current worktree and on its assigned branch. Inspect `git status`, branch, remotes, and `git worktree list`. If the checkout is on `main` or has no assigned branch, report the setup blocker. Do not create another worktree or move the task into a different checkout.
 - Preserve existing maintainer changes. Do not reset, clean, stash, switch, or remove another agent's worktree to make room. Keep unrelated changes out of task commits; resolve ambiguous ownership with the maintainer.
-- Read [resource tracking and cleanup](../complete-worktree/references/cleanup.md) before starting persistent commands. Recover any existing task resource inventory and record new services and terminals as they are started so completion can clean up across sessions.
+- Read [resource tracking and cleanup](../complete-worktree/references/cleanup.md) before starting persistent commands. Recover any existing task resource inventory and record new services and terminals as they are started so completion can clean up across sessions. `pnpm bootstrap` uses Tailscale mode when available; `pnpm bootstrap:status`, `bootstrap:wait`, and `bootstrap:stop` report, await, and stop this worktree's stack.
 
 ## Implement and verify
 
 - Implement the requested behavior and inspect the complete task diff for correctness and scope. Follow the project's architecture and validation instructions.
-- For UI changes, capture the pre-change screen before modifying it so the PR can include a real before image.
-- Run focused verification, then `pnpm test:unit` and `pnpm lint`. For backend or browser flows, use this worktree's `pnpm bootstrap` environment and the relevant integration or E2E tests.
-- Capture the required before/after images or motion video for UI changes. Keep PR-only artifacts outside tracked source and upload them to GitHub with supported tooling when preparing the PR.
+- For UI changes, run `pnpm capture <path...> --label before` before modifying the screen so the PR can include a real before image. Add `--plan` or `--signed-out` for the relevant account state.
+- Run focused verification, then `pnpm test:unit` and `pnpm lint`. For backend or browser flows, use this worktree's bootstrap environment and the relevant integration or E2E tests.
+- Capture the after state with `pnpm capture <path...> --label after`, adding `--video <seconds>` for motion or timing. Captures stay outside the worktree under `$TMPDIR/pr-evidence/<worktreeId>/`; completion uploads them with `gh --attach`.
+- When the maintainer wants to inspect the change, share a `pnpm review-link [--plan …] [--path …]` link: a single-use signed-in link over Tailscale. Never paste it into PRs, issues, or commits.
 - Commit only the task changes using the repository's conventional commit format. Keep services available for subsequent checks; completion owns their shutdown.
 
 ## Complete the worktree

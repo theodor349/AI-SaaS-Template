@@ -31,7 +31,8 @@ Set these environment variables for **Production only**:
 
 Do not set `CONVEX_DEPLOYMENT` or copy a worktree's `.env.local` into Vercel.
 `convex deploy` supplies `NEXT_PUBLIC_CONVEX_URL` to the Next.js build. Backend
-secrets belong on Convex, not in browser variables or GitHub Actions.
+secrets belong on Convex, not in browser variables or GitHub Actions; only the
+E2E workflow below holds development credentials there.
 
 `pnpm build:vercel` runs application unit tests and lint before invoking
 `convex deploy --cmd 'pnpm build' --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL`.
@@ -92,11 +93,30 @@ namespaces. Changing shared products affects every environment using them.
 GitHub Actions runs `Unit tests` and `Lint and typecheck` on every pull request,
 regardless of source or target branch, and on pushes to `main`. The checks need
 no hosted credentials and run independently so both report failures. New pushes
-cancel outdated check runs. Integration and browser tests use worktree bootstrap
-services and are run separately when relevant.
+cancel outdated check runs.
 
-Require both checks in a GitHub branch ruleset for `main` if merges should be
-blocked on failures. Vercel independently runs `pnpm test:app` and `pnpm lint`
+The separate [E2E workflow](../.github/workflows/e2e.yml) runs `pnpm test:integration`
+and `pnpm test:e2e` against a local bootstrap stack. It runs on pushes to `main`,
+manual dispatch, and pull requests labeled `run-e2e`; the label keeps it from
+spending the Clerk and Polar rate limits that local agents share. It needs these
+GitHub Actions repository secrets, using the same values as a local
+`.env.bootstrap.local`:
+
+| Secret | Value |
+| --- | --- |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Clerk development publishable key (`pk_test_...`). |
+| `CLERK_SECRET_KEY` | Matching Clerk development secret key (`sk_test_...`). |
+| `POLAR_ACCESS_TOKEN` | Sandbox organization access token. |
+| `POLAR_ORGANIZATION_ID` | Optional; needed when the token can access several organizations. |
+| `POLAR_PRODUCT_MONTHLY`, `POLAR_PRODUCT_YEARLY`, `POLAR_PRODUCT_LIFETIME` | The sandbox product IDs. |
+
+Polar is required because the suites check the synced catalog, signed Polar
+webhooks, and sandbox customers. Without the secrets, as on fork pull requests,
+the workflow reports a notice and skips. Do not make it a required check, since
+unlabeled pull requests never run it.
+
+Require `Unit tests` and `Lint and typecheck` in a GitHub branch ruleset for
+`main` if merges should be blocked on failures. Vercel independently runs `pnpm test:app` and `pnpm lint`
 before deployment. The dev-server fixtures in `test:bootstrap` run in GitHub
 Actions and locally: Vercel's build worker does not reliably support the
 fixture's loopback rewrite. Application test or lint failures still stop the

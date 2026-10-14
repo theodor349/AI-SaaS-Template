@@ -13,7 +13,7 @@ export function billingTestAdmin() {
   client.setAdminAuth(JSON.parse(readFileSync(join(local.config.root, ".convex/local/default/config.json"), "utf8")).adminKey);
   return { local, client };
 }
-export async function seedPaidTestUser(user, model = "lifetime", paid = true) {
+export async function seedPaidTestUser(user, model = "lifetime", paid = true, { periodMs = 60 * 60_000 } = {}) {
   const { local, client } = billingTestAdmin();
   const tokenIdentifier = `${local.env.CLERK_JWT_ISSUER_DOMAIN}|${user.id}`;
   await client.mutation(internal.users.syncProfile, { profile: { clerkId: user.id, email: user.email,
@@ -34,7 +34,7 @@ export async function seedPaidTestUser(user, model = "lifetime", paid = true) {
   await client.mutation(internal.billingState.apply, { version: lease.version, snapshot: {
     customerId, externalId,
     subscriptions: model === "lifetime" ? [] : [{ id: subscriptionId, productId, status: "active",
-      start: now - 1000, end: now + 60 * 60_000, modifiedAt: now, cancelAtPeriodEnd: false }],
+      start: now - 1000, end: now + periodMs, modifiedAt: now, cancelAtPeriodEnd: false }],
     orders: [{ id: `fixture-order-${user.id}-${model}`, productId, ...(model === "lifetime" ? {} : { subscriptionId }),
       paid, fullyRefunded: false, createdAt: now, modifiedAt: now }],
   } });

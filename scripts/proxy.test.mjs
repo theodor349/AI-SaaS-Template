@@ -56,9 +56,17 @@ test("Next routes Clerk-style rewrites on the original loopback host", { timeout
     const deadline = Date.now() + 30000;
     while (!output.includes("Ready") && child.exitCode === null && Date.now() < deadline) await delay(50);
     assert.ok(output.includes("Ready"), output);
-    const response = await fetch(`http://127.0.0.1:${port}/?marker=worktree`, { signal: AbortSignal.timeout(15000) });
+    // Ready precedes proxy compilation; under parallel test load the first requests
+    // can see "Cannot find the middleware module" until it finishes.
+    let response, body;
+    for (const retryUntil = Date.now() + 20000; ;) {
+      response = await fetch(`http://127.0.0.1:${port}/?marker=worktree`, { signal: AbortSignal.timeout(15000) });
+      body = await response.text();
+      if (response.status !== 500 || !body.includes("Cannot find the middleware module") || Date.now() > retryUntil) break;
+      await delay(250);
+    }
     assert.equal(response.status, 200, output);
-    assert.equal(await response.text(), "worktree");
+    assert.equal(body, "worktree");
     assert.doesNotMatch(output, /Failed to proxy/);
     // A page can return 200 while hydration hangs on a rejected dev socket.
     const socket = new WebSocket(`ws://127.0.0.1:${port}/_next/hmr`, { origin: "https://agent.example.ts.net:54321" });
