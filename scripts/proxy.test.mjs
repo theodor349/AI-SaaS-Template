@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { copyFile, mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -35,18 +34,12 @@ test("Next routes Clerk-style rewrites on the original loopback host", { timeout
         return NextResponse.rewrite(new URL(request.url));
       }
     `);
-    const portServer = createServer();
-    portServer.listen(0, "127.0.0.1");
-    await once(portServer, "listening");
-    const port = portServer.address().port;
-    portServer.close();
-    await once(portServer, "close");
     // A build host can inject Next configuration, adapters, and bundler flags.
     // This standalone dev server owns its framework configuration.
     const fixtureEnv = Object.fromEntries(Object.entries(process.env).filter(([name]) =>
       !/^(?:__NEXT|NEXT_|VERCEL|TURBOPACK|NODE_OPTIONS)/.test(name)));
     child = spawn(process.execPath, [join(root, "node_modules/next/dist/bin/next"), "dev", fixture,
-      "--webpack", "--hostname", "127.0.0.1", "--port", String(port)], {
+      "--webpack", "--hostname", "127.0.0.1", "--port", "0"], {
       detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"],
       env: { ...fixtureEnv, NODE_ENV: "development",
         NEXT_TELEMETRY_DISABLED: "1", NEXT_PUBLIC_APP_URL: "https://agent.example.ts.net:54321" },
@@ -56,6 +49,9 @@ test("Next routes Clerk-style rewrites on the original loopback host", { timeout
     const deadline = Date.now() + 30000;
     while (!output.includes("Ready") && child.exitCode === null && Date.now() < deadline) await delay(50);
     assert.ok(output.includes("Ready"), output);
+    // Next binds the port itself, so no other process can take it between a probe and startup.
+    const port = output.match(/Local:\s+http:\/\/127\.0\.0\.1:(\d+)/)?.[1];
+    assert.ok(port, "Next did not print its local URL");
     // Ready precedes proxy compilation; under parallel test load the first requests
     // can see "Cannot find the middleware module" until it finishes.
     let response, body;
@@ -65,7 +61,8 @@ test("Next routes Clerk-style rewrites on the original loopback host", { timeout
       if (response.status !== 500 || !body.includes("Cannot find the middleware module") || Date.now() > retryUntil) break;
       await delay(250);
     }
-    assert.equal(response.status, 200, output);
+    // Next reports request errors in the response body, not in its terminal output.
+    assert.equal(response.status, 200, body);
     assert.equal(body, "worktree");
     assert.doesNotMatch(output, /Failed to proxy/);
     // A page can return 200 while hydration hangs on a rejected dev socket.
