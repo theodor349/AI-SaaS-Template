@@ -5,6 +5,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useConvexAuth, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
+import { billingModels } from "@/convex/lib/billingModel";
 import { AuthPending, AuthRecovery } from "@/components/auth/auth-boundary";
 import { ContentSkeleton } from "@/components/loading/content-skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -65,7 +66,6 @@ export function Pricing({ onboarding = false, disabled = false, pendingPlan = nu
         <PlanCard
           key={product.model}
           product={product}
-          onboarding={onboarding}
           signUp={onboarding && !isAuthenticated}
           currentPlan={currentPlan}
           scheduledPlan={status?.scheduledChange?.model}
@@ -86,7 +86,7 @@ export function PricingSkeleton() {
     <div aria-busy="true" aria-label="Plan prices">
       <p role="status" className="sr-only">Loading paid plans…</p>
       <div className="grid gap-4 sm:grid-cols-3">
-        {(["monthly", "yearly", "lifetime"] as const).map((model) => (
+        {billingModels.map((model) => (
           <PlanCard
             key={model}
             product={{ model, name: labels[model], amount: 0, currency: "USD", taxBehavior: "provider" }}
@@ -99,7 +99,7 @@ export function PricingSkeleton() {
   );
 }
 
-function PlanCard({ product, onboarding = false, signUp = false, disabled = false, loading = false, currentPlan = null, scheduledPlan = null, renewalOff = false, pendingPlan = null, onSelect }: PricingActions & {
+function PlanCard({ product, signUp = false, disabled = false, loading = false, currentPlan = null, scheduledPlan = null, renewalOff = false, pendingPlan = null, onSelect }: PricingActions & {
   product: Product;
   signUp?: boolean;
   loading?: boolean;
@@ -137,16 +137,15 @@ function PlanCard({ product, onboarding = false, signUp = false, disabled = fals
       </div>
       <CardFooter>
         <ContentSkeleton loading={loading}>
-          <PlanAction model={model} onboarding={onboarding} signUp={signUp} currentPlan={currentPlan} scheduledPlan={scheduledPlan} renewalOff={renewalOff} disabled={disabled} pending={pendingPlan === model} onSelect={onSelect} />
+          <PlanAction model={model} signUp={signUp} currentPlan={currentPlan} scheduledPlan={scheduledPlan} renewalOff={renewalOff} disabled={disabled} pending={pendingPlan === model} onSelect={onSelect} />
         </ContentSkeleton>
       </CardFooter>
     </Card>
   );
 }
 
-function PlanAction({ model, onboarding, signUp, currentPlan, scheduledPlan, renewalOff, disabled, pending, onSelect }: {
+function PlanAction({ model, signUp, currentPlan, scheduledPlan, renewalOff, disabled, pending, onSelect }: {
   model: Product["model"];
-  onboarding: boolean;
   signUp: boolean;
   currentPlan: Product["model"] | null;
   scheduledPlan: Product["model"] | null;
@@ -155,12 +154,16 @@ function PlanAction({ model, onboarding, signUp, currentPlan, scheduledPlan, ren
   pending: boolean;
   onSelect?: PricingActions["onSelect"];
 }) {
-  if (model === currentPlan) return <Button disabled variant="outline">Current</Button>;
+  if (model === currentPlan && !renewalOff) return <Button disabled variant="outline">Current</Button>;
   if (model === scheduledPlan) return <Button disabled variant="outline">Scheduled</Button>;
   let label = `Choose ${labels[model].toLowerCase()}`;
   if (model === "lifetime") label = "Get lifetime";
   else if (currentPlan) label = `Switch to ${labels[model].toLowerCase()}`;
-  if (renewalOff && model !== "lifetime") {
+  if (model === currentPlan) label = "Renew";
+  let loadingText = "Confirming plan…";
+  if (model === "lifetime" || !currentPlan) loadingText = "Opening checkout…";
+  else if (model === currentPlan) loadingText = "Confirming renewal…";
+  if (renewalOff && model !== currentPlan && model !== "lifetime") {
     const explanation = `Renew your subscription to switch to ${labels[model].toLowerCase()}`;
     return (
       <Tooltip>
@@ -176,13 +179,14 @@ function PlanAction({ model, onboarding, signUp, currentPlan, scheduledPlan, ren
   if (onSelect || disabled) {
     return (
       <Button disabled={disabled} onClick={() => onSelect?.(model)} aria-busy={pending} aria-live="polite">
-        <ButtonLabel loading={pending} loadingText={model === "lifetime" || !currentPlan ? "Opening checkout…" : "Confirming plan…"}>
+        <ButtonLabel loading={pending} loadingText={loadingText}>
           {label}
         </ButtonLabel>
       </Button>
     );
   }
-  const destination = onboarding && !currentPlan ? `/checkout?plan=${model}` : `/billing?plan=${model}`;
+  // Subscribers confirm recurring plan switches in billing; other choices start checkout.
+  const destination = currentPlan && model !== "lifetime" ? `/billing?plan=${model}` : `/checkout?plan=${model}`;
   const href = signUp ? `${SIGN_UP_PATH}?redirect_url=${encodeURIComponent(destination)}` : destination;
   return <Button asChild><NextLink href={href} prefetch={false}>{label}</NextLink></Button>;
 }

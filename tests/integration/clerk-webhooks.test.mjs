@@ -7,6 +7,7 @@ import { Webhook } from "svix";
 import { ConvexHttpClient } from "convex/browser";
 import { api, internal } from "../../convex/_generated/api.js";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
+import { testTokenIdentifier } from "../../scripts/test-identity.mjs";
 
 const { config, env } = resolveLocalTestConfig();
 // resolveLocalTestConfig has already verified this worktree's anonymous state.
@@ -38,7 +39,7 @@ test("local Convex HTTP verifies signatures, handles concurrent deliveries, and 
     // This indexed unique lookup fails if concurrent delivery created duplicates.
     const userId = await admin.query(internal.users.byClerkId, { clerkId });
     assert.ok(userId);
-    const tokenIdentifier = `${env.CLERK_JWT_ISSUER_DOMAIN}|${clerkId}`;
+    const tokenIdentifier = testTokenIdentifier(env, clerkId);
     const current = await admin.query(internal.users.lookupCurrent, { tokenIdentifier });
     assert.equal(current.status, "ready");
     assert.equal(current.user.id, userId);
@@ -51,7 +52,7 @@ test("local Convex HTTP verifies signatures, handles concurrent deliveries, and 
     const response = await deliver({ type: "user.deleted", timestamp: Date.now(), data: { id: clerkId, deleted: true } }, `${id}-delete`);
     assert.equal(response.status, 200);
     assert.deepEqual(await admin.query(internal.users.lookupCurrent, {
-      tokenIdentifier: `${env.CLERK_JWT_ISSUER_DOMAIN}|${clerkId}`,
+      tokenIdentifier: testTokenIdentifier(env, clerkId),
     }), { status: "deleting" });
   }
 });

@@ -1,12 +1,9 @@
-import { clerk, clerkSetup } from "@clerk/testing/playwright";
+import { clerk } from "@clerk/testing/playwright";
 import { expect, test } from "@playwright/test";
 import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 
 const local = resolveLocalTestConfig();
-test.beforeAll(async () => {
-  await clerkSetup({ publishableKey: local.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, secretKey: local.env.CLERK_SECRET_KEY, dotenv: false });
-});
 
 for (const width of [1280, 390]) {
   test(`profile navigation, public policies, and sign-out work at ${width}px`, async ({ page }) => {

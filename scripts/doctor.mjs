@@ -60,7 +60,7 @@ export function ghVersionCheck(output, minimum = minimumGh) {
 
 export function tailscaleChecks(status) {
   const name = "Tailscale";
-  const fix = "Only `pnpm bootstrap:tailscale` needs this; local bootstrap works without it.";
+  const fix = "Tailscale mode needs this; bootstrap falls back to loopback URLs without it.";
   if (!status) return [warn(name, "not installed or the daemon is unavailable", `Install Tailscale and connect this machine. ${fix}`)];
   if (status.BackendState !== "Running") {
     return [warn(name, `not connected (state ${status.BackendState ?? "unknown"})`, `Connect with \`tailscale up\`. ${fix}`)];

@@ -41,17 +41,19 @@ async function startFixture(t) {
     const { spawn } = require("node:child_process");
     const { mkdirSync, writeFileSync } = require("node:fs");
     const { createServer } = require("node:http");
+    const { basename } = require("node:path");
     const args = process.argv.slice(2);
     if (args[0] === "install") { console.log("Already up to date"); writeFileSync("installed", args.join(" ")); }
     else if (args.includes("--print-secret")) { console.log("whsec_example"); console.error("whsec_example"); }
     else if (args.includes("polar:syncCatalog")) {
+      if (!require("node:fs").existsSync(args[args.indexOf("--env-file") + 1])) process.exit(9);
       fetch(process.env.APP_URL).then(response => {
         if (!response.ok) process.exit(1);
         writeFileSync("catalog-synced", "ready");
       }).catch(() => process.exit(1));
     }
     else if (args.includes("set")) { /* env upload */ }
-    else if (args.includes("polar")) {
+    else if (basename(process.argv[1]) === "polar") {
       console.log("Signing secret: whsec_example");
       console.error("Signing secret: whsec_example");
       writeFileSync("polar.pid", String(process.pid));
@@ -69,9 +71,9 @@ async function startFixture(t) {
       }, 500);
     }
   `, { mode: 0o700 });
-  // Bootstrap calls the Convex CLI directly for --env-file commands.
+  // Bootstrap runs project CLIs from node_modules/.bin, so one stand-in serves pnpm, Convex, and Polar.
   await mkdir(join(fixture, "node_modules/.bin"), { recursive: true });
-  await copyFile(join(fixture, "bin/pnpm"), join(fixture, "node_modules/.bin/convex"));
+  for (const name of ["convex", "polar"]) await copyFile(join(fixture, "bin/pnpm"), join(fixture, "node_modules/.bin", name));
   // A Ctrl+C can interrupt ps itself during cleanup; retry before signalling descendants.
   await writeFile(join(fixture, "bin/ps"), `#!/usr/bin/env node
     const { existsSync, writeFileSync } = require("node:fs");

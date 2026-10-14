@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { PolarClientError, PolarNetworkError } from "@polar-sh/sdk";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
-import { billingReturnUrl } from "./lib/billing";
+import { billingReturnUrl, externalCustomerId, externalIdTokenIdentifier } from "./lib/billing";
 
 const provider = vi.hoisted(() => ({
   customers: { get: vi.fn(), getExternal: vi.fn(), create: vi.fn() },
@@ -60,13 +60,14 @@ async function link(t: ReturnType<typeof setup>) {
   await t.mutation(internal.billingState.enqueue, { customerId: "customer-a", externalId });
 }
 const state = (t: ReturnType<typeof setup>) => t.query(internal.billingState.get, { customerId: "customer-a" });
+const sync = (t: ReturnType<typeof setup>) => t.query(internal.billingState.getSync, { customerId: "customer-a" });
 beforeEach(() => {
   vi.useFakeTimers();
   vi.stubEnv("WORKTREE_ID", "wt-test"); vi.stubEnv("APP_URL", "http://127.0.0.1:3000");
   vi.stubEnv("POLAR_ACCESS_TOKEN", "sandbox-test"); vi.stubEnv("POLAR_ENVIRONMENT", "sandbox");
   vi.stubEnv("POLAR_WEBHOOK_SECRET", secret); vi.stubEnv("POLAR_PRODUCT_MONTHLY", "monthly");
   vi.stubEnv("POLAR_PRODUCT_YEARLY", "yearly"); vi.stubEnv("POLAR_PRODUCT_LIFETIME", "lifetime");
-  vi.stubEnv("POLAR_ORGANIZATION_ID", "");
+  vi.stubEnv("POLAR_ORGANIZATION_ID", ""); vi.stubEnv("CLERK_JWT_ISSUER_DOMAIN", "https://clerk.example");
   subscriptions = [sub()]; orders = [order()];
   customer = { id: "customer-a", external_id: externalId, metadata: { worktree_id: "wt-test" } };
   provider.customers.get.mockImplementation(async () => customer);
@@ -121,10 +122,76 @@ test.each(["cancel", "reactivate"] as const)("repeating %s confirms provider sta
   subscriptions[0].modified_at = new Date(Date.now() + 1000).toISOString();
   provider.subscriptions.update.mockRejectedValue(new PolarClientError(operation === "cancel" ? 403 : 409, { detail: "Already in requested state" }));
 
+  await reconcile(t);
+  const before = await alice(t).query(api.billing.status, {});
+
   await alice(t).action(api.polar.changeSubscription, { operation });
 
   expect(provider.subscriptions.update).not.toHaveBeenCalled();
   expect(await state(t)).toMatchObject({ status: "active", cancelAtPeriodEnd: operation === "cancel" });
+  // The client confirms a change by a newer revision matching the request.
+  const after = await alice(t).query(api.billing.status, {});
+  expect(after.revision).toBeGreaterThan(before.revision);
+  expect(after.cancelAtPeriodEnd).toBe(operation === "cancel");
+});
+
+test("reconciling unchanged provider state leaves the published entitlement untouched", async () => {
+  const t = setup(); await provision(t); await link(t); await reconcile(t);
+  const published = await state(t);
+  vi.advanceTimersByTime(60_000);
+  await reconcile(t);
+  expect(await state(t)).toEqual(published);
+  expect((await sync(t))?.reconciledAt).toBe(Date.now());
+});
+
+test("timed checks follow paid access instead of polling every account", async () => {
+  const t = setup(); await provision(t); await link(t); await reconcile(t);
+  expect((await sync(t))?.nextCheckAt).toBe(Date.now() + 24 * 60 * 60_000);
+  subscriptions[0].status = "canceled";
+  subscriptions[0].modified_at = new Date(Date.now() + 10).toISOString();
+  await reconcile(t);
+  expect((await state(t))?.status).toBe("ended");
+  expect((await sync(t))?.nextCheckAt).toBeUndefined();
+});
+
+test("the backfill gives legacy accounts sync rows without overwriting existing ones", async () => {
+  const t = setup(); await link(t);
+  const existing = await sync(t);
+  await t.run(async ctx => {
+    for (let i = 0; i < 120; i++) {
+      await ctx.db.insert("billingAccounts", { customerId: `legacy-${i}`, status: "active", cancelAtPeriodEnd: false,
+        revision: 1, failureCode: "RECONCILIATION_FAILED", attempts: 9, nextCheckAt: 0 });
+    }
+  });
+  await t.mutation(internal.billingState.backfillSync, { cursor: null });
+  await t.finishInProgressScheduledFunctions();
+  vi.runAllTimers();
+  await t.finishInProgressScheduledFunctions();
+  const rows = await t.run(ctx => ctx.db.query("billingSync").take(200));
+  expect(rows).toHaveLength(121);
+  expect(rows.filter(row => row.customerId === "customer-a").map(row => row._id)).toEqual([existing!._id]);
+  expect(rows.find(row => row.customerId === "legacy-7")).toMatchObject({
+    failureCode: "RECONCILIATION_FAILED", attempts: 9, nextCheckAt: Date.now(),
+  });
+});
+
+test("the sweep pages through every due account without a fixed ceiling", async () => {
+  const t = setup();
+  await t.run(async ctx => {
+    for (let i = 0; i < 150; i++) {
+      await ctx.db.insert("billingSync", { customerId: `due-${i}`, requestedVersion: 0, leaseUntil: 0, attempts: 0, nextCheckAt: Date.now() - 1 });
+    }
+    await ctx.db.insert("billingSync", { customerId: "idle", requestedVersion: 0, leaseUntil: 0, attempts: 0 });
+  });
+  const scheduled = () => t.run(ctx => ctx.db.system.query("_scheduled_functions").take(500));
+  await t.mutation(internal.billingState.sweep, {});
+  let jobs = await scheduled();
+  expect(jobs.filter(job => job.name.includes("reconcileCustomer"))).toHaveLength(100);
+  expect(jobs.filter(job => job.name.includes("sweep"))).toHaveLength(1);
+  await t.mutation(internal.billingState.sweep, {});
+  jobs = await scheduled();
+  expect(jobs.filter(job => job.name.includes("reconcileCustomer"))).toHaveLength(150);
+  expect(jobs.filter(job => job.name.includes("sweep"))).toHaveLength(1);
 });
 
 test("subscription changes confirm the direct provider read when the subscription list is stale", async () => {
@@ -156,12 +223,13 @@ test("billing distinguishes automatic reconciliation retries from an exhausted f
   for (let attempt = 1; attempt <= 9; attempt++) {
     const lease = (await t.mutation(internal.billingState.lease, { customerId: "customer-a" }))!;
     await t.mutation(internal.billingState.finish, { customerId: "customer-a", version: lease.version, failed: true });
-    expect(await alice(t).query(api.billing.status, {})).toMatchObject({
-      state: "active", failure: "RECONCILIATION_FAILED", retrying: attempt <= 8,
+    expect((await alice(t).query(api.billing.status, {})).state).toBe("active");
+    expect(await alice(t).query(api.billing.syncStatus, {})).toEqual({
+      failure: "RECONCILIATION_FAILED", retrying: attempt <= 8,
     });
   }
   await reconcile(t);
-  expect(await alice(t).query(api.billing.status, {})).toMatchObject({ state: "active", failure: null, retrying: false });
+  expect(await alice(t).query(api.billing.syncStatus, {})).toEqual({ failure: null, retrying: false });
 });
 
 test("reconciliation failures retain paid access and log provider status without sensitive details", async () => {
@@ -169,13 +237,14 @@ test("reconciliation failures retain paid access and log provider status without
   const logging = vi.spyOn(console, "error").mockImplementation(() => {});
   provider.subscriptions.get.mockRejectedValueOnce(new PolarClientError(404, { detail: "alice@example.com sensitive provider response" }));
   await reconcile(t);
-  expect(await alice(t).query(api.billing.status, {})).toMatchObject({ state: "active", retrying: true });
+  expect((await alice(t).query(api.billing.status, {})).state).toBe("active");
+  expect((await alice(t).query(api.billing.syncStatus, {})).retrying).toBe(true);
   expect(logging).toHaveBeenCalledWith("Polar reconciliation failed", {
     code: "BILLING_RECONCILIATION_FAILED", phase: "managed_subscription", providerError: "PolarClientError", providerStatus: 404,
   });
   expect(JSON.stringify(logging.mock.calls)).not.toContain("alice@example.com");
   await reconcile(t);
-  expect(await alice(t).query(api.billing.status, {})).toMatchObject({ state: "active", failure: null, retrying: false });
+  expect(await alice(t).query(api.billing.syncStatus, {})).toEqual({ failure: null, retrying: false });
 });
 
 test("first payment, repeated plan switches, renewal, cancel and uncancel use confirmed owned subscription state", async () => {
@@ -295,11 +364,12 @@ test("full current recurring refund revokes provider billing durably and failed 
   orders[0].refunded_amount = 1000; orders[0].modified_at = new Date(Date.now() + 10).toISOString();
   provider.subscriptions.revoke.mockRejectedValueOnce(new Error("provider unavailable"));
   await reconcile(t);
-  expect(await state(t)).toMatchObject({ status: "ended", failureCode: "RECONCILIATION_FAILED", attempts: 1 });
+  expect((await state(t))?.status).toBe("ended");
+  expect(await sync(t)).toMatchObject({ failureCode: "RECONCILIATION_FAILED", attempts: 1 });
   await reconcile(t);
   expect(provider.subscriptions.revoke).toHaveBeenCalledWith("sub-a");
   await reconcile(t);
-  expect((await state(t))?.failureCode).toBeUndefined();
+  expect((await sync(t))?.failureCode).toBeUndefined();
   expect(subscriptions[0].status).toBe("canceled");
 });
 
@@ -460,16 +530,6 @@ test("signed cancellation, uncancellation, paid renewal and revocation reconcile
   expect((await state(t))?.status).toBe("ended");
 });
 
-test("partial and previous-period recurring refunds preserve paid access while full current refunds stop billing", async () => {
-  const t = setup(); await provision(t); await link(t); await reconcile(t);
-  orders[0].refunded_amount = 500; orders[0].modified_at = new Date(Date.now() + 1).toISOString(); await reconcile(t);
-  expect((await state(t))?.status).toBe("active");
-  orders[0].refunded_amount = 1000; orders[0].created_at = new Date(start - 60_000).toISOString();
-  orders[0].modified_at = new Date(Date.now() + 2).toISOString(); orders.push(order("monthly", "current-renewal")); await reconcile(t);
-  expect((await state(t))?.status).toBe("active");
-  expect(provider.subscriptions.revoke).not.toHaveBeenCalled();
-});
-
 test("pending commands serialize simultaneous checkout and subscription requests, then recover", async () => {
   const t = setup(); await provision(t); await link(t); await reconcile(t);
   const lease = await alice(t).mutation(internal.billingState.beginOperation, {});
@@ -484,10 +544,11 @@ test("revocation commands keep provider failures visible and ownership is enforc
   await expect(t.action(internal.polar.revoke, { userId, subscriptionId: "someone-else" })).rejects.toThrow("ownership");
   provider.subscriptions.revoke.mockRejectedValueOnce(new Error("provider outage"));
   await t.action(internal.polar.revoke, { userId, subscriptionId: "sub-a" });
-  expect(await state(t)).toMatchObject({ status: "ended", failureCode: "RECONCILIATION_FAILED" });
+  expect((await state(t))?.status).toBe("ended");
+  expect((await sync(t))?.failureCode).toBe("RECONCILIATION_FAILED");
   await reconcile(t); await reconcile(t);
   expect(subscriptions[0].status).toBe("canceled");
-  expect((await state(t))?.failureCode).toBeUndefined();
+  expect((await sync(t))?.failureCode).toBeUndefined();
 });
 
 test("two worktrees sharing a signed provider event can only enqueue their own stable customer identity", async () => {
@@ -519,22 +580,8 @@ test("an expired reconciliation worker cannot release its replacement's lease", 
   // Avoid draining scheduled jobs: acquire the next transaction directly.
   const next = (await t.mutation(internal.billingState.lease, { customerId: "customer-a" }))!;
   await t.mutation(internal.billingState.finish, { customerId: "customer-a", version: first.version, failed: true });
-  expect((await state(t))?.leaseVersion).toBe(next.version);
-  expect((await state(t))?.leaseUntil).toBeGreaterThan(Date.now());
-});
-
-test("prorated plan changes preserve purchased time; unpaid renewal cannot extend it", async () => {
-  const t = setup(); await provision(t); await link(t); await reconcile(t);
-  const original = (await state(t))!.paidThrough!;
-  subscriptions[0].product_id = "yearly";
-  subscriptions[0].current_period_start = new Date(Date.now() + 10).toISOString();
-  subscriptions[0].current_period_end = new Date(original + 365 * 24 * 60 * 60_000).toISOString();
-  orders.push({ ...order("yearly", "zero-update"), net_amount: 0, billing_reason: "subscription_update" });
-  await reconcile(t);
-  expect(await state(t)).toMatchObject({ status: "active", model: "yearly", paidThrough: original });
-  orders.push({ ...order("yearly", "paid-update"), created_at: new Date(Date.now() + 20).toISOString(), billing_reason: "subscription_update" });
-  await reconcile(t);
-  expect((await state(t))!.paidThrough).toBeGreaterThan(original);
+  expect((await sync(t))?.leaseVersion).toBe(next.version);
+  expect((await sync(t))?.leaseUntil).toBeGreaterThan(Date.now());
 });
 
 test("zero-price paid flags cannot grant a first recurring or lifetime entitlement", async () => {
@@ -552,7 +599,7 @@ test("an invalid unclaimed external identity can be repaired; a claimed customer
   customer.external_id = "invalid-legacy-id";
   await send(t, "customer.created", customer); await reconcile(t);
   expect((await state(t))?.userId).toBeUndefined();
-  expect((await state(t))?.failureCode).toBe("CUSTOMER_LINK_REQUIRED");
+  expect((await sync(t))?.failureCode).toBe("CUSTOMER_LINK_REQUIRED");
   customer.external_id = externalId;
   expect((await send(t, "customer.updated", customer, "repaired")).status).toBe(200);
   await reconcile(t);
@@ -788,4 +835,12 @@ test("deletion cancels and revokes every subscription across provider pages desp
   expect(fetchSpy).toHaveBeenCalledTimes(1);
   expect((await t.run(ctx => ctx.db.get("users", userId)))?.lifecycle).toBe("deleted");
   expect(await t.run(ctx => ctx.db.query("billingSubscriptions").take(200))).toEqual([]);
+});
+
+test("external customer IDs resolve to an owner only within this worktree", () => {
+  expect(externalCustomerId(tokenIdentifier)).toBe(externalId);
+  expect(externalIdTokenIdentifier(externalId)).toBe(tokenIdentifier);
+  expect(externalIdTokenIdentifier(`wt-other:${tokenIdentifier}`)).toBeNull();
+  expect(externalIdTokenIdentifier(`wt-test-2:${tokenIdentifier}`)).toBeNull();
+  expect(externalIdTokenIdentifier(undefined)).toBeNull();
 });

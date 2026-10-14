@@ -15,7 +15,7 @@ export function tailscaleConfig(config, dnsName) {
   return { hostname, ports, env: {
     APP_URL: url("next"), NEXT_PUBLIC_APP_URL: url("next"),
     NEXT_PUBLIC_CONVEX_URL: url("convex"), NEXT_PUBLIC_CONVEX_SITE_URL: url("site"),
-    POLAR_SUCCESS_URL: `${url("next")}/`, TAILSCALE_HOSTNAME: hostname,
+    TAILSCALE_HOSTNAME: hostname,
   } };
 }
 

@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs
 import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
-  assertIsolatedConvexState, backendEnvironmentKeys, childEnvironment, convexStateFile, gitRoot, mainCheckoutRoot,
+  assertIsolatedConvexState, backendEnvKeys, childEnvironment, convexStateFile, gitRoot, mainCheckoutRoot,
   readEnvironment, saveEnvironment, worktreeConfig, worktreeCredentials,
 } from "./bootstrap/config.mjs";
 import { assertPortsAvailable, waitForServer } from "./bootstrap/network.mjs";
@@ -12,10 +12,10 @@ import { bootstrapPaths, createStateRecorder, inspectState, liveStatuses, openLo
 import { chooseNetwork, cleanupProxies, readTailscaleStatus, serveWorktree, tailscaleConfig } from "./bootstrap/tailscale.mjs";
 
 export {
-  childEnvironment, developmentCredentials, environmentFile, portBlockOverride, worktreeConfig, worktreeCredentials,
+  backendEnvKeys, childEnvironment, developmentCredentials, environmentFile, portBlockOverride, worktreeConfig, worktreeCredentials,
 } from "./bootstrap/config.mjs";
 export { assertPortsAvailable, waitForServer } from "./bootstrap/network.mjs";
-export { descendantProcessGroups, signalProcessGroup, superviseConvex, superviseNext } from "./bootstrap/processes.mjs";
+export { darwinGroupMembers, descendantProcessGroups, signalProcessGroup, superviseConvex, superviseNext } from "./bootstrap/processes.mjs";
 
 const usage = `pnpm bootstrap [--local | --tailscale] [--no-polar] [--print]
 
@@ -88,6 +88,11 @@ async function runServices({ root, config, credentials, polar, browserEnv, env, 
   const stateFile = convexStateFile(root);
   const watchEnvFile = join(root, ".env.convex-watch.local");
   const orgArgs = credentials.POLAR_ORGANIZATION_ID ? ["--org", credentials.POLAR_ORGANIZATION_ID] : [];
+  // Project CLIs run from node_modules/.bin instead of `pnpm exec`. The standalone
+  // pnpm executable embeds a Node runtime that reads `--env-file <path>` anywhere in
+  // its own argv, so `pnpm exec convex run --env-file <absolute path>` exits 9 before
+  // the CLI starts, and a relative path loads the admin key into every nested process.
+  const tool = (name) => join(root, "node_modules/.bin", name);
   let configured = false;
   const restoreLocalSelection = () => {
     // The self-hosted watcher removes this selector once during startup.
@@ -104,7 +109,7 @@ async function runServices({ root, config, credentials, polar, browserEnv, env, 
     // Lockfile changes merged from main must reach this worktree; this is fast when current.
     await supervisor.run(["install", "--frozen-lockfile", "--prefer-offline"], { terminal: false });
     if (polar) {
-      const secret = (await supervisor.run(["exec", "polar", "listen", "--print-secret", ...orgArgs], { capture: true })).trim();
+      const secret = (await supervisor.run(["listen", "--print-secret", ...orgArgs], { command: tool("polar"), capture: true })).trim();
       if (!secret || /\s/.test(secret)) throw new Error("Polar did not return a webhook signing secret. Check the sandbox token and CLI installation.");
       env.POLAR_WEBHOOK_SECRET = fileEnv.POLAR_WEBHOOK_SECRET = secret;
     }
@@ -114,32 +119,30 @@ async function runServices({ root, config, credentials, polar, browserEnv, env, 
     saveEnvironment(localFile, fileEnv);
     configured = true;
     const backendEnvFile = join(root, ".env.convex.local");
-    saveEnvironment(backendEnvFile, Object.fromEntries(Object.entries(fileEnv).filter(([key]) => backendEnvironmentKeys.includes(key))));
+    saveEnvironment(backendEnvFile, Object.fromEntries(Object.entries(fileEnv).filter(([key]) => backendEnvKeys.includes(key))));
     if (existsSync(stateFile)) saveWatchEnvironment();
     say(`Worktree: ${config.id}\nApp: ${config.env.APP_URL}\nConvex: ${config.env.NEXT_PUBLIC_CONVEX_URL}\nTarget: local-anonymous (database in this worktree's .convex directory)`);
 
-    // Commands passing --env-file call the Convex CLI directly: the standalone pnpm
-    // binary treats --env-file as its own Node option and would load the admin key
-    // into every nested process, including Next.
     // Keep the backend alive while the nested watcher syncs code. This avoids the
     // anonymous CLI's extra dashboard server, whose port cannot be configured.
     // --local-cloud-port and --local-site-port are hidden CLI flags with no public
     // equivalent; recheck them when upgrading Convex.
-    const watchCommand = `./node_modules/.bin/convex dev --env-file .env.convex-watch.local --start "pnpm exec next dev --hostname 127.0.0.1 --port ${config.ports.next}"`;
-    supervisor.start("pnpm", ["exec", "convex", "dev", "--until-success", "--tail-logs", "disable", "--start", watchCommand,
+    // Its shell runs in the worktree root; relative tool paths avoid quoting the root.
+    const watchCommand = `./node_modules/.bin/convex dev --env-file .env.convex-watch.local --start "./node_modules/.bin/next dev --hostname 127.0.0.1 --port ${config.ports.next}"`;
+    supervisor.start(tool("convex"), ["dev", "--until-success", "--tail-logs", "disable", "--start", watchCommand,
       "--local-cloud-port", String(config.ports.convex), "--local-site-port", String(config.ports.site)], { persistent: true });
     const backendHealthUrl = `${config.env.NEXT_PUBLIC_CONVEX_URL}/version`;
     await waitForServer(backendHealthUrl, controller.signal);
     supervisor.supervise(superviseConvex(backendHealthUrl, controller));
     saveWatchEnvironment();
-    await supervisor.run(["exec", "convex", "env", "set", "--from-file", backendEnvFile, "--force"]);
+    await supervisor.run(["env", "set", "--from-file", backendEnvFile, "--force"], { command: tool("convex") });
     if (polar) {
-      supervisor.start("pnpm", ["exec", "polar", "listen", config.env.POLAR_WEBHOOK_URL, ...orgArgs], { persistent: true });
+      supervisor.start(tool("polar"), ["listen", config.env.POLAR_WEBHOOK_URL, ...orgArgs], { persistent: true });
       say(`Polar sandbox webhooks: ${config.env.POLAR_WEBHOOK_URL}`);
     }
     // Next starts only after the initial Convex push, so its readiness also proves functions exist.
     await waitForServer(config.env.APP_URL, controller.signal);
-    if (polar) await supervisor.run(["run", "--env-file", watchEnvFile, "polar:syncCatalog", "{}"], { command: join(root, "node_modules/.bin/convex") });
+    if (polar) await supervisor.run(["run", "--env-file", watchEnvFile, "polar:syncCatalog", "{}"], { command: tool("convex") });
     await supervisor.recordServiceGroups();
     supervisor.supervise(superviseNext(config.env.APP_URL, controller));
     // The local Convex CLI rewrites its browser URLs during initial setup.

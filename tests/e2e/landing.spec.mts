@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
-import { clerk, clerkSetup, setupClerkTestingToken } from "@clerk/testing/playwright";
+import { clerk, setupClerkTestingToken } from "@clerk/testing/playwright";
 import { expect, test } from "@playwright/test";
 import { ConvexHttpClient } from "convex/browser";
 import { createPolar } from "@polar-sh/sdk/2026-10";
@@ -9,17 +9,14 @@ import { adminQuery } from "../../scripts/billing-test-admin";
 import { billingTestAdmin, seedPaidTestUser } from "../../scripts/billing-test-fixtures.mjs";
 import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
+import { interceptConvexSync } from "./convex-sync.mjs";
+import { captureEvidence } from "./evidence.mjs";
 
 const { createClerkClient } = createRequire(import.meta.url)("@clerk/nextjs/server");
 const local = resolveLocalTestConfig();
 
-test.beforeAll(async () => {
-  await clerkSetup({ publishableKey: local.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
-    secretKey: local.env.CLERK_SECRET_KEY, dotenv: false });
-});
-
 for (const width of [1280, 390]) {
-  test(`public plans lead to signup with the selected plan at ${width}px`, async ({ page }, testInfo) => {
+  test(`public plans lead to signup with the selected plan at ${width}px`, async ({ page }) => {
     await setupClerkTestingToken({ page });
     await page.setViewportSize({ width, height: 900 });
     const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL);
@@ -30,7 +27,7 @@ for (const width of [1280, 390]) {
     await expect(page.getByRole("heading", { name: "Your next idea starts here." })).toBeVisible();
     await expect(page.getByRole("link", { name: "Choose monthly" })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await page.screenshot({ path: testInfo.outputPath(`landing-${width}.png`), fullPage: true });
+    await captureEvidence(page, `landing-${width}`);
 
     for (const product of products) {
       await page.goto("/");
@@ -44,23 +41,16 @@ for (const width of [1280, 390]) {
   });
 }
 
-test("checkout shows progress after sign-in and for signed-in users, with explicit retries", async ({ page }, testInfo) => {
+test("checkout shows progress after sign-in and for signed-in users, with explicit retries", async ({ page }) => {
   const user = await createClerkTestUser(local);
   const checkoutModels: string[] = [];
   let release: (() => void) | undefined;
   await page.setViewportSize({ width: 390, height: 900 });
   await setupClerkTestingToken({ page });
-  await page.routeWebSocket(/\/sync$/, socket => {
-    const server = socket.connectToServer();
-    server.onMessage(message => socket.send(message));
-    socket.onMessage(async message => {
-      const frame = JSON.parse(message.toString()) as { type: string; udfPath?: string; requestId: number; args: [{ model: string }] };
-      if (frame.type !== "Action" || frame.udfPath !== "polar:checkout") { server.send(message); return; }
-      checkoutModels.push(frame.args[0].model);
-      await new Promise<void>(resolve => { release = resolve; });
-      socket.send(JSON.stringify({ type: "ActionResponse", requestId: frame.requestId, success: false,
-        result: "Fixture checkout failure", logLines: [] }));
-    });
+  const sync = await interceptConvexSync(page);
+  sync.onAction<{ model: string }>("polar:checkout", (call) => {
+    checkoutModels.push(call.args.model);
+    release = () => call.fail("Fixture checkout failure");
   });
   try {
     await page.goto("/");
@@ -72,7 +62,7 @@ test("checkout shows progress after sign-in and for signed-in users, with explic
     await expect.poll(() => checkoutModels.length).toBe(1);
     await expect(page).toHaveURL(`${local.config.env.APP_URL}/checkout`);
     await expect(page.getByRole("heading", { name: "Billing", exact: true })).toHaveCount(0);
-    await page.screenshot({ path: testInfo.outputPath("checkout-pending-390.png"), fullPage: true });
+    await captureEvidence(page, "checkout-pending-390");
     release!();
     await expect(page.getByRole("alert").filter({ hasText: "We couldn’t open the payment page" })).toBeVisible();
     expect(checkoutModels).toEqual(["lifetime"]);
@@ -80,16 +70,25 @@ test("checkout shows progress after sign-in and for signed-in users, with explic
     await expect(page.getByRole("heading", { name: "Redirecting to the payment page…" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Retry checkout" })).toHaveCount(0);
     await expect.poll(() => checkoutModels.length).toBe(2);
+    // Back from the provider can restore this page from cache mid-checkout. It
+    // must offer checkout again instead of a pending state that never resolves.
+    await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
+    await expect(page.getByRole("button", { name: "Continue to checkout" })).toBeVisible();
+    await expect(page.getByRole("alert").filter({ hasText: "We couldn’t open the payment page" })).toHaveCount(0);
+    release!();
+    await page.getByRole("button", { name: "Continue to checkout" }).click();
+    await expect(page.getByRole("heading", { name: "Redirecting to the payment page…" })).toBeVisible();
+    await expect.poll(() => checkoutModels.length).toBe(3);
     release!();
     await expect(page.getByRole("alert").filter({ hasText: "We couldn’t open the payment page" })).toBeVisible();
     await page.reload();
     await expect(page).toHaveURL(`${local.config.env.APP_URL}/#pricing`);
     await expect(page.getByRole("link", { name: "Get lifetime" })).toBeVisible();
-    expect(checkoutModels).toEqual(["lifetime", "lifetime"]);
+    expect(checkoutModels).toEqual(["lifetime", "lifetime", "lifetime"]);
     await page.getByRole("link", { name: "Choose yearly" }).click();
     await expect(page.getByRole("heading", { name: "Redirecting to the payment page…" })).toBeVisible();
-    await expect.poll(() => checkoutModels.length).toBe(3);
-    expect(checkoutModels).toEqual(["lifetime", "lifetime", "yearly"]);
+    await expect.poll(() => checkoutModels.length).toBe(4);
+    expect(checkoutModels).toEqual(["lifetime", "lifetime", "lifetime", "yearly"]);
     release!();
     await expect(page.getByRole("alert").filter({ hasText: "We couldn’t open the payment page" })).toBeVisible();
   } finally {
@@ -99,24 +98,17 @@ test("checkout shows progress after sign-in and for signed-in users, with explic
   }
 });
 
-test("a new visitor creates an account and reaches Polar sandbox checkout for the chosen plan", async ({ page }, testInfo) => {
+test("a new visitor creates an account and reaches Polar sandbox checkout for the chosen plan", async ({ page }) => {
   const email = `${local.config.id}-${randomUUID().slice(0, 8)}+clerk_test@gmail.com`;
   const clerkClient = createClerkClient({ secretKey: local.env.CLERK_SECRET_KEY });
   const polar = createPolar({ accessToken: local.env.POLAR_ACCESS_TOKEN, environment: "sandbox", organizationId: local.env.POLAR_ORGANIZATION_ID });
   const checkoutModels: string[] = [];
   let release: (() => void) | undefined;
   await setupClerkTestingToken({ page });
-  await page.routeWebSocket(/\/sync$/, socket => {
-    const server = socket.connectToServer();
-    server.onMessage(message => socket.send(message));
-    socket.onMessage(async message => {
-      const frame = JSON.parse(message.toString()) as { type: string; udfPath?: string; args: [{ model: string }] };
-      if (frame.type === "Action" && frame.udfPath === "polar:checkout") {
-        checkoutModels.push(frame.args[0].model);
-        await new Promise<void>(resolve => { release = resolve; });
-      }
-      server.send(message);
-    });
+  const sync = await interceptConvexSync(page);
+  sync.onAction<{ model: string }>("polar:checkout", (call) => {
+    checkoutModels.push(call.args.model);
+    release = call.forward;
   });
   try {
     await page.goto("/");
@@ -137,7 +129,7 @@ test("a new visitor creates an account and reaches Polar sandbox checkout for th
     await expect(page.getByRole("heading", { name: "Redirecting to the payment page…" })).toBeVisible();
     await expect.poll(() => checkoutModels.length).toBe(1);
     await expect(page).toHaveURL(`${local.config.env.APP_URL}/checkout`);
-    await page.screenshot({ path: testInfo.outputPath("checkout-pending-1280.png"), fullPage: true });
+    await captureEvidence(page, "checkout-pending-1280");
     release!();
     await expect(page).toHaveURL(/https:\/\/sandbox\.polar\.sh\/checkout\//);
     expect(checkoutModels).toEqual(["yearly"]);
@@ -163,17 +155,13 @@ test("a new visitor creates an account and reaches Polar sandbox checkout for th
   }
 });
 
-test("existing Pro users manage plan changes through billing without starting another checkout", async ({ page }) => {
+test("existing Pro users switch recurring plans through billing and buy lifetime through checkout", async ({ page }) => {
   const user = await createClerkTestUser(local);
-  let checkoutRequests = 0;
-  await page.routeWebSocket(/\/sync$/, socket => {
-    const server = socket.connectToServer();
-    server.onMessage(message => socket.send(message));
-    socket.onMessage(message => {
-      const frame = JSON.parse(message.toString()) as { type: string; udfPath?: string };
-      if (frame.type === "Action" && frame.udfPath === "polar:checkout") checkoutRequests++;
-      server.send(message);
-    });
+  const checkoutModels: string[] = [];
+  const sync = await interceptConvexSync(page);
+  sync.onAction<{ model: string }>("polar:checkout", (call) => {
+    checkoutModels.push(call.args.model);
+    call.fail("Fixture checkout failure");
   });
   try {
     await seedPaidTestUser(user, "monthly");
@@ -187,8 +175,14 @@ test("existing Pro users manage plan changes through billing without starting an
     await page.goto("/checkout?plan=yearly");
     await expect(page).toHaveURL(`${local.config.env.APP_URL}/billing?plan=yearly`);
     await expect(page.getByRole("alertdialog", { name: "Switch to yearly?" })).toBeVisible();
-    expect(checkoutRequests).toBe(0);
-  } finally { await user.cleanup(); }
+    expect(checkoutModels).toEqual([]);
+    await page.getByRole("button", { name: "Keep current plan" }).click();
+    await page.goto("/");
+    await page.getByRole("link", { name: "Get lifetime" }).click();
+    await expect(page.getByRole("alert").filter({ hasText: "We couldn’t open the payment page" })).toBeVisible();
+    await expect(page).toHaveURL(`${local.config.env.APP_URL}/checkout`);
+    expect(checkoutModels).toEqual(["lifetime"]);
+  } finally { await page.unrouteAll({ behavior: "wait" }); await user.cleanup(); }
 });
 
 for (const transition of ["paid", "deleting", "manual"] as const) {
@@ -203,15 +197,9 @@ for (const transition of ["paid", "deleting", "manual"] as const) {
       destinationVisits++;
       return route.fulfill({ contentType: "text/html", body: "<h1>Stale checkout destination</h1>" });
     });
-    await page.routeWebSocket(/\/sync$/, socket => {
-      const server = socket.connectToServer();
-      server.onMessage(message => socket.send(message));
-      socket.onMessage(message => {
-        const frame = JSON.parse(message.toString()) as { type: string; udfPath?: string; requestId: number };
-        if (frame.type !== "Action" || frame.udfPath !== "polar:checkout") { server.send(message); return; }
-        completeCheckout = () => socket.send(JSON.stringify({ type: "ActionResponse", requestId: frame.requestId,
-          success: true, result: destination, logLines: [`[LOG] ${responseMarker}`] }));
-      });
+    const sync = await interceptConvexSync(page);
+    sync.onAction("polar:checkout", (call) => {
+      completeCheckout = () => call.succeed(destination, [`[LOG] ${responseMarker}`]);
     });
     try {
       await page.goto("/");

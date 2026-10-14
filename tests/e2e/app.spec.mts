@@ -1,63 +1,21 @@
-import { clerk, clerkSetup } from "@clerk/testing/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { clerk } from "@clerk/testing/playwright";
+import { expect, test } from "@playwright/test";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../convex/_generated/api";
 import { createClerkTestOrganization, createClerkTestUser as createUnpaidTestUser } from "../../scripts/clerk-test-user.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 import { resolveAuthenticatedDestination } from "../../lib/auth";
-
 import { seedPaidTestUser } from "../../scripts/billing-test-fixtures.mjs";
+import { interceptConvexSync } from "./convex-sync.mjs";
+
 const local = resolveLocalTestConfig();
+// The application page requires Pro, so these identity tests use paid users.
 async function createClerkTestUser(config: typeof local) {
   const user = await createUnpaidTestUser(config);
   try { await seedPaidTestUser(user); return user; }
   catch (error) { await user.cleanup(); throw error; }
 }
 const authenticatedDestination = resolveAuthenticatedDestination(local.env.NEXT_PUBLIC_AUTHENTICATED_DESTINATION);
-
-// Hold JWT validation without logging tokens; query frames reveal whether the
-// protected consumer subscribed too early. Other socket messages pass through.
-async function controlConvexAuthentication(page: Page, initiallyBlocked = true) {
-  let blocked = initiallyBlocked;
-  let protectedQuerySent = false;
-  const pending = new Set<() => void>();
-  await page.routeWebSocket(/\/sync$/, (socket) => {
-    const server = socket.connectToServer();
-    server.onMessage((message) => socket.send(message));
-    socket.onMessage((message) => {
-      const frame = JSON.parse(message.toString()) as {
-        type: string;
-        tokenType?: string;
-        modifications?: { udfPath?: string }[];
-      };
-      if (frame.modifications?.some((modification) => modification.udfPath === "billing:application")) protectedQuerySent = true;
-      if (blocked && frame.type === "Authenticate" && frame.tokenType !== "None") pending.add(() => server.send(message));
-      else server.send(message);
-    });
-  });
-  return {
-    block: () => { blocked = true; },
-    release: () => {
-      blocked = false;
-      for (const send of pending) send();
-      pending.clear();
-    },
-    hasProtectedQuery: () => protectedQuerySent,
-  };
-}
-
-test.beforeAll(async () => {
-  try {
-    await clerkSetup({
-      publishableKey: local.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
-      secretKey: local.env.CLERK_SECRET_KEY,
-      dotenv: false,
-    });
-  } catch {
-    throw new Error("Clerk testing-token setup failed. Check the worktree's development credentials; provider error details are omitted.");
-  }
-});
-
 test("Clerk identity reaches paid local Convex and persists across reloads", async ({ page }) => {
   const user = await createClerkTestUser(local);
   try {
@@ -133,13 +91,14 @@ test("organization and role changes wait for fresh Convex validation", async ({ 
       test.skip(true, "The shared Clerk development instance has organizations disabled.");
       return;
     }
-    const auth = await controlConvexAuthentication(page, false);
-    release = auth.release;
+    // Hold JWT validation without logging tokens; other socket messages pass through.
+    const sync = await interceptConvexSync(page);
+    release = sync.releaseAuthentication;
     await page.goto("/");
     await clerk.signIn({ page, emailAddress: user.email });
     await page.goto("/app");
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();
-    auth.block();
+    sync.holdAuthentication();
     await page.evaluate(async (id) => { await window.Clerk.setActive({ organization: id }); }, organization.id);
     await expect(page.getByRole("status")).toHaveText("Connecting your account…");
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toHaveCount(0);
@@ -147,7 +106,7 @@ test("organization and role changes wait for fresh Convex validation", async ({ 
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();
 
     await organization.setRole("org:member");
-    auth.block();
+    sync.holdAuthentication();
     await page.evaluate(async () => {
       await window.Clerk.organization?.reload();
       await window.Clerk.setActive({ organization: window.Clerk.organization?.id });
@@ -194,18 +153,23 @@ test("separate users and account switching never keep the previous protected ide
     await expect(page.getByText(`Welcome ${alice.name}!`, { exact: true })).toBeVisible();
 
     // The shared development instance allows one active session. Switch accounts
-    // through sign-out/sign-in without reloading the page or query cache.
+    // through sign-out/sign-in without reloading the page or query cache. Sign-out
+    // leaves the protected route, so return to it through client-side navigation.
     const firstSession = await page.evaluate(() => window.Clerk.session?.id);
+    await page.evaluate(() => { document.documentElement.dataset.accountSwitch = "same-document"; });
     await clerk.signOut({ page });
     await expect(page.getByText(`Welcome ${alice.name}!`, { exact: true })).toHaveCount(0);
     await clerk.signIn({ page, emailAddress: bob.email });
+    await page.getByRole("link", { name: "Dashboard" }).click();
     await expect(page.getByText(`Welcome ${bob.name}!`, { exact: true })).toBeVisible();
     await expect(page.getByText(`Welcome ${alice.name}!`, { exact: true })).toHaveCount(0);
     expect(await page.evaluate(() => window.Clerk.session?.id)).not.toBe(firstSession);
     await clerk.signOut({ page });
     await clerk.signIn({ page, emailAddress: alice.email });
+    await page.getByRole("link", { name: "Dashboard" }).click();
     await expect(page.getByText(`Welcome ${alice.name}!`, { exact: true })).toBeVisible();
     await expect(page.getByText(`Welcome ${bob.name}!`, { exact: true })).toHaveCount(0);
+    await expect(page.locator("html")).toHaveAttribute("data-account-switch", "same-document");
   } finally {
     await Promise.all(otherContext.pages().map((other) => other.unrouteAll({ behavior: "wait" })));
     await otherContext.close();
@@ -218,7 +182,7 @@ test("slow Clerk token acquisition shows loading and sends no protected query", 
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   try {
-    const auth = await controlConvexAuthentication(page, false);
+    const sync = await interceptConvexSync(page);
     await page.goto("/");
     await clerk.loaded({ page });
     await page.evaluate(() => {
@@ -240,17 +204,20 @@ test("slow Clerk token acquisition shows loading and sends no protected query", 
       });
     });
     await clerk.signIn({ page, emailAddress: user.email });
-    await expect(page.getByRole("status").filter({ hasText: "Connecting your account…" })).toHaveText("Connecting your account…");
+    // The landing page's signed-in pricing waits for Convex instead of showing guest plans.
+    await expect(page.getByRole("status").filter({ hasText: "Loading paid plans…" })).toHaveText("Loading paid plans…");
     await expect(page.getByRole("button", { name: "Sign in", exact: true })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "Dashboard" })).toHaveCount(0);
-    expect(auth.hasProtectedQuery()).toBe(false);
+    expect(sync.hasSubscribed("billing:status")).toBe(false);
+    expect(sync.hasSubscribed("billing:application")).toBe(false);
     await page.evaluate(() => window.dispatchEvent(new Event("release-auth-test")));
-    await expect(page.getByRole("link", { name: "Dashboard" })).toBeVisible();
+    await expect(page.getByText("You have lifetime access.")).toBeVisible();
+    expect(sync.hasSubscribed("billing:status")).toBe(true);
     await page.getByRole("link", { name: "Dashboard" }).click();
     await expect(page).toHaveURL(`${local.config.env.APP_URL}${authenticatedDestination}`);
     await expect(page.getByRole("heading", { name: "Your application" })).toBeVisible();
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();
-    expect(auth.hasProtectedQuery()).toBe(true);
+    expect(sync.hasSubscribed("billing:application")).toBe(true);
     expect(errors).toEqual([]);
   } finally {
     await page.evaluate(() => window.dispatchEvent(new Event("release-auth-test")));
@@ -268,18 +235,19 @@ test("a restored session waits for Convex validation without signed-out UI, redi
     await clerk.signIn({ page, emailAddress: user.email });
     await page.goto("/app");
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();
-    const auth = await controlConvexAuthentication(page);
-    release = auth.release;
+    const sync = await interceptConvexSync(page);
+    sync.holdAuthentication();
+    release = sync.releaseAuthentication;
     await page.reload();
     await clerk.loaded({ page });
     await expect(page.getByRole("status").filter({ hasText: "Connecting your account…" })).toHaveText("Connecting your account…");
     await expect(page.getByRole("button", { name: "Sign in", exact: true })).toHaveCount(0);
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toHaveCount(0);
     expect(page.url()).toBe(`${local.config.env.APP_URL}/app`);
-    expect(auth.hasProtectedQuery()).toBe(false);
+    expect(sync.hasSubscribed("billing:application")).toBe(false);
     release();
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();
-    expect(auth.hasProtectedQuery()).toBe(true);
+    expect(sync.hasSubscribed("billing:application")).toBe(true);
     expect(errors).toEqual([]);
   } finally {
     release();
@@ -295,7 +263,7 @@ test("stalled authentication has a recovery state instead of an endless loading 
     await page.goto("/app");
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();
     // Block authenticated Convex frames while retaining the restored Clerk cookie.
-    await controlConvexAuthentication(page);
+    (await interceptConvexSync(page)).holdAuthentication();
     await page.reload();
     await expect(page.getByRole("alert").filter({ hasText: "We couldn’t load your account" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();

@@ -56,7 +56,7 @@ async function main() {
     const access = options.plan ? `${options.plan} access` : "no paid access";
     console.error(`Review user ${user.id} (${user.name}) with ${access} in worktree ${local.config.id}.`);
     if (isLoopbackUrl(appUrl)) {
-      console.error(`Warning: ${appUrl} is a loopback address, so the maintainer cannot open it from another device. Restart with pnpm bootstrap:tailscale and run this again.`);
+      console.error(`Warning: ${appUrl} is a loopback address, so the maintainer cannot open it from another device. Restart with pnpm bootstrap --tailscale and run this again.`);
     }
     console.log(link);
     console.error(`This link is a single-use sign-in credential that expires in ${formatDuration(options.expiresMs)}. Send it to the maintainer directly; never paste it into PRs, issues, commits, or logs.`);

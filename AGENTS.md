@@ -38,7 +38,7 @@ This template provides shared architecture, UI patterns, and an agent-friendly d
 - Share inspection links with the maintainer only over Tailscale HTTPS, verified to respond first. `pnpm review-link [--plan …] [--path …]` prints a single-use signed-in link for them; never paste it into PRs or issues. Do not share localhost or loopback URLs for maintainer inspection.
 - Ports and `WORKTREE_ID` derive from the worktree path and stay stable across restarts. `pnpm bootstrap --print` shows the effective configuration. On a port collision, set `BOOTSTRAP_PORT_BLOCK` in this worktree's `.env.bootstrap.local`.
 - Local database state lives in the worktree's gitignored `.convex`; Next.js output lives in `.next`. Restarting bootstrap keeps the database; `pnpm db:reset --yes` clears it while bootstrap is stopped. Each worktree gets its own generated environment files.
-- Development credentials come from the main checkout's gitignored `.env.bootstrap.local`. Worktree files and process variables can override them. Bootstrap generates the local URLs, so there is no need to copy another checkout's environment files.
+- Credentials come from the main checkout's `.env.bootstrap.local` (see the README); worktree files and process variables override them. Do not copy another checkout's environment files.
 - Clerk and Polar resources can be shared across worktrees. Use worktree-labeled test resources and separate browser contexts for different users. Shared Polar organizations can deliver events to every listener; `--no-polar` starts the stack without forwarding. `pnpm clerk:sweep` removes this worktree's leftover test users.
 - `pnpm test:unit` and `pnpm lint` work without running services. Integration tests, E2E tests, `pnpm inspect`, `pnpm capture`, and `pnpm review-link` use the running bootstrap environment and check that they target this worktree.
 - Record persistent commands other than bootstrap and their owning terminals as they start, following [resource tracking and cleanup](.agents/skills/complete-worktree/references/cleanup.md). Bootstrap's own state file is its ownership record.
@@ -90,7 +90,7 @@ Most code changes do not need an internal documentation change. Agents can read 
 - Make errors easy to notice and understand. Choose feedback that fits the error’s context and duration, keeping ongoing failures visible near the affected content until resolved. Avoid repeated notifications for the same failure.
 - If a rule here fights the task in front of you, say so loudly and get a human sign-off before breaking it.
 
-For examples of page composition, component-owned skeletons, and action versus job errors, see the [account page](app/account/page.tsx). Apply the rules above to new features, using these examples to understand the intended structure and state placement.
+For examples of page composition, component-owned skeletons, and action versus job errors, see the [account page](app/(protected)/account/page.tsx). Apply the rules above to new features, using these examples to understand the intended structure and state placement.
 
 ## Additional tips
 

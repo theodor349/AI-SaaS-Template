@@ -1,13 +1,13 @@
 # Hosted development deployment
 
-The `ai-saas-template` Vercel project deploys `main` from
-`theodor349/AI-SaaS-Template` to the `ai-saas-template` Convex project's production
-deployment. This is a shared development environment with disposable test data,
-Clerk development keys, and Polar sandbox payments.
+A Vercel project deploys `main` to a Convex project's production deployment.
+This is a shared development environment with disposable test data, Clerk
+development keys, and Polar sandbox payments.
 
-The default production deployment is `kindhearted-bandicoot-875` (reference
-`cloud-dev`) in the `jes` team. The stable frontend URL is
-`https://ai-saas-template-hazel.vercel.app`.
+This repository's instance: Vercel project `ai-saas-template`
+(`https://ai-saas-template-hazel.vercel.app`), Convex deployment
+`kindhearted-bandicoot-875` (reference `cloud-dev`) in the `jes` team's
+`ai-saas-template` project. Downstream projects replace these values.
 
 ## Vercel
 
@@ -26,7 +26,7 @@ Set these environment variables for **Production only**:
 | `CONVEX_DEPLOY_KEY` | Production deployment key generated in Convex; grant `deployment:deploy`. |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Existing Clerk development publishable key (`pk_test_...`). |
 | `CLERK_SECRET_KEY` | Matching Clerk development secret key (`sk_test_...`). |
-| `NEXT_PUBLIC_APP_URL` | `https://ai-saas-template-hazel.vercel.app` (the project's stable application URL). |
+| `NEXT_PUBLIC_APP_URL` | The Vercel project's stable application URL. |
 | `NEXT_PUBLIC_AUTHENTICATED_DESTINATION` | `/app`, or the intended authenticated landing route. |
 
 Do not set `CONVEX_DEPLOYMENT` or copy a worktree's `.env.local` into Vercel.
@@ -35,16 +35,17 @@ secrets belong on Convex, not in browser variables or GitHub Actions; only the
 E2E workflow below holds development credentials there.
 
 `pnpm build:vercel` runs application unit tests and lint before invoking
-`convex deploy --cmd 'pnpm build' --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL`.
-Convex builds the frontend first and only pushes the backend after a successful
-build. Vercel then publishes the frontend. This is not an atomic release across
+`convex deploy --cmd 'pnpm exec next build' --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL`.
+Lint has already typechecked, so the build command skips `pnpm build`'s separate
+`tsc` pass. Convex builds the frontend first and only pushes the backend after a
+successful build. Vercel then publishes the frontend. This is not an atomic release across
 both providers: if publication fails after Convex deploys, the previous frontend
 continues running against the updated backend. Keep API/schema changes compatible
 with that frontend; a Vercel rollback does not roll back Convex.
 
 ## Convex
 
-On the `ai-saas-template` project's **production deployment**, set:
+On the Convex project's **production deployment**, set:
 
 | Variable | Value |
 | --- | --- |
@@ -90,10 +91,14 @@ namespaces. Changing shared products affects every environment using them.
 
 ## Checks and launch
 
-GitHub Actions runs `Unit tests` and `Lint and typecheck` on every pull request,
-regardless of source or target branch, and on pushes to `main`. The checks need
-no hosted credentials and run independently so both report failures. New pushes
-cancel outdated check runs.
+GitHub Actions runs `Unit tests`, `Lint and typecheck`, and `Next.js build` on
+every pull request, regardless of source or target branch, and on pushes to
+`main`. There are no preview deployments, so `Next.js build` is what catches a
+broken production build before Vercel does. It runs `next build` with fake,
+well-formed placeholders for the browser variables read while building and
+prerendering; the checks need no hosted credentials. They run independently so
+each reports its failures, and new pushes cancel outdated runs. Integration and
+browser tests need bootstrap services and run in the E2E workflow below.
 
 The separate [E2E workflow](../.github/workflows/e2e.yml) runs `pnpm test:integration`
 and `pnpm test:e2e` against a local bootstrap stack. It runs on pushes to `main`,
@@ -115,8 +120,8 @@ webhooks, and sandbox customers. Without the secrets, as on fork pull requests,
 the workflow reports a notice and skips. Do not make it a required check, since
 unlabeled pull requests never run it.
 
-Require `Unit tests` and `Lint and typecheck` in a GitHub branch ruleset for
-`main` if merges should be blocked on failures. Vercel independently runs `pnpm test:app` and `pnpm lint`
+Require the checks in a GitHub branch ruleset for `main` if merges should be
+blocked on failures. Vercel independently runs `pnpm test:app` and `pnpm lint`
 before deployment. The dev-server fixtures in `test:bootstrap` run in GitHub
 Actions and locally: Vercel's build worker does not reliably support the
 fixture's loopback rewrite. Application test or lint failures still stop the
@@ -127,7 +132,7 @@ to the stable app URL, paid access, and delivery of both providers' webhooks.
 Initialize the public product catalog after deploying to a fresh database:
 
 ```sh
-pnpm exec convex run --deployment jes:ai-saas-template:cloud-dev polar:syncCatalog '{}'
+pnpm exec convex run --deployment <team>:<project>:cloud-dev polar:syncCatalog '{}'
 ```
 
 The catalog is subsequently refreshed by the existing six-hour cron job.

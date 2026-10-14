@@ -54,8 +54,17 @@ test("development credentials derive the Clerk issuer and reject live keys", () 
 
 test("billing startup requires every plan while --no-polar works without products", () => {
   const incomplete = { ...credentials, POLAR_PRODUCT_YEARLY: "" };
-  assert.throws(() => developmentCredentials(incomplete), /POLAR_PRODUCT_YEARLY.*main checkout/);
+  assert.throws(() => developmentCredentials(incomplete), /^ {2}POLAR_PRODUCT_YEARLY=<product ID>$/m);
   assert.doesNotThrow(() => developmentCredentials(incomplete, false));
+  const fixture = realpathSync(mkdtempSync(join(tmpdir(), "bootstrap products ")));
+  try {
+    const { POLAR_PRODUCT_MONTHLY: _monthly, ...withoutMonthly } = credentials;
+    writeFileSync(join(fixture, ".env.bootstrap.local"), environmentFile(withoutMonthly));
+    // The error names the exact file to edit, not just a description of it.
+    assert.throws(() => worktreeCredentials(fixture, fixture, true, {}), (error) =>
+      error.message.includes(`Add these lines to ${join(fixture, ".env.bootstrap.local")}`) &&
+      /^ {2}POLAR_PRODUCT_MONTHLY=<product ID>$/m.test(error.message) && !error.message.includes("POLAR_PRODUCT_YEARLY"));
+  } finally { rmSync(fixture, { recursive: true, force: true }); }
 });
 
 test("worktrees inherit shared Polar plans through blank templates and preserve explicit overrides", () => {
@@ -297,6 +306,14 @@ test("macOS zombie-only groups cannot interrupt cleanup, while live permission e
   assert.equal(bootstrap.signalProcessGroup(2147483647, "SIGTERM"), false);
   const ownGroup = Number(execFileSync("ps", ["-o", "pgid=", "-p", String(process.pid)], { encoding: "utf8" }).trim());
   assert.throws(() => bootstrap.signalProcessGroup(ownGroup, "SIGTERM"), (actual) => actual === error);
+});
+
+test("macOS groups with only exiting members need no signal but still count as running", () => {
+  // A local Convex backend can keep exiting after its CLI leader became a zombie.
+  const exiting = "4242 Z\n4242 ?E\n99 S";
+  assert.deepEqual(bootstrap.darwinGroupMembers(4242, exiting), { live: false, exiting: true });
+  assert.deepEqual(bootstrap.darwinGroupMembers(4242, "4242 Z\n99 S"), { live: false, exiting: false });
+  assert.deepEqual(bootstrap.darwinGroupMembers(4242, "4242 Ss\n4242 ?E"), { live: true, exiting: true });
 });
 
 test("Clerk webhook secrets are validated and available without Polar forwarding", () => {

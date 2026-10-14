@@ -1,12 +1,9 @@
-// NOTE: You can remove this file. Declaring the shape
-// of the database is entirely optional in Convex.
-// See https://docs.convex.dev/database/schemas.
-
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { billingModel, recurringModel } from "./lib/billingModel";
 
 export const scheduledPlanChange = v.object({
-  model: v.union(v.literal("monthly"), v.literal("yearly")),
+  model: recurringModel,
   at: v.number(),
 });
 
@@ -53,22 +50,52 @@ export default defineSchema(
       failureCode: v.optional(v.string()),
     }).index("by_provider_and_deliveryId", ["provider", "deliveryId"])
       .index("by_expiresAt", ["expiresAt"]),
+    // The customer link and published entitlement. Paid queries subscribe to
+    // this row, so only entitlement changes may write it; sync bookkeeping
+    // belongs in billingSync.
     billingAccounts: defineTable({
-      customerId: v.string(), externalId: v.optional(v.string()), userId: v.optional(v.id("users")),
+      customerId: v.string(),
+      externalId: v.optional(v.string()),
+      userId: v.optional(v.id("users")),
       status: v.union(v.literal("awaiting_payment"), v.literal("active"), v.literal("ended")),
-      model: v.optional(v.union(v.literal("monthly"), v.literal("yearly"), v.literal("lifetime"))),
-      subscriptionId: v.optional(v.string()), lifetimeOrderId: v.optional(v.string()),
-      paidThrough: v.optional(v.number()), cancelAtPeriodEnd: v.boolean(),
+      model: v.optional(billingModel),
+      subscriptionId: v.optional(v.string()),
+      lifetimeOrderId: v.optional(v.string()),
+      paidThrough: v.optional(v.number()),
+      cancelAtPeriodEnd: v.boolean(),
       scheduledChange: v.optional(scheduledPlanChange),
+      revision: v.number(),
+      // Retired fields, no longer written. Optional so existing documents validate.
       lastDeliveryAt: v.optional(v.number()),
-      revision: v.number(), reconciledAt: v.number(), nextCheckAt: v.number(),
-      requestedVersion: v.number(), completedVersion: v.number(),
-      leaseUntil: v.number(), leaseVersion: v.optional(v.number()), attempts: v.number(), failureCode: v.optional(v.string()),
+      reconciledAt: v.optional(v.number()),
+      nextCheckAt: v.optional(v.number()),
+      requestedVersion: v.optional(v.number()),
+      completedVersion: v.optional(v.number()),
+      leaseUntil: v.optional(v.number()),
+      leaseVersion: v.optional(v.number()),
+      attempts: v.optional(v.number()),
+      failureCode: v.optional(v.string()),
       operationLeaseUntil: v.optional(v.number()),
-      checkoutId: v.optional(v.string()), checkoutUrl: v.optional(v.string()), checkoutExpiresAt: v.optional(v.number()),
+      checkoutId: v.optional(v.string()),
+      checkoutUrl: v.optional(v.string()),
+      checkoutExpiresAt: v.optional(v.number()),
     }).index("by_customerId", ["customerId"])
       .index("by_externalId", ["externalId"])
-      .index("by_userId", ["userId"])
+      .index("by_userId", ["userId"]),
+    // Reconciliation job state and the billing operation lock, one per customer.
+    billingSync: defineTable({
+      customerId: v.string(),
+      requestedVersion: v.number(),
+      leaseVersion: v.optional(v.number()),
+      leaseUntil: v.number(),
+      attempts: v.number(),
+      // Absent when no timed check is needed; webhooks and actions enqueue work.
+      nextCheckAt: v.optional(v.number()),
+      reconciledAt: v.optional(v.number()),
+      failureCode: v.optional(v.string()),
+      operationLeaseUntil: v.optional(v.number()),
+      lastDeliveryAt: v.optional(v.number()),
+    }).index("by_customerId", ["customerId"])
       .index("by_nextCheckAt", ["nextCheckAt"])
       .index("by_failureCode", ["failureCode"]),
     billingSubscriptions: defineTable({
@@ -85,19 +112,11 @@ export default defineSchema(
     }).index("by_orderId", ["orderId"])
       .index("by_customerId", ["customerId"]),
     billingProducts: defineTable({
-      model: v.union(v.literal("monthly"), v.literal("yearly"), v.literal("lifetime")),
+      model: billingModel,
       productId: v.string(), name: v.string(), amount: v.number(), currency: v.string(),
       taxBehavior: v.string(), syncedAt: v.number(),
     }).index("by_model", ["model"]),
 
   },
-  // If you ever get an error about schema mismatch
-  // between your data and your schema, and you cannot
-  // change the schema to match the current data in your database,
-  // you can:
-  //  1. Use the dashboard to delete tables or individual documents
-  //     that are causing the error.
-  //  2. Change this option to `false` and make changes to the data
-  //     freely, ignoring the schema. Don't forget to change back to `true`!
   { schemaValidation: true }
 );

@@ -33,9 +33,11 @@ In a fresh session, check each recorded PID against its start time; PIDs are reu
 
 ## Close sessions and terminals
 
-- Stop task-owned recordings and close task-opened inspection/browser sessions when the tool supports it. Preserve sessions owned by the maintainer or another task.
-- Command sessions (for example Codex's `exec_command`) are not T3 terminal panels. Verify command exit separately from panel closure.
-- End task-owned idle shells, then close panels opened for this task if a close operation is exposed. If none is exposed, panel closure is unsupported UI cleanup, not a blocker; mention it only for a known task-owned panel.
-- Do not terminate the current agent/harness to close its own execution channel.
+- Stop task-owned recordings and close task-opened inspection/browser sessions when the available tool supports closure. Preserve sessions or tabs owned by the maintainer or another task.
+- Distinguish command execution sessions from visible terminal panels. Codex's `exec_command` and `write_stdin` control commands; a returned session ID does not establish that a T3 terminal panel was opened. Verify command exit and owned descendants separately from panel closure.
+- End task-owned idle shell processes as well as service commands. After their processes exit, close panels actually opened for this task when a terminal/harness close operation is exposed, and verify closure with a list/status operation when available. Sending `exit` can end an owned shell but does not prove its panel closed.
+- If no panel-close API is exposed, panel closure is unsupported UI cleanup, not a resource-shutdown blocker. Do not invent a tool, infer surviving processes or panels from missing controls, or retain the inventory solely for panel closure. In the completion report, mention panel closure only for panels actually opened for the task, distinguishing closure from unsupported UI cleanup; do not add a generic terminal-panel warning.
+- A new session may lack an earlier session's terminal handles. Use available session controls or the verified supervisor fallback above to stop live resources. Retain the inventory if their shutdown cannot be verified, even when panel controls are unavailable.
+- Do not terminate the current agent/harness to close its own execution channel. Finish the final report normally and let the harness release that channel.
 
 Continue cleaning independently verified resources if another item fails. Clean Git status does not require removing ignored `.convex`, `.next`, generated environment files, or the bootstrap state and log. Preserve the worktree directory and database. Delete the inventory after its items are verified complete; on a blocker, mark completed items and keep the unresolved ones.

@@ -42,3 +42,30 @@ jobs:
       - name: Run checks
         run: pnpm run ${{ matrix.script }}
 
+
+  build:
+    name: Next.js build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      # Fake, well-formed values for variables read while building and
+      # prerendering. Nothing contacts these services during `next build`.
+      NEXT_PUBLIC_CONVEX_URL: https://ci-placeholder.convex.cloud
+      # base64("clerk.ci-placeholder.invalid$"), the shape of a Clerk test key.
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2xlcmsuY2ktcGxhY2Vob2xkZXIuaW52YWxpZCQ=
+      NEXT_PUBLIC_AUTHENTICATED_DESTINATION: /app
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      # `next build` instead of `pnpm build`: the lint job already runs `tsc`.
+      - name: Build
+        run: pnpm exec next build

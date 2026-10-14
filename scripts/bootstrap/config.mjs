@@ -9,10 +9,10 @@ const providerNames = [
   "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET", "CLERK_JWT_ISSUER_DOMAIN",
   "POLAR_ACCESS_TOKEN", "POLAR_ORGANIZATION_ID", ...polarProductKeys,
 ];
-export const backendEnvironmentKeys = [
+// Pushed to the local Convex deployment. Must match the env declared in convex/convex.config.ts.
+export const backendEnvKeys = [
   "WORKTREE_ID", "APP_URL", "CLERK_JWT_ISSUER_DOMAIN", "CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET",
-  "POLAR_ACCESS_TOKEN", "POLAR_ENVIRONMENT", "POLAR_WEBHOOK_SECRET", "POLAR_SUCCESS_URL", "POLAR_ORGANIZATION_ID",
-  ...polarProductKeys,
+  "POLAR_ACCESS_TOKEN", "POLAR_ENVIRONMENT", "POLAR_WEBHOOK_SECRET", "POLAR_ORGANIZATION_ID", ...polarProductKeys,
 ];
 const localBlocks = 12000;
 const tailscaleBlocks = 5000;
@@ -69,13 +69,12 @@ export function worktreeConfig(root, { portBlock = portBlockOverride(root) } = {
       NEXT_PUBLIC_CONVEX_URL: `http://127.0.0.1:${ports.convex}`,
       NEXT_PUBLIC_CONVEX_SITE_URL: `http://127.0.0.1:${ports.site}`,
       POLAR_ENVIRONMENT: "sandbox",
-      POLAR_SUCCESS_URL: `${appUrl}/`,
       POLAR_WEBHOOK_URL: `http://127.0.0.1:${ports.site}/webhooks/polar`,
     },
   };
 }
 
-export function developmentCredentials(values, polar = true) {
+export function developmentCredentials(values, polar = true, settingsFile = "the main checkout's .env.bootstrap.local") {
   if (!values.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.startsWith("pk_test_") ||
       !values.CLERK_SECRET_KEY?.startsWith("sk_test_")) {
     throw new Error("Clerk development keys are required in .env.bootstrap.local (pk_test_ and sk_test_).");
@@ -94,7 +93,13 @@ export function developmentCredentials(values, polar = true) {
   }
   const missingProducts = polarProductKeys.filter(key => !values[key]);
   if (polar && missingProducts.length) {
-    throw new Error(`Polar plans are missing: ${missingProducts.join(", ")}. Set the sandbox product IDs in the main checkout's .env.bootstrap.local so worktrees inherit them, or use --no-polar.`);
+    throw new Error([
+      `Polar sandbox product IDs are missing: ${missingProducts.join(", ")}.`,
+      `Add these lines to ${settingsFile}, which every worktree inherits:`,
+      ...missingProducts.map(key => `  ${key}=<product ID>`),
+      "Copy each ID from sandbox.polar.sh > Products: a monthly, a yearly, and a one-time fixed-price product.",
+      "Or run pnpm bootstrap --no-polar to start without billing.",
+    ].join("\n"));
   }
   if (values.CLERK_WEBHOOK_SIGNING_SECRET &&
       !/^whsec_[A-Za-z0-9+/]+={0,2}$/.test(values.CLERK_WEBHOOK_SIGNING_SECRET)) {
@@ -164,7 +169,7 @@ export function worktreeCredentials(root, mainRoot, polar = true, inherited = pr
     ...credentialOverrides(providerKeys), ...credentialOverrides(sharedKeys), ...credentialOverrides(localKeys),
     ...credentialOverrides(readEnvironment(join(root, ".env.bootstrap.local"))),
     ...credentialOverrides(Object.fromEntries(Object.entries(inherited).filter(([key]) => providerNames.includes(key)))),
-  }, polar);
+  }, polar, join(mainRoot, ".env.bootstrap.local"));
 }
 
 // Bootstrap owns one anonymous deployment per checkout, stored in its .convex directory.
