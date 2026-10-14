@@ -90,6 +90,19 @@ test("a browser flow continues through the work its mutation schedules", async (
   expect(new Set(events().map(event => event.flowId))).toEqual(new Set([flow.flowId]));
 });
 
+test("client flow IDs are kept only when well-formed", async () => {
+  const { user } = await setup();
+  const traceId = "0123456789abcdef0123456789abcdef";
+  await user.mutation(api.profile.save, { displayName: "A", flow: { flowId: "client-flow", sentryTraceId: traceId } });
+  await user.mutation(api.profile.save, { displayName: "B", flow: { flowId: "client-flow", sentryTraceId: "x".repeat(10_000) } });
+  await user.mutation(api.profile.save, { displayName: "C", flow: { flowId: "not a flow id\n" } });
+  const [kept, dropped, replaced] = events();
+  expect(kept).toMatchObject({ flowId: "client-flow", sentryTraceId: traceId });
+  expect(dropped).toMatchObject({ flowId: "client-flow" });
+  expect(dropped).not.toHaveProperty("sentryTraceId");
+  expect(replaced.flowId).toMatch(/^[0-9a-f-]{36}$/);
+});
+
 test("events carry no personal data, and webhook deliveries log one event per attempt", async () => {
   const { t, user } = await setup();
   vi.stubEnv("LOG_SAMPLE_RATE_QUERY", "1");

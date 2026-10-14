@@ -18,9 +18,11 @@ export type FunctionKind = "query" | "mutation" | "action";
 const defaultSampleRates: Record<FunctionKind, number> = { query: 0, mutation: 1, action: 1 };
 
 // Starts a flow, or continues one from the browser or a calling function.
+// Callers control both IDs, so only well-formed values reach events.
 export function startFlow(flow?: Flow): Flow {
-  if (flow && /^[\w-]{1,64}$/.test(flow.flowId)) return flow;
-  return { flowId: crypto.randomUUID() };
+  if (!flow || !/^[\w-]{1,64}$/.test(flow.flowId)) return { flowId: crypto.randomUUID() };
+  const sentryTraceId = flow.sentryTraceId && /^[0-9a-f]{32}$/.test(flow.sentryTraceId) ? flow.sentryTraceId : undefined;
+  return { flowId: flow.flowId, sentryTraceId };
 }
 
 export class RequestLog {
