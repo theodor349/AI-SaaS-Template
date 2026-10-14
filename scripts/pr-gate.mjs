@@ -191,8 +191,11 @@ export function collectActivity({ pushedAt, reviews = [], comments = [], reviewC
   ].sort((a, b) => time(a.at) - time(b.at));
 }
 
+// The checkout counts as the PR's when it is on the PR branch or detached at its head.
+const isLocalCheckout = (pr, git) => git.onPrBranch || git.localHead === pr.headSha;
+
 function headsGate({ pr, git, open }) {
-  const local = git.onPrBranch || git.localHead === pr.headSha;
+  const local = isLocalCheckout(pr, git);
   if (local && git.localHead !== pr.headSha) return { gate: "action", detail: `local HEAD ${short(git.localHead)} differs from PR head ${short(pr.headSha)}; push or reconcile` };
   if (git.remoteHead === null) return open
     ? { gate: "action", detail: `remote branch ${pr.headRef} is missing` }
@@ -237,7 +240,7 @@ export function evaluate(snapshot, now = Date.now()) {
 
   add("Heads", headsGate({ pr, git, open }));
   if (!git.dirty.length) add("Worktree", { gate: "pass", detail: "no uncommitted changes" });
-  else add("Worktree", { gate: git.onPrBranch && open ? "action" : "info", detail: `${git.dirty.length} uncommitted change(s)` });
+  else add("Worktree", { gate: isLocalCheckout(pr, git) && open ? "action" : "info", detail: `${git.dirty.length} uncommitted change(s)` });
   if (!open) add("Base", { gate: "info", detail: `not checked for a ${pr.state.toLowerCase()} PR` });
   else if (git.baseIsAncestor === true) add("Base", { gate: "pass", detail: `${git.baseLabel} ${short(git.baseSha)} is an ancestor of the head` });
   else if (git.baseIsAncestor === false) add("Base", { gate: "action", detail: `${git.baseLabel} ${short(git.baseSha)} is not an ancestor of the head; merge it into the branch` });

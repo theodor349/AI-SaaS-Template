@@ -195,6 +195,13 @@ test("blockers and pending work map to action and waiting exit codes", () => {
 
   const remoteLag = evaluate(snapshot({ git: { remoteHead: older } }), now);
   assert.equal(remoteLag.verdict.code, 1);
+
+  // A detached checkout at the PR head is local, so its uncommitted edits block merging.
+  const detachedDirty = evaluate(snapshot({ git: { branch: null, onPrBranch: false, dirty: [" M scripts/a.mjs"] } }), now);
+  assert.equal(detachedDirty.verdict.code, 2);
+  assert.equal(detachedDirty.verdict.detail, "Worktree");
+  const elsewhereDirty = evaluate(snapshot({ git: { branch: "other", onPrBranch: false, localHead: older, dirty: [" M a.mjs"] } }), now);
+  assert.notEqual(elsewhereDirty.verdict.detail, "Worktree");
 });
 
 test("a merged PR reports its merge commit and any gate the merged head never met", () => {
