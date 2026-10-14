@@ -1,0 +1,50 @@
+.illustration {
+  width: 13rem;
+  height: auto;
+  overflow: visible;
+}
+.mark { fill: var(--primary); }
+.slot {
+  fill: none;
+  stroke: var(--muted-foreground);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+.square {
+  fill: color-mix(in oklch, var(--primary) 35%, var(--background));
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* The square drifts in toward the gap, misses it, and settles beside it. */
+.missing .square {
+  transform: translate(38px, 6px) rotate(12deg);
+  animation: miss 1.8s cubic-bezier(0.25, 0.8, 0.35, 1) both;
+}
+@keyframes miss {
+  0% { transform: translate(-6px, -70px) rotate(-24deg); opacity: 0; }
+  20% { opacity: 1; }
+  55% { transform: translate(3px, -6px) rotate(-4deg); }
+  80% { transform: translate(42px, 8px) rotate(16deg); }
+}
+
+/* The square pops out of place; while the page retries it snaps back. */
+.popped .square {
+  transform: translate(20px, 16px) rotate(16deg);
+  animation: pop 0.9s cubic-bezier(0.3, 1.4, 0.5, 1) 0.4s both;
+  transition: transform 0.25s ease-out;
+}
+.popped.snapped .square {
+  transform: none;
+  animation: none;
+}
+@keyframes pop {
+  from { transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .square {
+    animation: none !important;
+    transition: none !important;
+  }
+}

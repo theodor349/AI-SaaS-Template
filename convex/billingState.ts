@@ -1,7 +1,6 @@
 import { v, type Infer } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./_generated/server";
 import {
   accountForCustomer,
   accountForUser,
@@ -22,6 +21,7 @@ import {
   type Entitlement,
 } from "./lib/entitlement";
 import { appError } from "./lib/errors";
+import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./lib/functions";
 import { isLeased, leaseDeadline, retryDelay } from "./lib/retry";
 import { requireUser, userByTokenIdentifier } from "./lib/users";
 import schema, { scheduledPlanChange } from "./schema";
@@ -117,7 +117,9 @@ async function writeEntitlement(ctx: MutationCtx, account: Doc<"billingAccounts"
 
 // Publishes only real changes, so subscribers don't re-run on no-op passes.
 async function publish(ctx: MutationCtx, account: Doc<"billingAccounts">, entitlement: Entitlement) {
-  if (!sameEntitlement(entitlementOf(account), entitlement)) {
+  const changed = !sameEntitlement(entitlementOf(account), entitlement);
+  ctx.log.decision("publish", { changed, status: entitlement.status, model: entitlement.model });
+  if (changed) {
     await writeEntitlement(ctx, account, entitlement);
   }
 }
@@ -138,7 +140,10 @@ export const enqueue = internalMutation({
   args: { customerId: v.string(), externalId: v.optional(v.string()) },
   returns: v.id("billingAccounts"),
   handler: async (ctx, { customerId, externalId }) => {
+    ctx.log.setCustomer(customerId);
     const account = await accountForCustomer(ctx, customerId);
+    if (account?.userId) ctx.log.setUser(account.userId);
+    ctx.log.decision("account", { result: account ? "existing" : "created" });
     // Signed/provider-verified repairs may fix an unclaimed legacy identity.
     // Once linked to an application owner, the association is immutable.
     if (account?.userId && account.externalId && externalId && account.externalId !== externalId) {
@@ -167,9 +172,11 @@ export const process = internalMutation({
   args: { ...deliveryArgs, customerId: v.string(), externalId: v.optional(v.string()), scoped: v.boolean() },
   returns: deliveryResult,
   handler: async (ctx, args): Promise<"success" | "duplicate" | "failure"> => {
+    ctx.log.setCustomer(args.customerId);
     const existing = await accountForCustomer(ctx, args.customerId);
     // Foreign worktree events never enter retries.
     if (!args.scoped && !existing) {
+      ctx.log.decision("scope", { result: "foreign" });
       return "success";
     }
     const delivery = { provider: args.provider, deliveryId: args.deliveryId, eventType: args.eventType };
@@ -189,6 +196,7 @@ export const claim = internalMutation({
   args: { customerId: v.string(), externalId: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
+    ctx.log.setCustomer(args.customerId);
     const user = await requireUser(ctx);
     if (args.externalId !== externalCustomerId(user.tokenIdentifier)) {
       throw appError("CUSTOMER_IDENTITY_CONFLICT");
@@ -212,13 +220,16 @@ export const lease = internalMutation({
   args: { customerId: v.string() },
   returns: v.union(v.null(), v.object({ version: v.number(), account: schema.doc("billingAccounts") })),
   handler: async (ctx, { customerId }) => {
+    ctx.log.setCustomer(customerId);
     const account = await accountForCustomer(ctx, customerId);
     if (!account) {
+      ctx.log.decision("lease", { result: "no_account" });
       return null;
     }
     const sync = await ensureSync(ctx, customerId);
     const now = Date.now();
     if (isLeased(sync.leaseUntil, now)) {
+      ctx.log.decision("lease", { result: "held" });
       return null;
     }
     const version = sync.requestedVersion + 1;
@@ -229,6 +240,7 @@ export const lease = internalMutation({
       leaseUntil: leaseDeadline(now),
       nextCheckAt: leaseDeadline(now),
     });
+    ctx.log.decision("lease", { result: "acquired", version });
     return { version, account };
   },
 });
@@ -298,10 +310,12 @@ export const apply = internalMutation({
   returns: v.array(v.string()),
   handler: async (ctx, { snapshot: state, version }) => {
     const { customerId } = state;
+    ctx.log.setCustomer(customerId);
     const account = await accountForCustomer(ctx, customerId);
     const sync = await syncForCustomer(ctx, customerId);
     // Only the newest leased request may publish; a newer request reruns.
     if (!account || !sync || sync.leaseVersion !== version || sync.requestedVersion !== version) {
+      ctx.log.decision("snapshot", { result: "superseded", version });
       return [];
     }
     if (account.userId && account.externalId && state.externalId && account.externalId !== state.externalId) {
@@ -315,6 +329,7 @@ export const apply = internalMutation({
       }
     }
     await linkIdentity(ctx, account, user?._id, state.externalId);
+    if (user) ctx.log.setUser(user._id);
     const snapshotSubscriptions = state.subscriptions.map(subscriptionSnapshot);
     const deletion = user
       ? await ctx.db.query("accountLifecycleRequests").withIndex("by_userId", (q) => q.eq("userId", user._id)).unique()
@@ -322,6 +337,7 @@ export const apply = internalMutation({
 
     // Erased owners keep no history; only provider cleanup remains.
     if (user && (user.lifecycle === "deleted" || deletion?.erasing)) {
+      ctx.log.decision("snapshot", { result: "erased_owner" });
       const erased = erasedEntitlement(snapshotSubscriptions);
       await publish(ctx, account, erased.entitlement);
       return erased.revoke;
@@ -354,6 +370,7 @@ export const apply = internalMutation({
     const deleting = !!user && user.lifecycle !== "active";
     // A portal/provider change during the deletion window must stop renewal again.
     if (deletion?.status === "pending" && !deleting && state.subscriptions.some(renews)) {
+      ctx.log.decision("deletion_window", { result: "renewal_restarted" });
       await ctx.db.patch("accountLifecycleRequests", deletion._id, { cancellationConfirmed: false });
       await ctx.scheduler.runAfter(0, internal.accountLifecycle.process, { requestId: deletion._id });
     }
@@ -375,6 +392,8 @@ export const apply = internalMutation({
         await ctx.db.insert("billingSubscriptions", { customerId, ...record });
       }
     }
+    if (decision.entitlement.subscriptionId) ctx.log.setSubscription(decision.entitlement.subscriptionId);
+    ctx.log.decision("snapshot", { result: "applied", changedSubscriptions: decision.changed.length, revoke: decision.revoke.length });
     await publish(ctx, account, decision.entitlement);
     // Failed cleanup stays visible in recovery issues if the worker stops.
     if (decision.revoke.length) {
@@ -388,8 +407,10 @@ export const finish = internalMutation({
   args: { customerId: v.string(), version: v.number(), failed: v.boolean() },
   returns: v.null(),
   handler: async (ctx, { customerId, version, failed }) => {
+    ctx.log.setCustomer(customerId);
     const sync = await syncForCustomer(ctx, customerId);
     if (!sync || sync.leaseVersion !== version) {
+      ctx.log.decision("finish", { result: "stale_lease" });
       return null;
     }
     const account = await accountForCustomer(ctx, customerId);
@@ -421,8 +442,14 @@ export const finish = internalMutation({
       failureCode,
       reconciledAt: failed ? sync.reconciledAt : now,
     });
+    ctx.log.decision("finish", { failed, pending, attempts, failureCode });
     if (failed) {
-      console.error("Billing reconciliation requires recovery", { customerId, attempts });
+      ctx.log.markAsError();
+    }
+    if (failed && attempts > scheduledRetries) {
+      ctx.log.adminAction("Scheduled reconciliation retries are exhausted; see billing:recoveryIssues");
+    } else if (failureCode === "CUSTOMER_LINK_REQUIRED") {
+      ctx.log.adminAction("Link the unclaimed Polar customer to its owner; see billing:recoveryIssues");
     }
     // After the scheduled retries, the sweep keeps retrying at nextCheckAt.
     if (pending || (failed && attempts <= scheduledRetries)) {
@@ -438,8 +465,11 @@ export const expire = internalMutation({
   handler: async (ctx, { accountId, revision }) => {
     const row = await ctx.db.get("billingAccounts", accountId);
     if (!row || row.revision !== revision || row.paidThrough === undefined || row.paidThrough > Date.now()) {
+      ctx.log.decision("expiry", { result: "superseded" });
       return null;
     }
+    ctx.log.setCustomer(row.customerId);
+    ctx.log.decision("expiry", { result: "ended" });
     await writeEntitlement(ctx, row, ended);
     // A renewal may already be paid; the provider decides whether access resumes.
     await requestReconciliation(ctx, row.customerId);
@@ -457,6 +487,7 @@ export const sweep = internalMutation({
     const due = await ctx.db.query("billingSync")
       .withIndex("by_nextCheckAt", (q) => q.gte("nextCheckAt", 0).lte("nextCheckAt", now))
       .take(sweepPage);
+    ctx.log.set("due", due.length);
     for (const row of due) {
       // Moving the check out of range lets the next page start after this one.
       await ctx.db.patch("billingSync", row._id, { nextCheckAt: leaseDeadline(now) });
@@ -505,6 +536,7 @@ export const confirmProviderCleanup = internalMutation({
   args: { userId: v.id("users") },
   returns: v.null(),
   handler: async (ctx, { userId }) => {
+    ctx.log.setUser(userId);
     const user = await ctx.db.get("users", userId);
     if (!user || user.lifecycle === "active") {
       throw new Error("Deletion must be committed first");
@@ -513,8 +545,10 @@ export const confirmProviderCleanup = internalMutation({
       .withIndex("by_externalId", (q) => q.eq("externalId", externalCustomerId(user.tokenIdentifier)))
       .unique();
     if (!account) {
+      ctx.log.decision("account", { result: "none" });
       return null;
     }
+    ctx.log.setCustomer(account.customerId);
     if (account.userId && account.userId !== userId) {
       throw new Error("Customer identity conflict");
     }
@@ -539,6 +573,7 @@ export const beginOperation = internalMutation({
     if (!account) {
       throw appError("CUSTOMER_NOT_FOUND");
     }
+    ctx.log.setCustomer(account.customerId);
     const sync = await ensureSync(ctx, account.customerId);
     if (isLeased(sync.operationLeaseUntil)) {
       throw appError("BILLING_OPERATION_PENDING");
@@ -576,7 +611,9 @@ export const confirmChange = internalMutation({
   args: { customerId: v.string(), revision: v.number() },
   returns: v.null(),
   handler: async (ctx, { customerId, revision }) => {
+    ctx.log.setCustomer(customerId);
     const account = await accountForCustomer(ctx, customerId);
+    ctx.log.decision("confirmation", { republished: account?.revision === revision });
     if (account && account.revision === revision) {
       await writeEntitlement(ctx, account, entitlementOf(account));
     }
@@ -588,6 +625,8 @@ export const requestRevocation = internalMutation({
   args: { userId: v.id("users"), subscriptionId: v.string() },
   returns: v.null(),
   handler: async (ctx, { userId, subscriptionId }) => {
+    ctx.log.setUser(userId);
+    ctx.log.setSubscription(subscriptionId);
     const account = await accountForUser(ctx, userId);
     const subscription = await ctx.db.query("billingSubscriptions")
       .withIndex("by_subscriptionId", (q) => q.eq("subscriptionId", subscriptionId))

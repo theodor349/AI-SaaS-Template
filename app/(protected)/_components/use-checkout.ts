@@ -1,9 +1,9 @@
 "use client";
 
-import { useAction } from "convex/react";
 import type { FunctionArgs } from "convex/server";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/convex/_generated/api";
+import { useAction } from "@/lib/convex";
 
 export type CheckoutPlan = FunctionArgs<typeof api.polar.checkout>["model"];
 

@@ -10,21 +10,24 @@ import { AUTHENTICATED_DESTINATION, SIGN_IN_PATH, SIGN_UP_PATH } from "@/lib/aut
 import { SiteNavigation } from "@/components/layout/site-navigation";
 import { PageContent } from "@/components/layout/page-content";
 import navigationStyles from "@/components/layout/site-navigation.module.css";
+import { appConfig } from "@/app.config";
+import { throwIfE2ECrashRequested } from "@/lib/e2e-crash";
 
 const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
 export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover" };
 
 export const metadata: Metadata = {
-  title: "AI SaaS Template",
-  description: "A Next.js, Convex, and Clerk starter.",
+  title: { default: appConfig.appName, template: `%s — ${appConfig.appName}` },
+  description: appConfig.description,
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  await throwIfE2ECrashRequested("layout");
   return (
     <html lang="en" className={cn("font-sans", geist.variable)}>
       <body>

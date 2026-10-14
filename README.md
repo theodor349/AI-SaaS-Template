@@ -6,17 +6,18 @@ This template supports agents developing and testing features in parallel using 
 
 ## Development
 
-1. In the main checkout, copy `.env.bootstrap.example` to `.env.bootstrap.local`
+1. Set the product name, company, and support email in [`app.config.ts`](app.config.ts).
+2. In the main checkout, copy `.env.bootstrap.example` to `.env.bootstrap.local`
    and add Clerk development keys, a Polar sandbox organization access token,
    and the monthly, yearly, and lifetime sandbox product IDs. Linked worktrees
    inherit these settings; bootstrap syncs their prices before reporting `Ready:`.
-2. Configure the Clerk application's `convex` JWT template following the
+3. Configure the Clerk application's `convex` JWT template following the
    [Convex Clerk setup](https://docs.convex.dev/auth/clerk).
-3. In your worktree, run `pnpm setup:check` to check prerequisites, then `pnpm bootstrap`
+4. In your worktree, run `pnpm setup:check` to check prerequisites, then `pnpm bootstrap`
    in a persistent terminal. It syncs dependencies and starts Next.js, local
    Convex, and Polar forwarding, using private Tailscale HTTPS URLs when
    Tailscale is connected.
-4. Wait for `Ready:` (or run `pnpm bootstrap:wait`) and open the printed app URL.
+5. Wait for `Ready:` (or run `pnpm bootstrap:wait`) and open the printed app URL.
    Ctrl+C or `pnpm bootstrap:stop` stops the stack.
 
 Use `pnpm bootstrap --no-polar` when billing is outside the task; no Polar token

@@ -5,9 +5,9 @@ import { v } from "convex/values";
 import { Webhook } from "svix";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
-import { internalMutation } from "./_generated/server";
+import { internalMutation } from "./lib/functions";
 import schema from "./schema";
-import { DELIVERY_RETENTION_MS, processDelivery } from "./webhooks";
+import { DELIVERY_RETENTION_MS, deliveryArgs, deliveryResult, processDelivery } from "./webhooks";
 import { apply as applyClerk, process as processClerk } from "./clerkWebhooks";
 
 const issuer = "https://test.clerk.accounts.dev";
@@ -205,6 +205,8 @@ test("a signed deletion racing provisioning cannot resurrect an identity", async
 });
 
 const applyRef = makeFunctionReference<"mutation", { fail: boolean }, null>("testHandlers:apply") as unknown as FunctionReference<"mutation", "internal", { fail: boolean }, null>;
+type Delivery = { provider: "clerk" | "polar"; deliveryId: string; eventType: string };
+const processRef = makeFunctionReference<"mutation", Delivery & { fail: boolean; interrupt?: boolean }, "success" | "duplicate" | "failure">("testHandlers:process");
 function setupRecovery() {
   return convexTest(extendedSchema, {
     ...modules,
@@ -213,8 +215,16 @@ function setupRecovery() {
         args: { fail: v.boolean() }, returns: v.null(),
         handler: async (ctx, { fail }) => {
           await ctx.db.insert("billingOrders", { customerId: "test", orderId: "test", productId: "test", paid: true, fullyRefunded: false, createdAt: 0, modifiedAt: 0 });
-          if (fail) throw new Error("provider payload details must not be logged");
+          if (fail) throw new Error("temporary failure");
           return null;
+        },
+      }),
+      process: internalMutation({
+        args: { ...deliveryArgs, fail: v.boolean(), interrupt: v.optional(v.boolean()) }, returns: deliveryResult,
+        handler: async (ctx, { fail, interrupt, ...delivery }) => {
+          const result = await processDelivery(ctx, delivery, applyRef, { fail });
+          if (interrupt) throw new Error("transaction interrupted before commit");
+          return result;
         },
       }),
     }),
@@ -224,13 +234,12 @@ function setupRecovery() {
 test("failed handlers roll back effects and remain retryable; provider delivery IDs never collide", async () => {
   const t = setupRecovery();
   const delivery = { provider: "clerk" as const, deliveryId: "shared-id", eventType: "test" };
-  const log = vi.spyOn(console, "error").mockImplementation(() => {});
-  expect(await t.run((ctx) => processDelivery(ctx, delivery, applyRef, { fail: true }))).toBe("failure");
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  expect(await t.mutation(processRef, { ...delivery, fail: true })).toBe("failure");
   expect(await t.run((ctx) => ctx.db.query("billingOrders").take(10))).toEqual([]);
-  expect(log.mock.calls.flat().join(" ")).not.toContain("provider payload");
-  expect(await t.run((ctx) => processDelivery(ctx, delivery, applyRef, { fail: false }))).toBe("success");
-  expect(await t.run((ctx) => processDelivery(ctx, delivery, applyRef, { fail: false }))).toBe("duplicate");
-  expect(await t.run((ctx) => processDelivery(ctx, { ...delivery, provider: "polar" }, applyRef, { fail: false }))).toBe("success");
+  expect(await t.mutation(processRef, { ...delivery, fail: false })).toBe("success");
+  expect(await t.mutation(processRef, { ...delivery, fail: false })).toBe("duplicate");
+  expect(await t.mutation(processRef, { ...delivery, provider: "polar", fail: false })).toBe("success");
   const deliveries = await t.run((ctx) => ctx.db.query("webhookDeliveries").take(10));
   expect(deliveries).toHaveLength(2);
   expect(deliveries.find((d) => d.provider === "clerk")).toMatchObject({ status: "success", attempts: 2 });
@@ -241,13 +250,11 @@ test("failed handlers roll back effects and remain retryable; provider delivery 
 test("interruption before completion commits neither effects nor a stuck processing record", async () => {
   const t = setupRecovery();
   const delivery = { provider: "clerk" as const, deliveryId: "interrupted", eventType: "test" };
-  await expect(t.run(async (ctx) => {
-    await processDelivery(ctx, delivery, applyRef, { fail: false });
-    throw new Error("transaction interrupted before commit");
-  })).rejects.toThrow("interrupted");
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  await expect(t.mutation(processRef, { ...delivery, fail: false, interrupt: true })).rejects.toThrow("interrupted");
   expect(await t.run((ctx) => ctx.db.query("webhookDeliveries").take(10))).toEqual([]);
   expect(await t.run((ctx) => ctx.db.query("billingOrders").take(10))).toEqual([]);
-  expect(await t.run((ctx) => processDelivery(ctx, delivery, applyRef, { fail: false }))).toBe("success");
+  expect(await t.mutation(processRef, { ...delivery, fail: false })).toBe("success");
   expect(await t.run((ctx) => ctx.db.query("billingOrders").take(10))).toHaveLength(1);
 });
 

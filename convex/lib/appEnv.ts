@@ -16,4 +16,8 @@ export const appEnv = {
   CLERK_JWT_ISSUER_DOMAIN: v.string(),
   CLERK_SECRET_KEY: v.optional(v.string()),
   CLERK_WEBHOOK_SIGNING_SECRET: v.optional(v.string()),
+  // Success sampling for wide events, between 0 and 1; see lib/log.ts.
+  LOG_SAMPLE_RATE_QUERY: v.optional(v.string()),
+  LOG_SAMPLE_RATE_MUTATION: v.optional(v.string()),
+  LOG_SAMPLE_RATE_ACTION: v.optional(v.string()),
 };

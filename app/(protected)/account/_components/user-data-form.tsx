@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { useState, type SubmitEvent } from "react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
@@ -10,6 +10,7 @@ import { Button, ButtonLabel } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useMutation } from "@/lib/convex";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ContentSkeleton } from "@/components/loading/content-skeleton";
 

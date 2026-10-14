@@ -1,10 +1,11 @@
 "use client";
 
-import { useQuery, useAction } from "convex/react";
+import { useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 import { api } from "@/convex/_generated/api";
 import { AuthPending } from "@/components/auth/auth-boundary";
+import { useAction } from "@/lib/convex";
 
 export function PaidBoundary({ children }: { children: ReactNode }) {
   const status = useQuery(api.billing.status);

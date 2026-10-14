@@ -1,8 +1,8 @@
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
-import { internalMutation, internalQuery, query, type QueryCtx } from "./_generated/server";
 import { accountForUser, requirePro, scheduledRetries, syncForCustomer } from "./lib/billing";
 import { billingModel } from "./lib/billingModel";
+import { internalMutation, internalQuery, query, type QueryCtx } from "./lib/functions";
 import { getDisplayName } from "./lib/profile";
 import { getCurrentUser, readiness } from "./lib/users";
 import schema, { scheduledPlanChange } from "./schema";

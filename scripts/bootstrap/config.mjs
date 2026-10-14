@@ -8,11 +8,13 @@ export const polarProductKeys = ["POLAR_PRODUCT_MONTHLY", "POLAR_PRODUCT_YEARLY"
 const providerNames = [
   "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET", "CLERK_JWT_ISSUER_DOMAIN",
   "POLAR_ACCESS_TOKEN", "POLAR_ORGANIZATION_ID", ...polarProductKeys,
+  "LOG_SAMPLE_RATE_QUERY", "LOG_SAMPLE_RATE_MUTATION", "LOG_SAMPLE_RATE_ACTION",
 ];
 // Pushed to the local Convex deployment. Must match the env declared in convex/convex.config.ts.
 export const backendEnvKeys = [
   "WORKTREE_ID", "APP_URL", "CLERK_JWT_ISSUER_DOMAIN", "CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET",
   "POLAR_ACCESS_TOKEN", "POLAR_ENVIRONMENT", "POLAR_WEBHOOK_SECRET", "POLAR_ORGANIZATION_ID", ...polarProductKeys,
+  "LOG_SAMPLE_RATE_QUERY", "LOG_SAMPLE_RATE_MUTATION", "LOG_SAMPLE_RATE_ACTION",
 ];
 const localBlocks = 12000;
 const tailscaleBlocks = 5000;
@@ -70,6 +72,8 @@ export function worktreeConfig(root, { portBlock = portBlockOverride(root) } = {
       NEXT_PUBLIC_CONVEX_SITE_URL: `http://127.0.0.1:${ports.site}`,
       POLAR_ENVIRONMENT: "sandbox",
       POLAR_WEBHOOK_URL: `http://127.0.0.1:${ports.site}/webhooks/polar`,
+      // Enables the crash hooks E2E tests use to reach the error pages (lib/e2e-crash.ts).
+      E2E_TEST_ROUTES: "1",
     },
   };
 }

@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { isBillingModel } from "@/convex/lib/billingModel";
 import { PaymentRedirect } from "./_components/payment-redirect";
 
-export const metadata: Metadata = { title: "Checkout — AI SaaS Template" };
+export const metadata: Metadata = { title: "Checkout" };
 
 // The only entry point that starts checkout from a URL, e.g. after sign-up.
 export default async function CheckoutPage({ searchParams }: {
