@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { worktreeConfig } from "./bootstrap.mjs";
 import { plannedProxies, serveWorktree, tailscaleConfig } from "./bootstrap-tailscale.mjs";
+import { chooseNetwork } from "./bootstrap/tailscale.mjs";
 
 const local = worktreeConfig("/tmp/tailscale-test-worktree");
 const remote = tailscaleConfig(local, "agent.example.ts.net.");
@@ -80,4 +81,40 @@ test("failed rollback reports cleanup failure without masking the original start
   };
   await assert.rejects(serveWorktree(local, remote, command), /Serve setup failed/);
   assert.match(reported.mock.calls[0].arguments[0], /Cleanup status timed out/);
+});
+
+test("Tailscale is used by default only with a running node and HTTPS certificates", () => {
+  const running = { BackendState: "Running", Self: { DNSName: "Agent.Example.ts.net." }, CertDomains: ["agent.example.ts.net"] };
+  const unused = () => { throw new Error("status must not be read"); };
+  assert.deepEqual(chooseNetwork({ readStatus: () => running }), { mode: "tailscale", dnsName: "Agent.Example.ts.net." });
+  assert.equal(chooseNetwork({ local: true, readStatus: unused }).mode, "local");
+  assert.equal(chooseNetwork({ ci: true, readStatus: unused }).mode, "local");
+  assert.equal(chooseNetwork({ ci: true, tailscale: true, readStatus: () => running }).mode, "tailscale");
+  assert.throws(() => chooseNetwork({ local: true, tailscale: true, readStatus: unused }), /either/);
+  for (const [status, reason] of [
+    [null, /not installed/],
+    [{ ...running, BackendState: "Stopped" }, /not connected/],
+    [{ ...running, Self: {} }, /MagicDNS/],
+    [{ ...running, CertDomains: null }, /HTTPS certificates/],
+  ]) {
+    const fallback = chooseNetwork({ readStatus: () => status });
+    assert.equal(fallback.mode, "local");
+    assert.match(fallback.note, reason);
+    assert.doesNotMatch(fallback.note, /\n/);
+    assert.throws(() => chooseNetwork({ tailscale: true, readStatus: () => status }), reason);
+  }
+});
+
+test("a port block override moves Tailscale ports with the loopback ports", () => {
+  const moved = worktreeConfig("/tmp/tailscale-test-worktree", { portBlock: 7 });
+  assert.deepEqual(tailscaleConfig(moved, "agent.example.ts.net").ports, { next: 50021, convex: 50022, site: 50023 });
+});
+
+test("serving records created and preserved routes for the state file", async () => {
+  const fake = fakeTailscale();
+  const same = proxyState(remote.ports.site, `http://127.0.0.1:${local.ports.site}`);
+  Object.assign(fake.state.TCP, same.TCP); Object.assign(fake.state.Web, same.Web);
+  const cleanup = await serveWorktree(local, remote, fake.command);
+  assert.deepEqual(cleanup.created.map(route => route.port), [remote.ports.next, remote.ports.convex]);
+  assert.deepEqual(cleanup.preserved, [{ port: remote.ports.site, target: `http://127.0.0.1:${local.ports.site}` }]);
 });

@@ -31,7 +31,8 @@ Set these environment variables for **Production only**:
 
 Do not set `CONVEX_DEPLOYMENT` or copy a worktree's `.env.local` into Vercel.
 `convex deploy` supplies `NEXT_PUBLIC_CONVEX_URL` to the Next.js build. Backend
-secrets belong on Convex, not in browser variables or GitHub Actions.
+secrets belong on Convex, not in browser variables or GitHub Actions; only the
+E2E workflow below holds development credentials there.
 
 `pnpm build:vercel` runs application unit tests and lint before invoking
 `convex deploy --cmd 'pnpm exec next build' --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL`.
@@ -97,8 +98,27 @@ broken production build before Vercel does. It runs `next build` with fake,
 well-formed placeholders for the browser variables read while building and
 prerendering; the checks need no hosted credentials. They run independently so
 each reports its failures, and new pushes cancel outdated runs. Integration and
-browser tests use worktree bootstrap services and are run separately when
-relevant.
+browser tests need bootstrap services and run in the E2E workflow below.
+
+The separate [E2E workflow](../.github/workflows/e2e.yml) runs `pnpm test:integration`
+and `pnpm test:e2e` against a local bootstrap stack. It runs on pushes to `main`,
+manual dispatch, and pull requests labeled `run-e2e`; the label keeps it from
+spending the Clerk and Polar rate limits that local agents share. It needs these
+GitHub Actions repository secrets, using the same values as a local
+`.env.bootstrap.local`:
+
+| Secret | Value |
+| --- | --- |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Clerk development publishable key (`pk_test_...`). |
+| `CLERK_SECRET_KEY` | Matching Clerk development secret key (`sk_test_...`). |
+| `POLAR_ACCESS_TOKEN` | Sandbox organization access token. |
+| `POLAR_ORGANIZATION_ID` | Optional; needed when the token can access several organizations. |
+| `POLAR_PRODUCT_MONTHLY`, `POLAR_PRODUCT_YEARLY`, `POLAR_PRODUCT_LIFETIME` | The sandbox product IDs. |
+
+Polar is required because the suites check the synced catalog, signed Polar
+webhooks, and sandbox customers. Without the secrets, as on fork pull requests,
+the workflow reports a notice and skips. Do not make it a required check, since
+unlabeled pull requests never run it.
 
 Require the checks in a GitHub branch ruleset for `main` if merges should be
 blocked on failures. Vercel independently runs `pnpm test:app` and `pnpm lint`

@@ -13,63 +13,49 @@ A maintainer request to run this workflow authorizes task commits, pushing, open
 
 - Read `AGENTS.md` and [resource tracking and cleanup](references/cleanup.md); recover the inventory first. Inspect `git status`, the branch, remotes, `git worktree list`, the diff, and task commits. Stay in the current T3-assigned worktree. Do not create a replacement worktree or switch to the main checkout. A checkout on `main` or without its assigned task branch is a setup blocker, except when resuming cleanup after an already confirmed merge and detach.
 - Reconstruct scope from the maintainer's request, changes, issue, and associated PR. Standalone invocation includes existing changes that belong to this task, including uncommitted ones. Preserve unrelated work; ask only when ownership or intended behavior is ambiguous. Do not blindly commit all dirty files or discard them to achieve a clean status.
-- Find the PR for this exact head repository and branch, with `main` as its base; verify any supplied PR matches. After a prior cleanup detached the worktree or deleted the branch, recover the PR, branch, and SHAs from the inventory. Reuse the PR instead of creating a duplicate. Register its full URL immediately with T3 Code's `link_pull_request` when available. If already merged, verify its recorded head against the local task commits and go directly to step 6; a closed unmerged PR or new commits after merge needs a maintainer decision.
-- Confirm the remote hosting the PR's base repository and the remote hosting its head branch; they may differ. Examples use `origin/main` for the base. Fetch that remote's `main`, not a stale local `main`, and do not update the main checkout.
-- Maintain the worktree's resource inventory, including services and terminals from earlier sessions whose task ownership can be established.
+- Find the PR for this exact head repository and branch, with `main` as its base; `pnpm pr:gate` with no argument resolves the current branch's PR, and with a number or URL verifies a supplied one. After a prior cleanup detached the worktree or deleted the branch, recover the PR, branch, and SHAs from the inventory. Reuse the PR instead of creating a duplicate. Register its full URL immediately with T3 Code's `link_pull_request` when available. If already merged, verify its recorded head against the local task commits and go directly to step 6; a closed unmerged PR or new commits after merge needs a maintainer decision.
+- The base repository's remote and the head branch's remote may differ. Examples use `origin/main` for the base. Always fetch that remote's `main` rather than trusting a stale local `main`, and do not update the main checkout.
+- Maintain the worktree's resource inventory, including services and terminals from earlier sessions whose task ownership can be established. Check this worktree's stack with `pnpm bootstrap:status`.
 
 ## 2. Verify, commit, and merge fresh main
 
-1. Inspect the full task diff against the base. Run focused checks, then `pnpm test:unit` and `pnpm lint`, plus the relevant integration or E2E checks for backend/browser changes using this worktree's bootstrap environment. Existing results can be reused only for the same unchanged commit and environment. Capture and upload the required UI evidence. If standalone completion lacks a before image, recover the pre-change UI in this same worktree without losing task changes; do not invent evidence or silently omit it.
-2. Commit scoped task changes with conventional commit titles. Unrelated dirty files that prevent safe syncing or branch cleanup are a blocker, not permission to stash or discard them.
-3. Fetch the base remote's `main` again. Check ancestry with `git merge-base --is-ancestor origin/main HEAD`. Exit code 1 means a merge is needed; other errors are blockers. Merge the fetched ref into the task branch when needed. Resolve conflicts according to the task's behavior, inspect the resulting diff, and rerun required verification. Use a merge rather than rebase or force push.
-4. Fetch once more before publication. If `main` advanced beyond the branch, repeat the merge and validation until the fetched tip is included. Record the incorporated `main` SHA and verified task head.
+1. Inspect the full task diff against the base. Run focused checks, then `pnpm test:unit` and `pnpm lint`, plus the relevant integration or E2E checks for backend/browser changes against this worktree's bootstrap (`pnpm bootstrap:wait` blocks until it is ready). Existing results can be reused only for the same unchanged commit and environment.
+2. UI changes need before/after images, and motion or timing needs a short video. Capture with `pnpm capture <path...> --label before|after` (`--plan`, `--signed-out`, `--video <seconds>` as needed); files land outside the worktree in `$TMPDIR/pr-evidence/<worktreeId>/<label>`. If standalone completion lacks a before image, recover the pre-change UI in this same worktree without losing task changes; do not invent evidence or silently omit it.
+3. Commit scoped task changes with conventional commit titles. Unrelated dirty files that prevent safe syncing or branch cleanup are a blocker, not permission to stash or discard them.
+4. Fetch the base remote's `main` and check `git merge-base --is-ancestor origin/main HEAD`. Exit code 1 means a merge is needed; other errors are blockers. Merge the fetched ref into the task branch, resolve conflicts according to the task's behavior, inspect the result, and rerun required verification. Use a merge rather than rebase or force push. Repeat until a fresh fetch shows `main` included, and record the incorporated `main` SHA and verified head.
 
 ## 3. Publish or resume one PR
 
-- Push the task branch and create one normal open PR against `main`, or update the existing task PR. Follow `AGENTS.md` for title, description, issue link, validation, evidence, and actual model/harness attribution. Keep descriptions aligned with the final change. With `gh`, write multiline bodies to a temporary file outside the worktree and pass `--body-file`.
+- Push the task branch and create one normal open PR against `main`, or update the existing task PR. Follow `AGENTS.md` for title, description, issue link, validation, evidence, and actual model/harness attribution. Write multiline bodies to a temporary file outside the worktree and pass `--body-file`.
+- Upload UI evidence with `gh pr create|edit|comment --attach '<file>#<alt text>'` (gh 2.99.0 or newer). Never commit evidence or paste `pnpm review-link` sign-in links into the PR.
 - Register the full PR URL with T3 Code's `link_pull_request` immediately after creation. Before finishing, use `list_thread_pull_requests` and register any missing PR from this task. Report linking failures accurately.
-- Record the PR head SHA and push time. Do not request a routine maintainer handoff; this workflow continues through merge unless a gate needs their intervention.
+- Continue through merge without a routine maintainer handoff unless a gate needs their intervention.
 
-## 4. Handle review and checks
+## 4. Poll the gates and handle review
 
-Read checks, submitted reviews, inline review comments/threads, and conversation comments. Fetch all pages; `gh pr view --comments` alone misses inline reviews. With `gh api`, useful surfaces are:
-
-- `repos/{owner}/{repo}/pulls/{number}/reviews`
-- `repos/{owner}/{repo}/pulls/{number}/comments`
-- `repos/{owner}/{repo}/issues/{number}/comments`
-- `repos/{owner}/{repo}/commits/{head_sha}/check-runs` and `/status`
-
-Use review-thread queries for replies and resolution. Track processed comment IDs/update times and reviewed commits. Bot summaries can be edited in place; inspect updated comments as well as new ones.
+`pnpm pr:gate [PR] [--json]` is the polling primitive. It reads every page of checks, statuses, reviews, review threads, and comments for the PR's current head, fetches the base `main`, and evaluates the merge gates. Exit codes: `0` ready to merge, `1` waiting (checks or review in progress), `2` action needed, `3` error (investigate; never treat it as green). The human output names each gate and lists failing checks, unresolved threads, and bot or human activity since the head was pushed; `--json` adds thread IDs and full details. Poll every 30–60 seconds and stay quiet while nothing changes.
 
 ### CodeRabbit gate
 
-- Determine whether CodeRabbit review is enabled from effective repository/integration configuration and activity on this or recent PRs. Absence of `.coderabbit.yaml`, a comment, or a check does not prove it is disabled. Disabled automatic review alone does not mean CodeRabbit is unavailable. An explicit maintainer instruction that CodeRabbit is disabled is sufficient; unknown status is a blocker to report, not a reason to skip review.
-- When enabled, require a completed review covering the current PR head. A walkthrough, summary, queued/in-progress check, skipped review, rate limit, or older reviewed commit does not satisfy the gate. Completed review with no actionable findings does. Check review commit IDs or reviewed-commit metadata together with completion status; timestamps alone are insufficient.
-- Let automatic review start. If it does not start, request `@coderabbitai full review` for an initial full pass, or `@coderabbitai review` for subsequent changes after a completed full review. Use the integration's actual handle if different. Trigger once per unreviewed head, avoid duplicate requests while running, and follow retry-after notices. Do not install CodeRabbit, change repository settings, or upgrade its plan.
-- Poll at modest intervals, such as 30–60 seconds. Stay quiet when nothing changes. Allow 30 minutes without review progress per head by default; respect a known later retry time when practical. A timeout, unavailable service, insufficient access, or persistent skip/rate limit is a blocker. Preserve the PR for resumption instead of merging without review.
-- Consult the [official command reference](https://docs.coderabbit.ai/reference/review-commands) and [configuration reference](https://docs.coderabbit.ai/reference/configuration) if service behavior differs.
+- The gate passes only when a completed CodeRabbit review covers the current head. A walkthrough, an in-progress status, a skipped or paused review, a rate limit, or a review of an older commit does not pass. `pr:gate` reports CodeRabbit as `unknown` when it finds no activity on this or recent PRs and no config; that is a blocker to report, not a reason to skip review. Pass `--coderabbit-disabled` only after the maintainer explicitly says CodeRabbit is disabled.
+- Let automatic review start. If `pr:gate` reports that no review started for the head, comment `@coderabbitai full review` when no full review has completed yet, otherwise `@coderabbitai review`. Request once per unreviewed head, not while one is running, and wait out any reported rate-limit time first. Do not install CodeRabbit, change repository settings, or upgrade its plan.
+- Allow 30 minutes without review progress per head, or a known later retry time. A timeout, unavailable service, insufficient access, or persistent skip or rate limit is a blocker; preserve the PR for resumption instead of merging without review. See the [command reference](https://docs.coderabbit.ai/reference/review-commands) if service behavior differs.
 
 ### Findings and CI
 
-- Verify every actionable bot finding against the source and task. Fix real issues, add meaningful regression coverage where practical, and explain fixes in their threads. Reply to false positives or inapplicable suggestions with concrete source-backed reasons; do not mark unaddressed findings resolved.
-- Address other bots and real CI failures within scope. External failures or scope decisions are blockers. Required human approvals and repository protections still apply; do not bypass them.
-- Batch related fixes, rerun appropriate checks, commit, and push. Re-enter the review/check gates for the new head; approvals and green checks on an older head cannot satisfy them.
+- Verify every unresolved thread, and every actionable, nitpick, or outside-diff comment counted in CodeRabbit's review body, against the source and task. Fix real issues with meaningful regression coverage where practical and reply in the thread with the fix. Reply to false positives or inapplicable suggestions with a concrete source-backed reason. Resolve a thread only once it is fixed or answered.
+- Read other bot and human comments in the activity list; CodeRabbit edits its summary comment in place. Fix real CI failures within scope; external failures and scope decisions are blockers. Required human approvals and repository protections still apply.
+- Batch related fixes, rerun appropriate checks, commit, and push. The gates restart for the new head; approvals and reviews of an older head do not carry over.
 
-## 5. Confirm the final head and merge
+## 5. Merge the verified head
 
-Fetch `main` again after feedback. If it advanced, merge, verify, push, and return to review. Repeat until all these hold together:
+Merge only when `pnpm pr:gate` exits `0` and, for that same head, local verification passed and the PR description and evidence reflect the final change. Exit `0` means the local, remote, and PR heads match with no uncommitted changes, freshly fetched `main` is an ancestor, GitHub reports the PR mergeable, required checks pass (it says when it treats all checks as required), CodeRabbit covers the head, and no review thread is unresolved. Explain skipped or neutral checks if they replace required verification. If `main` advanced, merge it, verify, push, and return to step 4.
 
-- Task behavior and required local verification pass for the current commit.
-- Local verified commit, remote task branch, and PR head match. Required CI checks pass for that head; pending is not green. Explain skipped/neutral checks if they replace required verification.
-- CodeRabbit is confirmed disabled or its completed review covers that head, with every actionable finding fixed or answered with a reason. Other actionable bot findings are addressed too.
-- A fresh fetch shows the latest observed remote `main` is an ancestor of the PR head, with no conflicts.
-- The PR description and evidence reflect the final change, the worktree has no uncommitted changes, and repository merge requirements are satisfied.
+Use the merge command from its verdict line (`gh pr merge <url> --match-head-commit <head>`) with the repository's allowed merge method. Never pass `--admin` or bypass protections. Keep branch deletion out of `gh pr merge --delete-branch`, which can try to switch a linked worktree to an already checked-out `main`. A rejected merge must be investigated; do not retry indefinitely or remove protections.
 
-Merge that verified head using the repository's allowed merge method and convention. With `gh`, pass the explicit PR URL and `--match-head-commit <verified-head>`; do not use `--admin` or bypass protections. Keep branch deletion separate from `gh pr merge --delete-branch`, which can try to switch a linked worktree to an already checked-out `main`. See the [GitHub CLI merge reference](https://cli.github.com/manual/gh_pr_merge).
+If `pr:gate` reports a merge queue, enter it and wait for GitHub to confirm the merge; queued or auto-merge-enabled is not merged. Reassess the gates if the head changes or queue checks fail. Allow 30 minutes without merge or queue progress, then report the specific blocker.
 
-If a merge queue is required, enter it and wait for GitHub to confirm the merge; queued or auto-merge-enabled is not merged. If the head changes or queue checks fail, reassess the gates. Allow 30 minutes without merge/queue progress by default, then report the specific blocker. Do not delete branches or declare completion while the PR remains unmerged.
-
-Read the PR back from GitHub to confirm `MERGED`, its merged head, and merge commit. Save these with the branch name, head repository/remote, and incorporated `main` SHA in the resource inventory before cleanup. A rejected merge must be investigated; do not retry indefinitely or remove protections.
+Run `pnpm pr:gate <url>` again to confirm `MERGED` with its merge commit. Save the PR URL, merged head, merge commit, branch name, head remote, and incorporated `main` SHA in the resource inventory before cleanup.
 
 ## 6. Shut down resources and delete the task branch
 

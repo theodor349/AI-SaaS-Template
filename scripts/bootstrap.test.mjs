@@ -363,3 +363,42 @@ test("generated Clerk signing secrets stay local while explicit overrides can be
     rmSync(fixture, { recursive: true, force: true });
   }
 });
+
+test("BOOTSTRAP_PORT_BLOCK moves loopback and Tailscale ports without changing the worktree identity", () => {
+  const fixture = realpathSync(mkdtempSync(join(tmpdir(), "bootstrap ports ")));
+  const mainRoot = join(fixture, "main");
+  const worktreeRoot = join(fixture, "feature");
+  mkdirSync(mainRoot);
+  mkdirSync(worktreeRoot);
+  try {
+    const derived = worktreeConfig(worktreeRoot, { portBlock: undefined });
+    assert.equal(bootstrap.portBlockOverride(worktreeRoot, {}), undefined);
+    // A main-checkout value would move every linked worktree onto the same ports.
+    writeFileSync(join(mainRoot, ".env.bootstrap.local"), environmentFile({ ...credentials, BOOTSTRAP_PORT_BLOCK: "9" }));
+    assert.equal(bootstrap.portBlockOverride(worktreeRoot, {}), undefined);
+    assert.equal(worktreeCredentials(worktreeRoot, mainRoot, true, {}).BOOTSTRAP_PORT_BLOCK, undefined);
+    writeFileSync(join(worktreeRoot, ".env.bootstrap.local"), environmentFile({ BOOTSTRAP_PORT_BLOCK: "7" }));
+    assert.equal(bootstrap.portBlockOverride(worktreeRoot, {}), 7);
+    assert.equal(bootstrap.portBlockOverride(worktreeRoot, { BOOTSTRAP_PORT_BLOCK: "11" }), 11);
+    const moved = worktreeConfig(worktreeRoot, { portBlock: 7 });
+    assert.deepEqual(moved.ports, { next: 10021, convex: 10022, site: 10023 });
+    assert.equal(moved.id, derived.id);
+    assert.equal(moved.env.APP_URL, "http://127.0.0.1:10021");
+    assert.equal(worktreeConfig(worktreeRoot, { portBlock: 5007 }).portBlock.tailscale, 7);
+    for (const value of ["-1", "12000", "1.5", "next"]) {
+      assert.throws(() => bootstrap.portBlockOverride(worktreeRoot, { BOOTSTRAP_PORT_BLOCK: value }), /0 to 11999/);
+    }
+  } finally { rmSync(fixture, { recursive: true, force: true }); }
+});
+
+test("an occupied port explains how to choose another port block", async () => {
+  const server = createServer();
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    await assert.rejects(assertPortsAvailable({ next: server.address().port }), /BOOTSTRAP_PORT_BLOCK=<0-11999>.*\.env\.bootstrap\.local/);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});

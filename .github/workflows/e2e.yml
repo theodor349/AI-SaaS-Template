@@ -1,0 +1,159 @@
+name: E2E
+
+# Runs the integration and browser suites against a real local stack: bootstrap's
+# local Convex backend, the shared Clerk development instance, and the shared
+# Polar sandbox organization. Provider rate limits are shared with local agents,
+# so pull requests only run when they carry the `run-e2e` label.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Check E2E credentials
+    # Ignore unrelated label events so they cannot start or cancel a run.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (contains(github.event.pull_request.labels.*.name, 'run-e2e') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'run-e2e'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      available: ${{ steps.check.outputs.available }}
+    steps:
+      - name: Check required secrets
+        id: check
+        env:
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          POLAR_ACCESS_TOKEN: ${{ secrets.POLAR_ACCESS_TOKEN }}
+          POLAR_PRODUCT_MONTHLY: ${{ secrets.POLAR_PRODUCT_MONTHLY }}
+          POLAR_PRODUCT_YEARLY: ${{ secrets.POLAR_PRODUCT_YEARLY }}
+          POLAR_PRODUCT_LIFETIME: ${{ secrets.POLAR_PRODUCT_LIFETIME }}
+        # Integration asserts the three synced Polar products and signed Polar
+        # webhooks, and billing E2E calls the sandbox API, so Polar is required.
+        run: |
+          missing=()
+          for name in NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY CLERK_SECRET_KEY POLAR_ACCESS_TOKEN \
+            POLAR_PRODUCT_MONTHLY POLAR_PRODUCT_YEARLY POLAR_PRODUCT_LIFETIME; do
+            [ -n "${!name}" ] || missing+=("$name")
+          done
+          if [ ${#missing[@]} -eq 0 ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          message="E2E skipped: missing secrets ${missing[*]}. Fork and Dependabot pull requests do not receive repository secrets."
+          echo "::notice title=E2E skipped::$message"
+          echo "$message" >> "$GITHUB_STEP_SUMMARY"
+          echo "available=false" >> "$GITHUB_OUTPUT"
+
+  e2e:
+    name: Integration and E2E
+    needs: preflight
+    if: needs.preflight.outputs.available == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Job-level so skipped label events never cancel a running suite.
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      # WORKTREE_ID derives from the checkout path. A per-run path keeps concurrent
+      # runs from sharing Clerk test-user labels, sweeps, and Polar customer IDs.
+      APP_DIR: run-${{ github.run_id }}-${{ github.run_attempt }}
+    defaults:
+      run:
+        working-directory: run-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          path: ${{ env.APP_DIR }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          package_json_file: ${{ env.APP_DIR }}/package.json
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: ${{ env.APP_DIR }}/.node-version
+          cache: pnpm
+          cache-dependency-path: ${{ env.APP_DIR }}/pnpm-lock.yaml
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve Playwright version
+        id: playwright
+        run: echo "version=$(pnpm exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      - name: Cache Convex local backend
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/convex
+          key: convex-${{ runner.os }}-${{ hashFiles(format('{0}/pnpm-lock.yaml', env.APP_DIR)) }}
+          restore-keys: convex-${{ runner.os }}-
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Write bootstrap credentials
+        env:
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          POLAR_ACCESS_TOKEN: ${{ secrets.POLAR_ACCESS_TOKEN }}
+          POLAR_ORGANIZATION_ID: ${{ secrets.POLAR_ORGANIZATION_ID }}
+          POLAR_PRODUCT_MONTHLY: ${{ secrets.POLAR_PRODUCT_MONTHLY }}
+          POLAR_PRODUCT_YEARLY: ${{ secrets.POLAR_PRODUCT_YEARLY }}
+          POLAR_PRODUCT_LIFETIME: ${{ secrets.POLAR_PRODUCT_LIFETIME }}
+        run: |
+          umask 077
+          for name in NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY CLERK_SECRET_KEY POLAR_ACCESS_TOKEN POLAR_ORGANIZATION_ID \
+            POLAR_PRODUCT_MONTHLY POLAR_PRODUCT_YEARLY POLAR_PRODUCT_LIFETIME; do
+            printf '%s=%s\n' "$name" "${!name}"
+          done > .env.bootstrap.local
+          chmod 600 .env.bootstrap.local
+
+      - name: Start bootstrap
+        id: bootstrap
+        run: |
+          mkdir -p "$RUNNER_TEMP/e2e-logs"
+          nohup pnpm bootstrap --local > "$RUNNER_TEMP/e2e-logs/bootstrap-console.log" 2>&1 &
+      - name: Wait for bootstrap
+        id: ready
+        run: pnpm bootstrap:wait --timeout 600
+
+      - name: Integration tests
+        id: integration
+        run: pnpm test:integration
+      # Run the browser suite even when integration fails so both report.
+      - name: E2E tests
+        if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
+        run: pnpm test:e2e
+
+      - name: Stop bootstrap
+        if: ${{ always() && steps.bootstrap.outcome == 'success' }}
+        run: pnpm bootstrap:stop
+      - name: Remove Clerk test users
+        if: ${{ always() && steps.bootstrap.outcome == 'success' }}
+        run: pnpm clerk:sweep --older-than 0s
+
+      # Print logs into the job output, where GitHub masks secret values; uploaded
+      # artifacts are not masked. Playwright traces and screenshots stay off
+      # because they would capture Clerk session tokens.
+      - name: Show bootstrap logs
+        if: ${{ failure() && steps.bootstrap.outcome == 'success' }}
+        run: |
+          echo "::group::bootstrap console"
+          cat "$RUNNER_TEMP/e2e-logs/bootstrap-console.log" || true
+          echo "::endgroup::"
+          echo "::group::bootstrap service log"
+          cat "$(git rev-parse --path-format=absolute --git-path bootstrap.log)" || true
+          echo "::endgroup::"

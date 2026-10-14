@@ -1,366 +1,115 @@
-import { spawn, execFileSync } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
-import { appendFileSync, existsSync, readFileSync, realpathSync, writeFileSync, chmodSync } from "node:fs";
-import { createConnection, createServer } from "node:net";
-import { basename, dirname, join, resolve } from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { parseEnv } from "node:util";
+import {
+  assertIsolatedConvexState, backendEnvKeys, childEnvironment, convexStateFile, gitRoot, mainCheckoutRoot,
+  readEnvironment, saveEnvironment, worktreeConfig, worktreeCredentials,
+} from "./bootstrap/config.mjs";
+import { assertPortsAvailable, waitForServer } from "./bootstrap/network.mjs";
+import { preflight } from "./doctor.mjs";
+import { createSupervisor, superviseConvex, superviseNext } from "./bootstrap/processes.mjs";
+import { bootstrapPaths, createStateRecorder, inspectState, liveStatuses, openLog, readState } from "./bootstrap/state.mjs";
+import { chooseNetwork, cleanupProxies, readTailscaleStatus, serveWorktree, tailscaleConfig } from "./bootstrap/tailscale.mjs";
 
-const polarProductKeys = ["POLAR_PRODUCT_MONTHLY", "POLAR_PRODUCT_YEARLY", "POLAR_PRODUCT_LIFETIME"];
-// Pushed to the local Convex deployment. Must match the env declared in convex/convex.config.ts.
-export const backendEnvKeys = ["WORKTREE_ID", "APP_URL", "CLERK_JWT_ISSUER_DOMAIN", "CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET", "POLAR_ACCESS_TOKEN", "POLAR_ENVIRONMENT", "POLAR_WEBHOOK_SECRET", "POLAR_ORGANIZATION_ID", ...polarProductKeys];
+export {
+  backendEnvKeys, childEnvironment, developmentCredentials, environmentFile, portBlockOverride, worktreeConfig, worktreeCredentials,
+} from "./bootstrap/config.mjs";
+export { assertPortsAvailable, waitForServer } from "./bootstrap/network.mjs";
+export { darwinGroupMembers, descendantProcessGroups, signalProcessGroup, superviseConvex, superviseNext } from "./bootstrap/processes.mjs";
 
-export function worktreeConfig(root) {
-  const hash = createHash("sha256").update(root).digest("hex");
-  // ponytail: finite port space can collide; fail on occupied ports rather than change URLs.
-  const firstPort = 10000 + (Number.parseInt(hash.slice(0, 8), 16) % 12000) * 3;
-  const id = `wt-${hash.slice(0, 12)}`;
-  const ports = { next: firstPort, convex: firstPort + 1, site: firstPort + 2 };
-  const appUrl = `http://127.0.0.1:${ports.next}`;
+const usage = `pnpm bootstrap [--local | --tailscale] [--no-polar] [--print]
+
+Starts local Convex, Next.js, and Polar sandbox webhook forwarding for this worktree.
+Uses private Tailscale HTTPS URLs when Tailscale is connected with HTTPS certificates,
+and loopback URLs otherwise or when CI is set.
+
+--local      Use loopback URLs without checking Tailscale.
+--tailscale  Require Tailscale HTTPS URLs.
+--no-polar   Start without billing credentials or webhook forwarding.
+--print      Print the effective configuration without changing anything.
+
+BOOTSTRAP_PORT_BLOCK=<0-11999> in this worktree's .env.bootstrap.local (or the
+environment) moves the worktree to another port block when its ports collide.
+Use pnpm bootstrap:status, bootstrap:wait, and bootstrap:stop to control a run.`;
+
+export function parseArguments(argv) {
+  const known = ["--help", "--local", "--tailscale", "--no-polar", "--print"];
+  for (const arg of argv) {
+    if (!known.includes(arg)) throw new Error(`Unknown argument: ${arg}`);
+  }
   return {
-    root, id, ports,
-    env: {
-      WORKTREE_ID: id,
-      PORT: String(ports.next),
-      APP_URL: appUrl,
-      NEXT_PUBLIC_APP_URL: appUrl,
-      NEXT_PUBLIC_CONVEX_URL: `http://127.0.0.1:${ports.convex}`,
-      NEXT_PUBLIC_CONVEX_SITE_URL: `http://127.0.0.1:${ports.site}`,
-      POLAR_ENVIRONMENT: "sandbox",
-      POLAR_WEBHOOK_URL: `http://127.0.0.1:${ports.site}/webhooks/polar`,
-    },
+    help: argv.includes("--help"),
+    local: argv.includes("--local"),
+    tailscale: argv.includes("--tailscale"),
+    polar: !argv.includes("--no-polar"),
+    print: argv.includes("--print"),
   };
 }
 
-export function developmentCredentials(values, polar = true, settingsFile = "the main checkout's .env.bootstrap.local") {
-  if (!values.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.startsWith("pk_test_") ||
-      !values.CLERK_SECRET_KEY?.startsWith("sk_test_")) {
-    throw new Error("Clerk development keys are required in .env.bootstrap.local (pk_test_ and sk_test_).");
+function resolveNetwork(config, options) {
+  const ci = Boolean(process.env.CI) && !["0", "false"].includes(process.env.CI.toLowerCase());
+  const network = chooseNetwork({ ...options, ci, readStatus: readTailscaleStatus });
+  return network.mode === "tailscale" ? { ...network, remote: tailscaleConfig(config, network.dnsName) } : network;
+}
+
+function assertNotRunning(stateFile) {
+  const current = inspectState(readState(stateFile));
+  if (liveStatuses.includes(current.status)) {
+    throw new Error(`Bootstrap is already ${current.status} in this worktree (pid ${current.pid}). Use pnpm bootstrap:status or pnpm bootstrap:stop.`);
   }
-  const domain = Buffer.from(values.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.slice(8), "base64")
-    .toString("utf8").replace(/\$$/, "");
-  if (!/^[a-z0-9.-]+\.accounts\.dev$/.test(domain)) {
-    throw new Error("The Clerk development publishable key does not contain a valid accounts.dev domain.");
-  }
-  const issuer = `https://${domain}`;
-  if (values.CLERK_JWT_ISSUER_DOMAIN && values.CLERK_JWT_ISSUER_DOMAIN.replace(/\/$/, "") !== issuer) {
-    throw new Error("CLERK_JWT_ISSUER_DOMAIN must match the Clerk development publishable key.");
-  }
-  if (polar && !values.POLAR_ACCESS_TOKEN) {
-    throw new Error("POLAR_ACCESS_TOKEN is required. Add a sandbox token to .env.bootstrap.local, or use --no-polar.");
-  }
-  const missingProducts = polarProductKeys.filter(key => !values[key]);
-  if (polar && missingProducts.length) {
-    throw new Error([
-      `Polar sandbox product IDs are missing: ${missingProducts.join(", ")}.`,
-      `Add these lines to ${settingsFile}, which every worktree inherits:`,
-      ...missingProducts.map(key => `  ${key}=<product ID>`),
-      "Copy each ID from sandbox.polar.sh > Products: a monthly, a yearly, and a one-time fixed-price product.",
-      "Or run pnpm bootstrap --no-polar to start without billing.",
-    ].join("\n"));
-  }
-  if (values.CLERK_WEBHOOK_SIGNING_SECRET &&
-      !/^whsec_[A-Za-z0-9+/]+={0,2}$/.test(values.CLERK_WEBHOOK_SIGNING_SECRET)) {
-    throw new Error("CLERK_WEBHOOK_SIGNING_SECRET must be a Svix signing secret (whsec_...).");
-  }
-  // Local signed HTTP tests need a secret even without a public Clerk endpoint.
-  // The generated value stays in this worktree and survives bootstrap restarts.
-  return { ...values, CLERK_JWT_ISSUER_DOMAIN: issuer,
-    CLERK_WEBHOOK_SIGNING_SECRET: values.CLERK_WEBHOOK_SIGNING_SECRET || `whsec_${randomBytes(32).toString("base64")}`,
+}
+
+// Child services must not inherit the terminal's signals or failed output streams.
+function listenForStop(controller) {
+  const stop = () => controller.abort(new Error("Bootstrap stopped."));
+  const outputUnavailable = () => controller.abort(new Error("Bootstrap terminal output is unavailable."));
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, stop);
+  for (const stream of [process.stdout, process.stderr]) stream.on("error", outputUnavailable);
+  return () => {
+    for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.removeListener(signal, stop);
+    for (const stream of [process.stdout, process.stderr]) stream.removeListener("error", outputUnavailable);
   };
 }
 
-export function childEnvironment(config, credentials, inherited = process.env) {
-  const env = {
-    ...inherited, ...credentials, ...config.env,
-    CONVEX_DEPLOYMENT: "local:anonymous-agent",
-    CONVEX_AGENT_MODE: "anonymous",
-    CONVEX_ALLOW_ANONYMOUS: "true",
-  };
-  for (const key of ["CONVEX_DEPLOY_KEY", "CONVEX_DEPLOYMENT_TOKEN", "CONVEX_SELF_HOSTED_URL", "CONVEX_SELF_HOSTED_ADMIN_KEY", "TAILSCALE_HOSTNAME"]) {
-    delete env[key];
-  }
-  return env;
-}
-
-export function environmentFile(values) {
-  return Object.entries(values).map(([name, value]) => {
-    const text = String(value);
-    const quote = ['"', "'", "`"].find((candidate) => !text.includes(candidate));
-    const line = `${name}=${quote ? `${quote}${text}${quote}` : text}`;
-    if (!/^[A-Z_][A-Z0-9_]*$/.test(name) || parseEnv(line)[name] !== text) {
-      throw new Error(`Cannot serialize environment variable ${name} without changing its value.`);
-    }
-    return line;
-  }).join("\n") + "\n";
-}
-
-export async function assertPortsAvailable(ports) {
-  for (const [service, port] of Object.entries(ports)) {
-    const occupied = () => new Error(`${service} port ${port} is occupied. Stop the other process or use a different worktree path.`);
-    // macOS can allow a loopback bind beside an existing wildcard listener.
-    // Connect first so we cannot take over that listener's traffic.
-    await new Promise((resolvePort, reject) => {
-      const socket = createConnection({ host: "127.0.0.1", port });
-      socket.setTimeout(2000, () => socket.destroy(new Error(`Timed out checking ${service} port ${port}.`)));
-      socket.once("connect", () => { socket.destroy(); reject(occupied()); });
-      socket.once("error", (error) => error.code === "ECONNREFUSED" ? resolvePort() : reject(error));
-    });
-    await new Promise((resolvePort, reject) => {
-      const server = createServer();
-      server.once("error", () => reject(occupied()));
-      server.listen(port, "127.0.0.1", () => server.close(resolvePort));
-    });
-  }
-}
-
-export async function waitForServer(url, signal) {
-  const deadline = Date.now() + 180000;
-  while (Date.now() < deadline) {
-    signal.throwIfAborted();
-    try {
-      const response = await fetch(url, { signal: AbortSignal.any([signal, AbortSignal.timeout(30000)]) });
-      await response.body?.cancel();
-      if (response.ok) return;
-    } catch {
-      signal.throwIfAborted();
-    }
-    await delay(250, undefined, { signal });
-  }
-  throw new Error(`Timed out waiting for ${url}.`);
-}
-
-export async function superviseConvex(url, controller) {
-  const { signal } = controller;
-  try {
-    while (!signal.aborted) {
-      const response = await fetch(url, { signal: AbortSignal.any([signal, AbortSignal.timeout(2000)]) });
-      await response.body?.cancel();
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      await delay(1000, undefined, { signal });
-    }
-  } catch (error) {
-    if (!signal.aborted) controller.abort(new Error(`Convex backend is unavailable at ${url}: ${error.message}`, { cause: error }));
-  }
-}
-
-export async function superviseNext(url, controller) {
-  const { hostname, port } = new URL(url);
-  const { signal } = controller;
-  let unavailableSince;
-  while (!signal.aborted) {
-    try {
-      // Check the listener, so compilation errors and slow pages do not stop development.
-      await new Promise((resolveConnection, reject) => {
-        const socket = createConnection({ host: hostname, port: Number(port), signal });
-        socket.setTimeout(2000, () => socket.destroy(new Error("Connection timed out.")));
-        socket.once("error", reject);
-        socket.once("connect", () => { socket.destroy(); resolveConnection(); });
-      });
-      unavailableSince = undefined;
-    } catch {
-      if (signal.aborted) return;
-      unavailableSince ??= Date.now();
-      // Next briefly closes its listener when restarting after config changes.
-      if (Date.now() - unavailableSince >= 5000) {
-        controller.abort(new Error(`Next server is unavailable at ${url}.`));
-        return;
-      }
-    }
-    await delay(1000, undefined, { signal }).catch(() => {});
-  }
-}
-
-export function descendantProcessGroups(pids, processTable) {
-  const rows = processTable.trim().split("\n").map((line) => line.trim().split(/\s+/).map(Number));
-  const descendants = new Set(pids);
-  let previousSize;
-  do {
-    previousSize = descendants.size;
-    for (const [pid, parent] of rows) {
-      if (descendants.has(parent)) descendants.add(pid);
-    }
-  } while (descendants.size !== previousSize);
-  return [...new Set([...pids, ...rows.filter(([pid]) => descendants.has(pid)).map(([, , group]) => group)])]
-    .filter((group) => Number.isInteger(group) && group > 1);
-}
-
-// macOS returns EPERM for a group whose members are all zombies (Z) or exiting (E),
-// e.g. a backend flushing its database after its CLI leader already exited.
-export function darwinGroupMembers(group, processTable) {
-  const states = processTable.trim().split("\n").map((row) => row.trim().split(/\s+/))
-    .filter(([id, state]) => Number(id) === group && state).map(([, state]) => state);
-  return {
-    live: states.some((state) => !/[ZE]/.test(state)),
-    exiting: states.some((state) => state.includes("E")),
-  };
-}
-
-export function signalProcessGroup(group, signal) {
-  if (!Number.isInteger(group) || group <= 1) throw new Error(`Invalid process group ${group}.`);
-  try {
-    process.kill(process.platform === "win32" ? group : -group, signal);
-    return true;
-  } catch (error) {
-    if (error.code === "ESRCH") return false;
-    if (process.platform === "darwin" && error.code === "EPERM") {
-      const { live, exiting } = darwinGroupMembers(group, execFileSync("ps", ["-eo", "pgid=,stat="], { encoding: "utf8" }));
-      // Exiting members need no signal but still count as running until they finish.
-      if (!live) return signal === 0 && exiting;
-    }
-    throw error;
-  }
-}
-
-function readEnvironment(file) {
-  return existsSync(file) ? parseEnv(readFileSync(file, "utf8")) : {};
-}
-
-function saveEnvironment(file, values) {
-  writeFileSync(file, environmentFile(values), { mode: 0o600 });
-  chmodSync(file, 0o600);
-}
-
-// Blank optional settings in a copied template keep inherited configuration.
-function credentialOverrides(values) {
-  const inheritedWhenBlank = ["CLERK_WEBHOOK_SIGNING_SECRET", "POLAR_ORGANIZATION_ID", ...polarProductKeys];
-  return Object.fromEntries(Object.entries(values).filter(([key, value]) =>
-    !inheritedWhenBlank.includes(key) || value !== ""));
-}
-
-export function worktreeCredentials(root, mainRoot, polar = true, inherited = process.env) {
-  const sharedKeys = readEnvironment(join(mainRoot, ".env.bootstrap.local"));
-  // Existing development keys remain usable; never copy another checkout's URLs or cloud target.
-  const mainKeys = readEnvironment(join(mainRoot, ".env.local"));
-  if (mainKeys.WORKTREE_ID === worktreeConfig(realpathSync(mainRoot)).id) delete mainKeys.CLERK_JWT_ISSUER_DOMAIN;
-  const providerNames = ["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET", "CLERK_JWT_ISSUER_DOMAIN", "POLAR_ACCESS_TOKEN", "POLAR_ORGANIZATION_ID", "POLAR_PRODUCT_MONTHLY", "POLAR_PRODUCT_YEARLY", "POLAR_PRODUCT_LIFETIME"];
-  // A main checkout's .env.local may contain its generated test signing secret.
-  // Share signing secrets only from explicit bootstrap settings, not that file.
-  const providerKeys = Object.fromEntries(Object.entries(mainKeys).filter(([key]) =>
-    providerNames.includes(key) && key !== "CLERK_WEBHOOK_SIGNING_SECRET"));
-  const localKeys = readEnvironment(join(root, ".env.local"));
-  // Re-derive generated issuers after a worktree overrides its Clerk key pair.
-  if (localKeys.WORKTREE_ID === worktreeConfig(root).id) delete localKeys.CLERK_JWT_ISSUER_DOMAIN;
-  return developmentCredentials({
-    ...credentialOverrides(providerKeys), ...credentialOverrides(sharedKeys), ...credentialOverrides(localKeys),
-    ...credentialOverrides(readEnvironment(join(root, ".env.bootstrap.local"))),
-    ...credentialOverrides(Object.fromEntries(Object.entries(inherited).filter(([key]) => providerNames.includes(key)))),
-  }, polar, join(mainRoot, ".env.bootstrap.local"));
-}
-
-async function processTable() {
-  try { return execFileSync("ps", ["-eo", "pid=,ppid=,pgid="], { encoding: "utf8" }); }
-  catch (error) {
-    // A terminal Ctrl+C can also interrupt the process inspection started during cleanup.
-    if (!["SIGINT", "SIGTERM"].includes(error.signal)) throw error;
-    await delay(50);
-    return execFileSync("ps", ["-eo", "pid=,ppid=,pgid="], { encoding: "utf8" });
-  }
-}
-
-export async function bootstrap({ browserEnv = {}, onReady } = {}) {
-  const args = process.argv.slice(2);
-  if (args.includes("--help")) {
-    console.log("pnpm bootstrap [--no-polar] [--print]\n\nStarts local Convex, Next.js, and Polar sandbox webhook forwarding.\n--no-polar  Start without billing credentials or webhook forwarding.\n--print     Print path-derived configuration without changing anything.");
-    return;
-  }
-  for (const arg of args) {
-    if (!["--no-polar", "--print"].includes(arg)) throw new Error(`Unknown argument: ${arg}`);
-  }
-  const root = realpathSync(execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim());
-  process.chdir(root);
-  const config = worktreeConfig(root);
-  if (args.includes("--print")) {
-    console.log(JSON.stringify(config, null, 2));
-    return;
-  }
-  const polar = !args.includes("--no-polar");
-  const commonGitDir = execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { encoding: "utf8" }).trim();
-  const mainRoot = dirname(commonGitDir);
-  const localFile = join(root, ".env.local");
-  const credentials = worktreeCredentials(root, mainRoot, polar);
+function serviceEnvironment(config, credentials, browserEnv) {
   const env = { ...childEnvironment(config, credentials), ...browserEnv };
   const outputGuard = fileURLToPath(new URL("./bootstrap-output-guard.mjs", import.meta.url));
   env.NODE_OPTIONS = `${env.NODE_OPTIONS ?? ""} --import ${JSON.stringify(outputGuard)}`.trim();
-  const fileEnv = { ...childEnvironment(config, credentials, {}), ...browserEnv };
-  const stateFile = join(root, ".convex/local/default/config.json");
-  if (existsSync(stateFile)) {
-    if (JSON.parse(readFileSync(stateFile, "utf8")).deploymentName !== "anonymous-agent") {
-      throw new Error("This checkout already has another local Convex deployment. Use a fresh worktree to keep its data intact.");
-    }
-  } else if (existsSync(join(process.env.HOME, ".convex/anonymous-convex-backend-state/anonymous-agent"))) {
-    throw new Error("Legacy anonymous-agent Convex state exists outside this checkout. Migrate it before bootstrapping isolated worktrees.");
-  }
-  await assertPortsAvailable(config.ports);
+  // Services write to a pipe so bootstrap can tee their output into the log.
+  if (process.stdout.isTTY && env.FORCE_COLOR === undefined && env.NO_COLOR === undefined) env.FORCE_COLOR = "1";
+  return env;
+}
 
-  const controller = new AbortController();
-  const children = [];
-  let serviceGroups = [];
-  let stopping = false;
+// Starts Convex, Next.js, and Polar under the supervisor, then waits until stopped.
+// env is shared with the supervisor; the Polar secret added here reaches later services.
+async function runServices({ root, config, credentials, polar, browserEnv, env, supervisor, controller, say, onReady }) {
+  const fileEnv = { ...childEnvironment(config, credentials, {}), ...browserEnv };
+  const localFile = join(root, ".env.local");
+  const stateFile = convexStateFile(root);
+  const watchEnvFile = join(root, ".env.convex-watch.local");
+  const orgArgs = credentials.POLAR_ORGANIZATION_ID ? ["--org", credentials.POLAR_ORGANIZATION_ID] : [];
+  // Project CLIs run from node_modules/.bin instead of `pnpm exec`. The standalone
+  // pnpm executable embeds a Node runtime that reads `--env-file <path>` anywhere in
+  // its own argv, so `pnpm exec convex run --env-file <absolute path>` exits 9 before
+  // the CLI starts, and a relative path loads the admin key into every nested process.
+  const tool = (name) => join(root, "node_modules/.bin", name);
   let configured = false;
-  const supervision = [];
   const restoreLocalSelection = () => {
     // The self-hosted watcher removes this selector once during startup.
     if (configured && !readEnvironment(localFile).CONVEX_DEPLOYMENT) {
       appendFileSync(localFile, '\nCONVEX_DEPLOYMENT="local:anonymous-agent"\n');
     }
   };
-  const signalHandler = () => controller.abort(new Error("Bootstrap stopped."));
-  const outputErrorHandler = () => controller.abort(new Error("Bootstrap terminal output is unavailable."));
-  process.on("SIGINT", signalHandler);
-  process.on("SIGTERM", signalHandler);
-  process.on("SIGHUP", signalHandler);
-  process.stdout.on("error", outputErrorHandler);
-  process.stderr.on("error", outputErrorHandler);
-
-  // Project CLIs run from node_modules/.bin instead of `pnpm exec`. The standalone
-  // pnpm executable embeds a Node runtime that reads `--env-file <path>` anywhere in
-  // its own argv, so `pnpm exec convex run --env-file <absolute path>` exits 9 before
-  // the CLI starts; a relative path works only by accident.
-  const tool = (name) => join(root, "node_modules/.bin", name);
-  const describe = (command, commandArgs) => `${basename(command)} ${commandArgs.slice(0, 2).join(" ")}`;
-
-  function start(command, commandArgs, persistent = false, capture = false) {
-    controller.signal.throwIfAborted();
-    // Polar prints its signing secret during startup. Capture only --print-secret;
-    // discard other Polar output, including stderr, to keep credentials private.
-    const quiet = command === tool("polar");
-    const child = spawn(command, commandArgs, {
-      cwd: root, env, detached: process.platform !== "win32",
-      stdio: ["ignore", capture ? "pipe" : quiet ? "ignore" : "inherit", quiet ? "ignore" : "inherit"],
-    });
-    let output = "";
-    if (capture) child.stdout.on("data", (chunk) => { output += chunk; });
-    const done = new Promise((resolveChild) => {
-      child.once("error", (error) => resolveChild({ error }));
-      child.once("close", (code, signal) => resolveChild({ code, signal, output }));
-    });
-    children.push({ child, done, persistent });
-    if (persistent) {
-      void done.then(() => {
-        if (!stopping) controller.abort(new Error(`${describe(command, commandArgs)} exited unexpectedly.`));
-      });
-    }
-    return done;
-  }
-
-  async function run(command, commandArgs, capture = false) {
-    const result = await start(command, commandArgs, false, capture);
-    controller.signal.throwIfAborted();
-    if (result.error || result.code !== 0) {
-      throw new Error(`${describe(command, commandArgs)} failed${result.error ? `: ${result.error.message}` : ` (exit ${result.code})`}.`);
-    }
-    return result.output;
-  }
+  const saveWatchEnvironment = () => saveEnvironment(watchEnvFile, {
+    CONVEX_SELF_HOSTED_URL: config.env.NEXT_PUBLIC_CONVEX_URL,
+    CONVEX_SELF_HOSTED_ADMIN_KEY: JSON.parse(readFileSync(stateFile, "utf8")).adminKey,
+  });
 
   try {
-    if (!existsSync(join(root, "node_modules/convex")) || (polar && !existsSync(join(root, "node_modules/@polar-sh/cli")))) {
-      await run("pnpm", ["install", "--frozen-lockfile"]);
-    }
+    // Lockfile changes merged from main must reach this worktree; this is fast when current.
+    await supervisor.run(["install", "--frozen-lockfile", "--prefer-offline"], { terminal: false });
     if (polar) {
-      const orgArgs = credentials.POLAR_ORGANIZATION_ID ? ["--org", credentials.POLAR_ORGANIZATION_ID] : [];
-      const secret = (await run(tool("polar"), ["listen", "--print-secret", ...orgArgs], true)).trim();
+      const secret = (await supervisor.run(["listen", "--print-secret", ...orgArgs], { command: tool("polar"), capture: true })).trim();
       if (!secret || /\s/.test(secret)) throw new Error("Polar did not return a webhook signing secret. Check the sandbox token and CLI installation.");
       env.POLAR_WEBHOOK_SECRET = fileEnv.POLAR_WEBHOOK_SECRET = secret;
     }
@@ -369,49 +118,37 @@ export async function bootstrap({ browserEnv = {}, onReady } = {}) {
     }
     saveEnvironment(localFile, fileEnv);
     configured = true;
-    const backendEnv = Object.fromEntries(Object.entries(fileEnv).filter(([key]) => backendEnvKeys.includes(key)));
     const backendEnvFile = join(root, ".env.convex.local");
-    saveEnvironment(backendEnvFile, backendEnv);
-    const watchEnvFile = join(root, ".env.convex-watch.local");
-    const saveWatchEnvironment = () => {
-      const state = JSON.parse(readFileSync(stateFile, "utf8"));
-      saveEnvironment(watchEnvFile, {
-        CONVEX_SELF_HOSTED_URL: config.env.NEXT_PUBLIC_CONVEX_URL,
-        CONVEX_SELF_HOSTED_ADMIN_KEY: state.adminKey,
-      });
-    };
+    saveEnvironment(backendEnvFile, Object.fromEntries(Object.entries(fileEnv).filter(([key]) => backendEnvKeys.includes(key))));
     if (existsSync(stateFile)) saveWatchEnvironment();
-    console.log(`Worktree: ${config.id}\nApp: ${config.env.APP_URL}\nConvex: ${config.env.NEXT_PUBLIC_CONVEX_URL}\nTarget: local-anonymous (database in this worktree's .convex directory)`);
+    say(`Worktree: ${config.id}\nApp: ${config.env.APP_URL}\nConvex: ${config.env.NEXT_PUBLIC_CONVEX_URL}\nTarget: local-anonymous (database in this worktree's .convex directory)`);
+
     // Keep the backend alive while the nested watcher syncs code. This avoids the
     // anonymous CLI's extra dashboard server, whose port cannot be configured.
+    // --local-cloud-port and --local-site-port are hidden CLI flags with no public
+    // equivalent; recheck them when upgrading Convex.
     // Its shell runs in the worktree root; relative tool paths avoid quoting the root.
     const watchCommand = `./node_modules/.bin/convex dev --env-file .env.convex-watch.local --start "./node_modules/.bin/next dev --hostname 127.0.0.1 --port ${config.ports.next}"`;
-    start(tool("convex"), ["dev", "--until-success", "--tail-logs", "disable", "--run-sh", watchCommand, "--local-cloud-port", String(config.ports.convex), "--local-site-port", String(config.ports.site)], true);
+    supervisor.start(tool("convex"), ["dev", "--until-success", "--tail-logs", "disable", "--start", watchCommand,
+      "--local-cloud-port", String(config.ports.convex), "--local-site-port", String(config.ports.site)], { persistent: true });
     const backendHealthUrl = `${config.env.NEXT_PUBLIC_CONVEX_URL}/version`;
     await waitForServer(backendHealthUrl, controller.signal);
-    supervision.push(superviseConvex(backendHealthUrl, controller));
+    supervisor.supervise(superviseConvex(backendHealthUrl, controller));
     saveWatchEnvironment();
-    await run(tool("convex"), ["env", "set", "--from-file", backendEnvFile, "--force"]);
+    await supervisor.run(["env", "set", "--from-file", backendEnvFile, "--force"], { command: tool("convex") });
     if (polar) {
-      const orgArgs = credentials.POLAR_ORGANIZATION_ID ? ["--org", credentials.POLAR_ORGANIZATION_ID] : [];
-      start(tool("polar"), ["listen", config.env.POLAR_WEBHOOK_URL, ...orgArgs], true);
-      console.log(`Polar sandbox webhooks: ${config.env.POLAR_WEBHOOK_URL}`);
+      supervisor.start(tool("polar"), ["listen", config.env.POLAR_WEBHOOK_URL, ...orgArgs], { persistent: true });
+      say(`Polar sandbox webhooks: ${config.env.POLAR_WEBHOOK_URL}`);
     }
     // Next starts only after the initial Convex push, so its readiness also proves functions exist.
     await waitForServer(config.env.APP_URL, controller.signal);
-    if (polar) {
-      await run(tool("convex"), ["run", "--env-file", watchEnvFile, "polar:syncCatalog", "{}"]);
-    }
-    if (process.platform !== "win32") {
-      serviceGroups = descendantProcessGroups(children.filter(({ persistent }) => persistent).map(({ child }) => child.pid),
-        await processTable());
-    }
-    supervision.push(superviseNext(config.env.APP_URL, controller));
+    if (polar) await supervisor.run(["run", "--env-file", watchEnvFile, "polar:syncCatalog", "{}"], { command: tool("convex") });
+    await supervisor.recordServiceGroups();
+    supervisor.supervise(superviseNext(config.env.APP_URL, controller));
     // The local Convex CLI rewrites its browser URLs during initial setup.
     if (Object.keys(browserEnv).length) saveEnvironment(localFile, fileEnv);
     restoreLocalSelection();
-    if (onReady) await onReady(controller.signal);
-    console.log(`Ready: ${env.APP_URL} (Ctrl+C stops all services)`);
+    await onReady(env.APP_URL);
     await new Promise((resolveStop) => {
       if (controller.signal.aborted) resolveStop();
       else controller.signal.addEventListener("abort", resolveStop, { once: true });
@@ -420,32 +157,91 @@ export async function bootstrap({ browserEnv = {}, onReady } = {}) {
   } catch (error) {
     throw controller.signal.aborted ? controller.signal.reason : error;
   } finally {
-    stopping = true;
-    controller.abort(new Error("Bootstrap stopped."));
-    await Promise.all(supervision);
-    const pids = children.filter(({ child, persistent }) => child.pid && (persistent || (child.exitCode === null && child.signalCode === null))).map(({ child }) => child.pid);
-    const groups = process.platform === "win32" ? pids : [...new Set([...serviceGroups, ...descendantProcessGroups(pids,
-      await processTable())])];
-    const running = (group) => signalProcessGroup(group, 0);
-    for (const group of groups) signalProcessGroup(group, "SIGTERM");
-    const deadline = Date.now() + 5000;
-    while (Date.now() < deadline && groups.some(running)) await delay(50);
-    for (const group of groups) if (running(group)) signalProcessGroup(group, "SIGKILL");
-    await Promise.all(children.map(({ done }) => done));
+    await supervisor.stop();
     restoreLocalSelection();
-    process.removeListener("SIGINT", signalHandler);
-    process.removeListener("SIGTERM", signalHandler);
-    process.removeListener("SIGHUP", signalHandler);
-    process.stdout.removeListener("error", outputErrorHandler);
-    process.stderr.removeListener("error", outputErrorHandler);
   }
+}
+
+export async function bootstrap({ argv = process.argv.slice(2) } = {}) {
+  const options = parseArguments(argv);
+  if (options.help) {
+    console.log(usage);
+    return;
+  }
+  const root = gitRoot();
+  process.chdir(root);
+  const config = worktreeConfig(root);
+  const network = resolveNetwork(config, options);
+  if (options.print) {
+    console.log(JSON.stringify({ ...config, mode: network.mode, ...network.remote && { tailscale: network.remote } }, null, 2));
+    return;
+  }
+  const paths = bootstrapPaths(root);
+  assertNotRunning(paths.state);
+  const remote = network.remote;
+  const urls = (env) => ({ app: env.APP_URL, convex: env.NEXT_PUBLIC_CONVEX_URL, site: env.NEXT_PUBLIC_CONVEX_SITE_URL });
+  const log = openLog(paths.log);
+  const state = createStateRecorder(paths.state, {
+    worktreeId: config.id, root, mode: network.mode, polar: options.polar, ports: config.ports,
+    urls: urls({ ...config.env, ...remote?.env }), log: paths.log,
+  });
+  state.update({ status: "starting" });
+  const say = (message, stream = process.stdout) => {
+    if (!stream.destroyed && stream.writable) stream.write(`${message}\n`);
+    if (log.writable) log.write(`${message}\n`);
+  };
+  if (network.note) say(network.note);
+
+  const controller = new AbortController();
+  const removeStopListeners = listenForStop(controller);
+  controller.signal.addEventListener("abort", () => state.update({ status: "stopping" }), { once: true });
+  let failure;
+  let cleanup;
+  try {
+    const mainRoot = mainCheckoutRoot(root);
+    const checks = preflight({ polar: options.polar, root, mainRoot });
+    for (const warning of checks.warnings) say(`Warning: ${warning}`, process.stderr);
+    if (checks.errors.length) throw new Error(`${checks.errors.join(" ")} Run pnpm setup:check for details.`);
+    const credentials = worktreeCredentials(root, mainRoot, options.polar);
+    assertIsolatedConvexState(root);
+    await assertPortsAvailable(config.ports);
+    controller.signal.throwIfAborted();
+    if (remote) {
+      cleanup = await serveWorktree(config, remote);
+      state.update({ tailscale: {
+        hostname: remote.hostname, ports: remote.ports, createdRoutes: cleanup.created, preservedRoutes: cleanup.preserved,
+      } });
+    }
+    const browserEnv = remote?.env ?? {};
+    const env = serviceEnvironment(config, credentials, browserEnv);
+    const supervisor = createSupervisor({ root, env, controller, log });
+    await runServices({
+      root, config, credentials, polar: options.polar, browserEnv, env, supervisor, controller, say,
+      onReady: async (appUrl) => {
+        if (remote) {
+          await waitForServer(remote.env.APP_URL, controller.signal);
+          await waitForServer(`${remote.env.NEXT_PUBLIC_CONVEX_URL}/version`, controller.signal);
+        }
+        state.update({ status: "ready" });
+        say(`Ready: ${appUrl} (Ctrl+C or pnpm bootstrap:stop stops all services)`);
+      },
+    });
+  } catch (error) {
+    if (error.message !== "Bootstrap stopped.") failure = error;
+  } finally {
+    controller.abort(new Error("Bootstrap stopped."));
+    if (cleanup && !cleanupProxies(cleanup)) failure ??= new Error("Tailscale proxy cleanup failed; check tailscale serve status.");
+    state.update({ status: failure ? "failed" : "stopped", error: failure?.message });
+    if (failure) say(`Bootstrap: ${failure.message}`, process.stderr);
+    await new Promise((resolveLog) => log.end(resolveLog));
+    removeStopListeners();
+  }
+  if (failure) throw Object.assign(failure, { reported: true });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   bootstrap().catch((error) => {
-    if (error.message !== "Bootstrap stopped.") {
-      if (!process.stderr.destroyed) console.error(`Bootstrap: ${error.message}`);
-      process.exitCode = 1;
-    }
+    if (!error.reported && !process.stderr.destroyed) console.error(`Bootstrap: ${error.message}`);
+    process.exitCode = 1;
   });
 }

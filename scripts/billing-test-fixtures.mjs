@@ -40,7 +40,7 @@ export async function publishBillingSnapshot(snapshot, client = billingTestAdmin
   await client.mutation(internal.billingState.finish, { customerId: snapshot.customerId, version: lease.version, failed: false });
 }
 
-export async function seedPaidTestUser(user, model = "lifetime", paid = true) {
+export async function seedPaidTestUser(user, model = "lifetime", paid = true, { periodMs = 60 * 60_000 } = {}) {
   const { local, client } = billingTestAdmin();
   await client.mutation(internal.users.syncProfile, { profile: { clerkId: user.id, email: user.email,
     firstName: user.name, updatedAt: Date.now() }, eventAt: Date.now() });
@@ -54,7 +54,7 @@ export async function seedPaidTestUser(user, model = "lifetime", paid = true) {
   await publishBillingSnapshot({
     customerId, externalId,
     subscriptions: model === "lifetime" ? [] : [{ id: subscriptionId, productId, status: "active",
-      start: now - 1000, end: now + 60 * 60_000, modifiedAt: now, cancelAtPeriodEnd: false }],
+      start: now - 1000, end: now + periodMs, modifiedAt: now, cancelAtPeriodEnd: false }],
     orders: [{ id: `fixture-order-${user.id}-${model}`, productId, ...(model === "lifetime" ? {} : { subscriptionId }),
       paid, fullyRefunded: false, createdAt: now, modifiedAt: now }],
   }, client);
