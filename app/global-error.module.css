@@ -1,0 +1,57 @@
+/* global-error replaces the root layout, so globals.css and Tailwind never load here.
+   These are the light theme tokens the page and its illustration need. */
+.body {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.148 0.004 228.8);
+  --primary: oklch(0.218 0.008 223.9);
+  --primary-foreground: oklch(0.987 0.002 197.1);
+  --muted-foreground: oklch(0.56 0.021 213.5);
+  --border: oklch(0.925 0.005 214.3);
+  --ring: oklch(0.723 0.014 214.4);
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: system-ui, sans-serif;
+  line-height: 1.5;
+}
+.page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+  max-width: 36rem;
+  margin: 0 auto;
+  padding: 80px 16px;
+  text-align: center;
+}
+.text { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.status {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.heading { margin: 0; font-size: 36px; font-weight: 600; letter-spacing: -0.025em; line-height: 1.15; text-wrap: balance; }
+.muted { margin: 0; color: var(--muted-foreground); font-size: 14px; text-wrap: pretty; }
+.muted a, .muted code { color: var(--foreground); }
+.muted a { font-weight: 500; text-underline-offset: 4px; }
+.actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+.button {
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+}
+.button:disabled { opacity: 0.5; cursor: default; }
+.button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.secondary { border-color: var(--border); background: var(--background); color: var(--foreground); }
