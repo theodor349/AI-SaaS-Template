@@ -1,7 +1,8 @@
 import type { Id } from "../_generated/dataModel";
-import { env, type QueryCtx } from "../_generated/server";
+import { env } from "../_generated/server";
 import { billingModels, type BillingModel } from "./billingModel";
 import { appError } from "./errors";
+import type { QueryCtx } from "./functions";
 import { requireUser } from "./users";
 
 // Failed reconciliations retry themselves this many times with backoff. Later
@@ -46,19 +47,19 @@ export function externalIdTokenIdentifier(externalId: string | null | undefined)
   return externalId && isWorktreeExternalId(externalId) ? externalId.slice(externalIdPrefix().length) : null;
 }
 
-export async function accountForUser(ctx: QueryCtx, userId: Id<"users">) {
+export async function accountForUser(ctx: Pick<QueryCtx, "db">, userId: Id<"users">) {
   return ctx.db.query("billingAccounts")
     .withIndex("by_userId", (q) => q.eq("userId", userId))
     .unique();
 }
 
-export async function accountForCustomer(ctx: QueryCtx, customerId: string) {
+export async function accountForCustomer(ctx: Pick<QueryCtx, "db">, customerId: string) {
   return ctx.db.query("billingAccounts")
     .withIndex("by_customerId", (q) => q.eq("customerId", customerId))
     .unique();
 }
 
-export async function syncForCustomer(ctx: QueryCtx, customerId: string) {
+export async function syncForCustomer(ctx: Pick<QueryCtx, "db">, customerId: string) {
   return ctx.db.query("billingSync")
     .withIndex("by_customerId", (q) => q.eq("customerId", customerId))
     .unique();

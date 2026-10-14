@@ -1,11 +1,12 @@
 "use client";
 
-import { useAction, useConvexAuth, useQuery } from "convex/react";
+import { useConvexAuth, useQuery } from "convex/react";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import { hasErrorCode } from "@/convex/lib/errors";
+import { useAction } from "@/lib/convex";
 
 type SubscriptionOperation = FunctionArgs<typeof api.polar.changeSubscription>["operation"];
 type BillingAction = SubscriptionOperation | "portal";

@@ -1,12 +1,12 @@
 import { v } from "convex/values";
 import type { Doc } from "../_generated/dataModel";
-import type { QueryCtx } from "../_generated/server";
 import { requireIdentity } from "./auth";
 import { appError } from "./errors";
+import type { QueryCtx } from "./functions";
 import { getDisplayName } from "./profile";
 
 type DbCtx = Pick<QueryCtx, "db">;
-type CallerCtx = Pick<QueryCtx, "auth" | "db">;
+type CallerCtx = Pick<QueryCtx, "auth" | "db" | "log">;
 
 export const currentUserResult = v.union(
   v.object({ status: v.literal("provisioning") }),
@@ -29,10 +29,13 @@ export function userByClerkId(ctx: DbCtx, clerkId: string) {
     .unique();
 }
 
-// The caller's record, or null while it is still being provisioned.
+// The caller's record, or null while it is still being provisioned. Every
+// identity helper below resolves the user here, which adds it to the event.
 export async function getCurrentUser(ctx: CallerCtx) {
   const identity = await requireIdentity(ctx);
-  return userByTokenIdentifier(ctx, identity.tokenIdentifier);
+  const user = await userByTokenIdentifier(ctx, identity.tokenIdentifier);
+  if (user) ctx.log.setUser(user._id);
+  return user;
 }
 
 // Any provisioned caller, including one whose account is being deleted.

@@ -40,5 +40,25 @@ export default defineConfig([
       "@typescript-eslint/require-await": "off",
     },
   },
+  {
+    // Wide-event logging: Convex functions use the builders in
+    // convex/lib/functions.ts and components use the hooks in lib/convex.ts.
+    files: ["**/*.{ts,tsx,mts}"],
+    ignores: ["convex/lib/functions.ts", "lib/convex.ts"],
+    rules: {
+      "no-restricted-imports": ["error", {
+        paths: [{
+          name: "convex/react",
+          importNames: ["useMutation", "useAction"],
+          message: "Use useMutation/useAction from @/lib/convex so calls carry a logging flow.",
+        }],
+        patterns: [{
+          group: ["**/_generated/server"],
+          importNames: ["query", "mutation", "action", "internalQuery", "internalMutation", "internalAction", "httpAction"],
+          message: "Register functions with the builders in convex/lib/functions.ts so they emit wide events.",
+        }],
+      }],
+    },
+  },
   globalIgnores(["convex/_generated/**", "components/ui/**"]),
 ]);

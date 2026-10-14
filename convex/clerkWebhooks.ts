@@ -1,7 +1,7 @@
 import { v, type Infer } from "convex/values";
 import { internal } from "./_generated/api";
-import { internalMutation } from "./_generated/server";
 import { parseClerkEvent } from "./lib/clerk";
+import { internalMutation } from "./lib/functions";
 import { deliveryResult, processDelivery } from "./webhooks";
 
 export const apply = internalMutation({
@@ -9,6 +9,7 @@ export const apply = internalMutation({
   handler: async (ctx, { payload, deliveryId }) => {
     const data: unknown = JSON.parse(payload);
     const event = parseClerkEvent(data);
+    ctx.log.decision("event", { kind: event.kind });
     if (event.kind === "profile") {
       await ctx.runMutation(internal.users.syncProfile, { profile: event.profile, eventAt: event.eventAt });
     } else if (event.kind === "deletion") {
