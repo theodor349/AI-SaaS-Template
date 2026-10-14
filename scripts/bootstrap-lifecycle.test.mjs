@@ -52,7 +52,7 @@ async function startFixture(t) {
         writeFileSync("catalog-synced", "ready");
       }).catch(() => process.exit(1));
     }
-    else if (args.includes("set")) { /* env upload */ }
+    else if (args.includes("set")) writeFileSync(".convex/local/default/env-set", "yes");
     else if (basename(process.argv[1]) === "polar") {
       console.log("Signing secret: whsec_example");
       console.error("Signing secret: whsec_example");
@@ -64,7 +64,9 @@ async function startFixture(t) {
       writeFileSync(".convex/local/default/config.json", JSON.stringify({ deploymentName: "anonymous-agent", adminKey: "example" }));
       createServer((req, res) => res.end("version")).listen(Number(process.env.PORT) + 1, "127.0.0.1");
       createServer((req, res) => res.writeHead(404).end()).listen(Number(process.env.PORT) + 2, "127.0.0.1");
-      setTimeout(() => {
+      // The first push beats a later env upload, and the CLI may never retry it.
+      if (!require("node:fs").existsSync(".convex/local/default/env-set")) console.error("CLERK_JWT_ISSUER_DOMAIN was not set.");
+      else if (args[args.indexOf("--start") + 1].includes("next dev")) setTimeout(() => {
         const listener = spawn(process.execPath, ["-e", 'require("node:http").createServer((req, res) => res.end("app")).listen(Number(process.env.PORT), "127.0.0.1")'], { detached: true, stdio: "ignore" });
         writeFileSync("next.pid", String(listener.pid));
         writeFileSync("convex.pid", String(process.pid));
