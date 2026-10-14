@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   assertIsolatedConvexState, backendEnvKeys, childEnvironment, convexStateFile, gitRoot, mainCheckoutRoot,
@@ -80,9 +81,28 @@ function serviceEnvironment(config, credentials, browserEnv) {
   return env;
 }
 
+// convex dev pushes as soon as its backend is up. Without the environment, that push
+// fails on CLERK_JWT_ISSUER_DOMAIN, and the CLI can miss an env change that lands
+// before it starts watching, leaving the stack waiting forever. So a database that
+// lacks this environment gets it from a short-lived backend before the real one starts.
+async function setEnvironmentBeforePush({ root, env, controller, log, healthUrl, start, setEnvironment }) {
+  const setupController = new AbortController();
+  const forwardAbort = () => setupController.abort(controller.signal.reason);
+  controller.signal.addEventListener("abort", forwardAbort, { once: true });
+  const setup = createSupervisor({ root, env, controller: setupController, log });
+  try {
+    start(setup);
+    await waitForServer(healthUrl, setupController.signal);
+    await setEnvironment(setup);
+  } finally {
+    controller.signal.removeEventListener("abort", forwardAbort);
+    await setup.stop();
+  }
+}
+
 // Starts Convex, Next.js, and Polar under the supervisor, then waits until stopped.
 // env is shared with the supervisor; the Polar secret added here reaches later services.
-async function runServices({ root, config, credentials, polar, browserEnv, env, supervisor, controller, say, onReady }) {
+async function runServices({ root, config, credentials, polar, browserEnv, env, supervisor, controller, log, say, onReady }) {
   const fileEnv = { ...childEnvironment(config, credentials, {}), ...browserEnv };
   const localFile = join(root, ".env.local");
   const stateFile = convexStateFile(root);
@@ -119,23 +139,41 @@ async function runServices({ root, config, credentials, polar, browserEnv, env, 
     saveEnvironment(localFile, fileEnv);
     configured = true;
     const backendEnvFile = join(root, ".env.convex.local");
-    saveEnvironment(backendEnvFile, Object.fromEntries(Object.entries(fileEnv).filter(([key]) => backendEnvKeys.includes(key))));
+    const backendEnv = Object.fromEntries(Object.entries(fileEnv).filter(([key]) => backendEnvKeys.includes(key)));
+    saveEnvironment(backendEnvFile, backendEnv);
     if (existsSync(stateFile)) saveWatchEnvironment();
     say(`Worktree: ${config.id}\nApp: ${config.env.APP_URL}\nConvex: ${config.env.NEXT_PUBLIC_CONVEX_URL}\nTarget: local-anonymous (database in this worktree's .convex directory)`);
 
-    // Keep the backend alive while the nested watcher syncs code. This avoids the
-    // anonymous CLI's extra dashboard server, whose port cannot be configured.
     // --local-cloud-port and --local-site-port are hidden CLI flags with no public
     // equivalent; recheck them when upgrading Convex.
+    const hostArgs = (start, ...flags) => ["dev", "--until-success", "--tail-logs", "disable", ...flags, "--start", start,
+      "--local-cloud-port", String(config.ports.convex), "--local-site-port", String(config.ports.site)];
+    const backendHealthUrl = `${config.env.NEXT_PUBLIC_CONVEX_URL}/version`;
+    const setBackendEnvironment = (runner) => runner.run(["env", "set", "--from-file", backendEnvFile, "--force"], { command: tool("convex") });
+    // Lives beside the database, so pnpm db:reset clears it with the environment it records.
+    const appliedEnvFile = join(dirname(stateFile), "bootstrap-env.sha256");
+    const envDigest = createHash("sha256").update(JSON.stringify(backendEnv)).digest("hex");
+    const envApplied = existsSync(appliedEnvFile) && readFileSync(appliedEnvFile, "utf8") === envDigest;
+    if (!envApplied) {
+      say("Setting the Convex environment before the first push.");
+      const idle = `${JSON.stringify(process.execPath)} -e "setInterval(() => {}, 1e9)"`;
+      await setEnvironmentBeforePush({
+        root, env, controller, log, healthUrl: backendHealthUrl,
+        start: (setup) => setup.start(tool("convex"), hostArgs(idle, "--typecheck", "disable", "--codegen", "disable"), { persistent: true, terminal: false }),
+        setEnvironment: setBackendEnvironment,
+      });
+      writeFileSync(appliedEnvFile, envDigest, { mode: 0o600 });
+    }
+
+    // Keep the backend alive while the nested watcher syncs code. This avoids the
+    // anonymous CLI's extra dashboard server, whose port cannot be configured.
     // Its shell runs in the worktree root; relative tool paths avoid quoting the root.
     const watchCommand = `./node_modules/.bin/convex dev --env-file .env.convex-watch.local --start "./node_modules/.bin/next dev --hostname 127.0.0.1 --port ${config.ports.next}"`;
-    supervisor.start(tool("convex"), ["dev", "--until-success", "--tail-logs", "disable", "--start", watchCommand,
-      "--local-cloud-port", String(config.ports.convex), "--local-site-port", String(config.ports.site)], { persistent: true });
-    const backendHealthUrl = `${config.env.NEXT_PUBLIC_CONVEX_URL}/version`;
+    supervisor.start(tool("convex"), hostArgs(watchCommand), { persistent: true });
     await waitForServer(backendHealthUrl, controller.signal);
     supervisor.supervise(superviseConvex(backendHealthUrl, controller));
     saveWatchEnvironment();
-    await supervisor.run(["env", "set", "--from-file", backendEnvFile, "--force"], { command: tool("convex") });
+    if (envApplied) await setBackendEnvironment(supervisor);
     if (polar) {
       supervisor.start(tool("polar"), ["listen", config.env.POLAR_WEBHOOK_URL, ...orgArgs], { persistent: true });
       say(`Polar sandbox webhooks: ${config.env.POLAR_WEBHOOK_URL}`);
@@ -216,7 +254,7 @@ export async function bootstrap({ argv = process.argv.slice(2) } = {}) {
     const env = serviceEnvironment(config, credentials, browserEnv);
     const supervisor = createSupervisor({ root, env, controller, log });
     await runServices({
-      root, config, credentials, polar: options.polar, browserEnv, env, supervisor, controller, say,
+      root, config, credentials, polar: options.polar, browserEnv, env, supervisor, controller, log, say,
       onReady: async (appUrl) => {
         if (remote) {
           await waitForServer(remote.env.APP_URL, controller.signal);
