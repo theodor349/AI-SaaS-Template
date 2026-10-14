@@ -5,6 +5,7 @@ import { useConvexAuth } from "convex/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LayoutDashboard, LogIn, Sparkles, UserPlus } from "lucide-react";
+import { appConfig } from "@/app.config";
 import { AUTHENTICATED_DESTINATION } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { ProfileMenu } from "./profile-menu";
@@ -26,7 +27,7 @@ export function SiteNavigation() {
         <div className={styles.destinations}>
           <Link href="/" className={styles.brand}>
             <span className={styles.logo}><Sparkles aria-hidden="true" size={20} /></span>
-            <span>AI SaaS Template</span>
+            <span>{appConfig.appName}</span>
           </Link>
           {isSignedIn && pages.map(({ href, label, icon: Icon }) => {
             if (label === "Dashboard" && pending) {

@@ -40,5 +40,12 @@ export default defineConfig([
       "@typescript-eslint/require-await": "off",
     },
   },
+  {
+    // Convex bundles these files, so they cannot depend on the Next.js runtime.
+    files: ["convex/**/*.ts", "app.config.ts"],
+    rules: {
+      "no-restricted-imports": ["error", { patterns: ["next", "next/*", "@/*"] }],
+    },
+  },
   globalIgnores(["convex/_generated/**", "components/ui/**"]),
 ]);
