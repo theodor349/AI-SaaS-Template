@@ -1,9 +1,12 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
+import { makeFunctionReference } from "convex/server";
+import { ConvexError } from "convex/values";
 import { Webhook } from "svix";
 import { afterEach, beforeEach, expect, test, vi, type MockInstance } from "vitest";
 import { api, internal } from "./_generated/api";
 import { hasErrorCode } from "./lib/errors";
+import { mutation } from "./lib/functions";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -58,6 +61,17 @@ test("a mutation emits one success event, or one error event that keeps the clie
   expect(events()).toHaveLength(1);
   expect(event).toMatchObject({ status: "error", userId, error: { code: "INVALID_NAME" } });
   expect(event.error?.stack).toContain("INVALID_NAME");
+});
+
+test("the builders rethrow the handler's own error rather than an equivalent one", async () => {
+  const original = { code: "INVALID_NAME", sentinel: "original error" };
+  const t = convexTest(schema, { ...modules, "./testErrors.ts": async () => ({
+    fail: mutation({ args: {}, handler: async () => { throw new ConvexError(original); } }),
+  }) });
+  const failure: unknown = await t.mutation(makeFunctionReference<"mutation">("testErrors:fail"), {}).catch((error: unknown) => error);
+  expect(failure).toBeInstanceOf(ConvexError);
+  expect((failure as ConvexError<typeof original>).data).toEqual(original);
+  expect(events()).toEqual([expect.objectContaining({ status: "error", error: expect.objectContaining({ code: "INVALID_NAME" }) })]);
 });
 
 test("query successes are logged only when their sample rate allows it", async () => {
@@ -130,5 +144,6 @@ test("events carry no personal data, and webhook deliveries log one event per at
   expect(new Set(deliveries.map(event => event.flowId)).size).toBe(2);
 
   const output = lines().join("\n");
-  for (const value of personalData) expect(output).not.toContain(value);
+  // The Clerk email record ID appears only in payloads.
+  for (const value of [...personalData, "email_a"]) expect(output).not.toContain(value);
 });
