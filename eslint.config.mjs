@@ -3,6 +3,20 @@ import nextVitals from "eslint-config-next/core-web-vitals";
 import tseslint from "typescript-eslint";
 import { plugin as shadcn } from "@shadcn/lint";
 
+// Wide-event logging: Convex functions use the builders in
+// convex/lib/functions.ts and components use the hooks in lib/convex.ts.
+const loggingPaths = [{
+  name: "convex/react",
+  importNames: ["useMutation", "useAction"],
+  message: "Use useMutation/useAction from @/lib/convex so calls carry a logging flow.",
+}];
+const loggingPatterns = [{
+  group: ["**/_generated/server"],
+  importNames: ["query", "mutation", "action", "internalQuery", "internalMutation", "internalAction", "httpAction"],
+  message: "Register functions with the builders in convex/lib/functions.ts so they emit wide events.",
+}];
+const convexRuntime = { group: ["next", "next/*", "@/*"], message: "Convex bundles this file, so it cannot depend on the Next.js runtime." };
+
 export default defineConfig([
   ...nextVitals,
   ...tseslint.configs.recommendedTypeChecked.map((config) => ({
@@ -40,25 +54,24 @@ export default defineConfig([
       "@typescript-eslint/require-await": "off",
     },
   },
+  // A later block replaces no-restricted-imports entirely, so blocks that
+  // narrow `files` repeat every restriction that still applies there.
   {
-    // Wide-event logging: Convex functions use the builders in
-    // convex/lib/functions.ts and components use the hooks in lib/convex.ts.
     files: ["**/*.{ts,tsx,mts}"],
-    ignores: ["convex/lib/functions.ts", "lib/convex.ts"],
-    rules: {
-      "no-restricted-imports": ["error", {
-        paths: [{
-          name: "convex/react",
-          importNames: ["useMutation", "useAction"],
-          message: "Use useMutation/useAction from @/lib/convex so calls carry a logging flow.",
-        }],
-        patterns: [{
-          group: ["**/_generated/server"],
-          importNames: ["query", "mutation", "action", "internalQuery", "internalMutation", "internalAction", "httpAction"],
-          message: "Register functions with the builders in convex/lib/functions.ts so they emit wide events.",
-        }],
-      }],
-    },
+    rules: { "no-restricted-imports": ["error", { paths: loggingPaths, patterns: loggingPatterns }] },
+  },
+  {
+    files: ["convex/**/*.ts", "app.config.ts"],
+    rules: { "no-restricted-imports": ["error", { paths: loggingPaths, patterns: [...loggingPatterns, convexRuntime] }] },
+  },
+  {
+    // The modules that wrap the raw builders and hooks.
+    files: ["convex/lib/functions.ts"],
+    rules: { "no-restricted-imports": ["error", { patterns: [convexRuntime] }] },
+  },
+  {
+    files: ["lib/convex.ts"],
+    rules: { "no-restricted-imports": "off" },
   },
   globalIgnores(["convex/_generated/**", "components/ui/**"]),
 ]);

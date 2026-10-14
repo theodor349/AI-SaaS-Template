@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
-import { appConfig } from "@/app.config";
 import { MisplacedSquare } from "./_components/misplaced-square";
 import { StatusMessage } from "./_components/status-message";
 import { HomeLink } from "./_components/home-link";
 
-export const metadata: Metadata = { title: `Page not found — ${appConfig.appName}` };
+export const metadata: Metadata = { title: "Page not found" };
 
 export default function NotFound() {
   return (
