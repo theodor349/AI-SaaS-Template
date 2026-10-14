@@ -1,0 +1,18 @@
+/* Fixed over the page, above the mobile navigation bar (site-navigation.module.css). */
+.banner {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 30;
+  padding: 16px;
+}
+.card {
+  max-width: 1088px;
+  margin: 0 auto;
+  box-shadow: 0 12px 36px color-mix(in oklch, var(--foreground) 12%, transparent);
+}
+
+@media (max-width: 767px) {
+  .banner { bottom: calc(73px + env(safe-area-inset-bottom)); padding: 8px; }
+}
