@@ -14,7 +14,7 @@ type AppConfig = {
 export const appConfig = {
   appName: "AI SaaS Template",
   companyName: "Just Enough Solutions ApS",
-  supportEmail: "Support@justenoughsolutions.com",
+  supportEmail: "support@justenoughsolutions.com",
   description: "A Next.js, Convex, and Clerk starter.",
   tagline: "Your next idea starts here",
 } satisfies AppConfig;

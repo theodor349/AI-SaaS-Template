@@ -70,6 +70,8 @@ export function worktreeConfig(root, { portBlock = portBlockOverride(root) } = {
       NEXT_PUBLIC_CONVEX_SITE_URL: `http://127.0.0.1:${ports.site}`,
       POLAR_ENVIRONMENT: "sandbox",
       POLAR_WEBHOOK_URL: `http://127.0.0.1:${ports.site}/webhooks/polar`,
+      // Enables the crash hooks E2E tests use to reach the error pages (lib/e2e-crash.ts).
+      E2E_TEST_ROUTES: "1",
     },
   };
 }
