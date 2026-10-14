@@ -61,6 +61,7 @@ On the Convex project's **production deployment**, set:
 | `POLAR_PRODUCT_YEARLY` | Yearly fixed-price sandbox product ID. |
 | `POLAR_PRODUCT_LIFETIME` | One-time fixed-price sandbox product ID. |
 | `POLAR_WEBHOOK_SECRET` | Signing secret of the dedicated hosted Polar webhook below. |
+| `LOG_SAMPLE_RATE_QUERY`, `LOG_SAMPLE_RATE_MUTATION`, `LOG_SAMPLE_RATE_ACTION` | Optional success-event sampling, between 0 and 1; see [logging](internals/logging.md#sampling-and-attention). |
 
 The three products must be distinct, unarchived, and have positive fixed prices;
 the recurring products must use a single-month and single-year interval. Reuse

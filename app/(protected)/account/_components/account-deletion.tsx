@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { AlertCircleIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -22,6 +22,7 @@ import {
 import { Button, ButtonLabel } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ContentSkeleton, TextSkeleton } from "@/components/loading/content-skeleton";
+import { useMutation } from "@/lib/convex";
 
 const deletionDescription =
   "Requesting deletion cancels subscription renewal. You have seven days to undo it. At the deadline, paid access ends and your account and application data are deleted. Unused paid time is not automatically refunded.";

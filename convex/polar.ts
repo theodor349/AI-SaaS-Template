@@ -1,8 +1,8 @@
 import { createPolar, type models as PolarModels } from "@polar-sh/sdk/2026-10";
-import { PolarClientError, PolarNetworkError, PolarRateLimitError, PolarServerError } from "@polar-sh/sdk";
+import { PolarClientError, PolarError, PolarNetworkError, PolarRateLimitError, PolarServerError } from "@polar-sh/sdk";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
-import { action, env, internalAction, type ActionCtx } from "./_generated/server";
+import { env } from "./_generated/server";
 import {
   billingReturnUrl,
   configuredProduct,
@@ -13,6 +13,7 @@ import {
 } from "./lib/billing";
 import { billingModel, billingModels, recurringModel, type BillingModel } from "./lib/billingModel";
 import { appError } from "./lib/errors";
+import { action, internalAction, type ActionCtx } from "./lib/functions";
 
 type Polar = ReturnType<typeof createPolar>;
 
@@ -55,24 +56,36 @@ async function retry<T>(operation: () => Promise<T>): Promise<T> {
 // Log fields that identify a provider failure without its response body,
 // which can contain personal data.
 function providerFailure(error: unknown) {
-  const known = error instanceof PolarClientError || error instanceof PolarNetworkError ||
-    error instanceof PolarServerError || error instanceof PolarRateLimitError;
   const hasStatus = error instanceof PolarClientError || error instanceof PolarServerError;
   return {
-    providerError: known ? error.name : "UnexpectedError",
+    providerError: error instanceof PolarError ? error.name : "UnexpectedError",
     providerStatus: hasStatus ? error.statusCode : null,
   };
 }
 
-async function userFacing<T>(operation: () => Promise<T>): Promise<T> {
+async function userFacing<T>(ctx: ActionCtx, operation: () => Promise<T>): Promise<T> {
   try {
     return await operation();
   } catch (error) {
     if (error instanceof ConvexError) {
       throw error;
     }
-    console.error("Polar operation failed", { code: "BILLING_REQUEST_FAILED", ...providerFailure(error) });
+    ctx.log.decision("provider", { result: "failed", code: "BILLING_REQUEST_FAILED", ...providerFailure(error) });
     throw appError("BILLING_REQUEST_FAILED");
+  }
+}
+
+// Internal actions rethrow provider errors without their message, which would
+// otherwise reach the event and can contain personal data.
+async function withoutProviderDetails<T>(ctx: ActionCtx, operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (!(error instanceof PolarError)) {
+      throw error;
+    }
+    ctx.log.decision("provider", { result: "failed", ...providerFailure(error) });
+    throw new Error("Provider request failed");
   }
 }
 
@@ -123,11 +136,14 @@ async function findOrCreateCustomer(p: Polar, email: string, externalId: string)
 // a reconciliation so local state catches up with the provider.
 async function ownedCustomer(ctx: ActionCtx): Promise<{ p: Polar; customer: PolarModels.Customer }> {
   const { user, account } = await ctx.runQuery(internal.billingState.owned, {});
+  ctx.log.setUser(user._id);
   const p = client();
   const externalId = externalCustomerId(user.tokenIdentifier);
+  ctx.log.decision("customer", { source: account ? "linked" : "lookup_or_create" });
   const customer = account
     ? await retry(() => p.customers.get(account.customerId))
     : await findOrCreateCustomer(p, user.email!, externalId);
+  ctx.log.setCustomer(customer.id);
   belongs(customer, externalId);
   await ctx.runMutation(internal.billingState.enqueue, { customerId: customer.id, externalId });
   await ctx.runMutation(internal.billingState.claim, { customerId: customer.id, externalId });
@@ -164,19 +180,20 @@ async function validateProduct(p: Polar, model: BillingModel) {
 export const syncCatalog = internalAction({
   args: {},
   returns: v.null(),
-  handler: async (ctx) => {
+  handler: (ctx) => withoutProviderDetails(ctx, async () => {
     const p = client();
     for (const model of billingModels) {
       await ctx.runMutation(internal.billing.saveProduct, await validateProduct(p, model));
     }
     return null;
-  },
+  }),
 });
 
 export const checkout = action({
   args: { model: billingModel, returnUrl: v.string() },
   returns: v.string(),
-  handler: (ctx, { model, returnUrl }) => userFacing(async () => {
+  handler: (ctx, { model, returnUrl }) => userFacing(ctx, async () => {
+    ctx.log.set("model", model);
     const destination = billingReturnUrl(returnUrl);
     const { p, customer } = await ownedCustomer(ctx);
     const lease = await ctx.runMutation(internal.billingState.beginOperation, {});
@@ -198,6 +215,7 @@ export const checkout = action({
       const pending = checkouts.items.find((x) =>
         x.status === "open" && timestamp(x.expires_at) > Date.now() && x.metadata.worktree_id === env.WORKTREE_ID);
       if (pending) {
+        ctx.log.decision("checkout", { result: "reused" });
         return pending.url;
       }
       const created = await p.checkouts.create({
@@ -211,6 +229,7 @@ export const checkout = action({
         success_url: `${new URL(destination).origin}/billing?confirmation=pending`,
         return_url: destination,
       });
+      ctx.log.decision("checkout", { result: "created" });
       return created.url;
     } finally {
       await ctx.runMutation(internal.billingState.endOperation, { lease });
@@ -221,9 +240,10 @@ export const checkout = action({
 export const portal = action({
   args: { returnUrl: v.string() },
   returns: v.string(),
-  handler: (ctx, { returnUrl }) => userFacing(async () => {
+  handler: (ctx, { returnUrl }) => userFacing(ctx, async () => {
     const destination = billingReturnUrl(returnUrl);
-    const { account } = await ctx.runQuery(internal.billingState.owned, {});
+    const { user, account } = await ctx.runQuery(internal.billingState.owned, {});
+    ctx.log.setUser(user._id);
     if (!account) {
       throw appError("CUSTOMER_NOT_FOUND");
     }
@@ -236,7 +256,8 @@ export const portal = action({
 export const changeSubscription = action({
   args: { operation: v.union(v.literal("cancel"), v.literal("reactivate"), ...recurringModel.members) },
   returns: v.null(),
-  handler: (ctx, { operation }) => userFacing(async () => {
+  handler: (ctx, { operation }) => userFacing(ctx, async () => {
+    ctx.log.set("change", operation);
     const { p, customer } = await ownedCustomer(ctx);
     const lease = await ctx.runMutation(internal.billingState.beginOperation, {});
     try {
@@ -246,6 +267,7 @@ export const changeSubscription = action({
       if (!account || account.model === "lifetime" || !subscriptionId) {
         throw appError("SUBSCRIPTION_UNAVAILABLE");
       }
+      ctx.log.setSubscription(subscriptionId);
       const sub = await retry(() => p.subscriptions.get(subscriptionId));
       const currentModel = productModel(sub.product_id);
       if (sub.customer_id !== customer.id || !currentModel || sub.status !== "active") {
@@ -258,12 +280,16 @@ export const changeSubscription = action({
         const product = await validateProduct(p, operation);
         // Downgrades keep the paid year and switch at renewal; upgrades invoice now.
         const proration = currentModel === "yearly" && operation === "monthly" ? "next_period" : "invoice";
+        ctx.log.decision("plan_change", { from: currentModel, to: operation, proration });
         await retry(() => p.subscriptions.update(sub.id, {
           product_id: product.productId,
           proration_behavior: proration,
         }));
       } else if (sub.cancel_at_period_end !== (operation === "cancel")) {
+        ctx.log.decision("renewal", { cancelAtPeriodEnd: operation === "cancel" });
         await retry(() => p.subscriptions.update(sub.id, { cancel_at_period_end: operation === "cancel" }));
+      } else {
+        ctx.log.decision("renewal", { result: "unchanged" });
       }
       // The result is confirmed from provider state and paid orders, then published
       // reactively. A successful update alone cannot grant new paid entitlement.
@@ -283,7 +309,7 @@ export const changeSubscription = action({
 export const recover = action({
   args: {},
   returns: v.null(),
-  handler: (ctx) => userFacing(async () => {
+  handler: (ctx) => userFacing(ctx, async () => {
     const { customer } = await ownedCustomer(ctx);
     await reconcile(ctx, customer.id);
     return null;
@@ -294,6 +320,8 @@ export const revoke = internalAction({
   args: { userId: v.id("users"), subscriptionId: v.string() },
   returns: v.null(),
   handler: async (ctx, { userId, subscriptionId }) => {
+    ctx.log.setUser(userId);
+    ctx.log.setSubscription(subscriptionId);
     const account = await ctx.runQuery(internal.billing.accountByUser, { userId });
     if (!account) {
       throw new Error("Billing account missing");
@@ -358,8 +386,10 @@ function configuredOrder(o: PolarModels.Order): o is PolarModels.Order & { produ
 // calls are serialized by the reconciliation lease; a skipped call's request
 // is picked up when the running worker finishes.
 async function reconcile(ctx: ActionCtx, customerId: string) {
+  ctx.log.setCustomer(customerId);
   const lease = await ctx.runMutation(internal.billingState.lease, { customerId });
   if (!lease) {
+    ctx.log.decision("reconciliation", { result: "skipped" });
     return;
   }
   let failed = false;
@@ -412,13 +442,18 @@ async function reconcile(ctx: ActionCtx, customerId: string) {
     if (revoke.length) {
       await ctx.runMutation(internal.billingState.enqueue, { customerId });
     }
+    ctx.log.decision("reconciliation", {
+      result: "published", subscriptions: subscriptions.length, orders: orders.length, revoked: revoke.length,
+    });
   } catch (error) {
     failed = true;
-    console.error("Polar reconciliation failed", {
+    ctx.log.decision("reconciliation", {
+      result: "failed",
       code: "BILLING_RECONCILIATION_FAILED",
       phase,
       ...providerFailure(error),
     });
+    ctx.log.markAsError();
   }
   await ctx.runMutation(internal.billingState.finish, { customerId, version: lease.version, failed });
 }
@@ -437,7 +472,8 @@ export const reconcileCustomer = internalAction({
 export const cleanupAccount = internalAction({
   args: { userId: v.id("users") },
   returns: v.object({ complete: v.boolean(), progress: v.optional(v.boolean()) }),
-  handler: async (ctx, { userId }): Promise<{ complete: boolean; progress?: boolean }> => {
+  handler: (ctx, { userId }) => withoutProviderDetails(ctx, async (): Promise<{ complete: boolean; progress?: boolean }> => {
+    ctx.log.setUser(userId);
     const { user, account } = await ctx.runQuery(internal.billingState.cleanupContext, { userId });
     const p = client();
     const externalId = externalCustomerId(user.tokenIdentifier);
@@ -446,10 +482,12 @@ export const cleanupAccount = internalAction({
       customer = await retry(() => account ? p.customers.get(account.customerId) : p.customers.getExternal(externalId));
     } catch (error) {
       if (error instanceof PolarClientError && error.statusCode === 404 && !account) {
+        ctx.log.decision("cleanup", { result: "no_customer" });
         return { complete: true };
       }
       throw error;
     }
+    ctx.log.setCustomer(customer.id);
     belongs(customer, externalId);
     const cancelling = user.lifecycle === "active";
     // Always take the first page of outstanding work. State-setting operations
@@ -478,6 +516,7 @@ export const cleanupAccount = internalAction({
       }
     }
     const remaining = (await outstanding()).items.length;
+    ctx.log.decision("cleanup", { mode: cancelling ? "stop_renewal" : "revoke", processed: batch.items.length, remaining });
     if (remaining || (!cancelling && batch.items.length)) {
       return { complete: false, progress: true };
     }
@@ -489,5 +528,5 @@ export const cleanupAccount = internalAction({
       await ctx.runMutation(internal.billingState.confirmProviderCleanup, { userId });
     }
     return { complete: true };
-  },
+  }),
 });

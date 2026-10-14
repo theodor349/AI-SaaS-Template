@@ -1,10 +1,11 @@
 "use client";
 
 import { useAuth } from "@clerk/nextjs";
-import { Authenticated, useAction, useQuery } from "convex/react";
+import { Authenticated, useQuery } from "convex/react";
 import { useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
+import { useAction } from "@/lib/convex";
 
 // Mount inside ConvexProviderWithClerk. Public content remains usable; protected
 // account consumers use users.current to gate on provisioning/ready/deleting.

@@ -40,6 +40,9 @@ function order(product = "monthly", id = "order-a", subscription: string | null 
 }
 async function* iterate<T>(items: T[]) { yield* items; }
 function setup() { return convexTest(schema, modules); }
+function decisions(log: { mock: { calls: unknown[][] } }) {
+  return log.mock.calls.flatMap(([line]) => (JSON.parse(String(line)) as { path: object[] }).path);
+}
 async function provision(t: ReturnType<typeof setup>, identity = tokenIdentifier) {
   return t.run(ctx => ctx.db.insert("users", { tokenIdentifier: identity, clerkId: identity.split("|")[1],
     email: "alice@example.com", displayName: "Alice", lifecycle: "active", profileUpdatedAt: 1, profileEventAt: 1 }));
@@ -239,7 +242,7 @@ test("reconciliation failures retain paid access and log provider status without
   await reconcile(t);
   expect((await alice(t).query(api.billing.status, {})).state).toBe("active");
   expect((await alice(t).query(api.billing.syncStatus, {})).retrying).toBe(true);
-  expect(logging).toHaveBeenCalledWith("Polar reconciliation failed", {
+  expect(decisions(logging)).toContainEqual({ decision: "reconciliation", result: "failed",
     code: "BILLING_RECONCILIATION_FAILED", phase: "managed_subscription", providerError: "PolarClientError", providerStatus: 404,
   });
   expect(JSON.stringify(logging.mock.calls)).not.toContain("alice@example.com");
@@ -491,7 +494,7 @@ test("failed customer creation retains the provider failure without logging emai
   provider.customers.create.mockRejectedValueOnce(validation);
   const t = setup(); await provision(t);
   await expect(alice(t).action(api.polar.recover, {})).rejects.toThrow("BILLING_REQUEST_FAILED");
-  expect(logging).toHaveBeenCalledWith("Polar operation failed", {
+  expect(decisions(logging)).toContainEqual({ decision: "provider", result: "failed",
     code: "BILLING_REQUEST_FAILED", providerError: validation.name, providerStatus: 422,
   });
   expect(JSON.stringify(logging.mock.calls)).not.toContain("alice@example.com");

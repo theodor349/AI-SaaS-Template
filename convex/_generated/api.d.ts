@@ -22,6 +22,8 @@ import type * as lib_clerk from "../lib/clerk.js";
 import type * as lib_clerkApi from "../lib/clerkApi.js";
 import type * as lib_entitlement from "../lib/entitlement.js";
 import type * as lib_errors from "../lib/errors.js";
+import type * as lib_functions from "../lib/functions.js";
+import type * as lib_log from "../lib/log.js";
 import type * as lib_polarWebhook from "../lib/polarWebhook.js";
 import type * as lib_profile from "../lib/profile.js";
 import type * as lib_retry from "../lib/retry.js";
@@ -52,6 +54,8 @@ declare const fullApi: ApiFromModules<{
   "lib/clerkApi": typeof lib_clerkApi;
   "lib/entitlement": typeof lib_entitlement;
   "lib/errors": typeof lib_errors;
+  "lib/functions": typeof lib_functions;
+  "lib/log": typeof lib_log;
   "lib/polarWebhook": typeof lib_polarWebhook;
   "lib/profile": typeof lib_profile;
   "lib/retry": typeof lib_retry;

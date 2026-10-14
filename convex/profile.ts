@@ -1,6 +1,6 @@
 import { v } from "convex/values";
-import { mutation } from "./_generated/server";
 import { appError } from "./lib/errors";
+import { mutation } from "./lib/functions";
 import { requireUser } from "./lib/users";
 
 // The display name belongs to the application after the first edit; email remains Clerk-owned.
