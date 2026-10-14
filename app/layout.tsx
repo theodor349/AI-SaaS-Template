@@ -10,6 +10,7 @@ import { AUTHENTICATED_DESTINATION, SIGN_IN_PATH, SIGN_UP_PATH } from "@/lib/aut
 import { SiteNavigation } from "@/components/layout/site-navigation";
 import { PageContent } from "@/components/layout/page-content";
 import navigationStyles from "@/components/layout/site-navigation.module.css";
+import { throwIfE2ECrashRequested } from "@/lib/e2e-crash";
 
 const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
@@ -20,11 +21,12 @@ export const metadata: Metadata = {
   description: "A Next.js, Convex, and Clerk starter.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  await throwIfE2ECrashRequested("layout");
   return (
     <html lang="en" className={cn("font-sans", geist.variable)}>
       <body>
