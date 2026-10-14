@@ -11,11 +11,15 @@ export function resolveAuthenticatedDestination(value: string | undefined) {
   if (!value) return "/app";
   const origin = "https://auth-destination.invalid";
   const path = value.startsWith("/") && !value.startsWith("//") ? safeReturnTo(value, origin) : null;
-  const pathname = path?.split(/[?#]/)[0];
-  if (!path || [SIGN_IN_PATH, SIGN_UP_PATH].some((authPath) => pathname === authPath || pathname?.startsWith(`${authPath}/`))) {
+  if (!path || isAuthPath(path.split(/[?#]/)[0])) {
     throw new Error("NEXT_PUBLIC_AUTHENTICATED_DESTINATION must be a local path outside the sign-in and sign-up routes.");
   }
   return path;
+}
+
+// True for the sign-in and sign-up pages, including Clerk's nested steps.
+export function isAuthPath(pathname: string) {
+  return [SIGN_IN_PATH, SIGN_UP_PATH].some((path) => pathname === path || pathname.startsWith(`${path}/`));
 }
 
 // Clerk return-to URLs may be absolute; only this application's origin is allowed.
