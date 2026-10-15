@@ -22,7 +22,7 @@ A maintainer request to implement something, with or without naming this skill, 
 - Implement the requested behavior and inspect the complete task diff for correctness and scope. Follow the project's architecture and validation instructions.
 - For UI changes, run `pnpm capture <path...> --label before` before modifying the screen so the PR can include a real before image. Add `--plan` or `--signed-out` for the relevant account state.
 - Run focused verification, then `pnpm test:unit` and `pnpm lint`. For backend or browser flows, use this worktree's bootstrap environment and the relevant integration or E2E tests.
-- Capture the after state with `pnpm capture <path...> --label after`, adding `--video <seconds>` for motion or timing. Captures stay outside the worktree under `$TMPDIR/pr-evidence/<worktreeId>/`; completion uploads them with `gh --attach`.
+- Capture the after state with `pnpm capture <path...> --label after`, adding `--video <seconds>` for motion or timing. Captures stay outside the worktree under `$TMPDIR/pr-evidence/<worktreeId>/`; completion uploads them with `gh --attach` and removes them after the merge.
 - When the maintainer wants to inspect the change, share a `pnpm review-link [--plan …] [--path …]` link: a single-use signed-in link over Tailscale. Never paste it into PRs, issues, or commits.
 - Commit only the task changes using the repository's conventional commit format. Keep services available for subsequent checks; completion owns their shutdown.
 
