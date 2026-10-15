@@ -39,7 +39,13 @@ self.addEventListener("fetch", (event) => {
   if (event.request.mode !== "navigate") return;
   event.respondWith((async () => {
     try {
-      return (await event.preloadResponse) ?? (await fetch(event.request));
+      const preloaded = await event.preloadResponse;
+      if (preloaded) return preloaded;
+    } catch {
+      // A failed preload falls back to a normal request below.
+    }
+    try {
+      return await fetch(event.request);
     } catch {
       // Only a network failure lands here; error responses from the server pass through.
       // The plain page covers a cache the browser or the user cleared.

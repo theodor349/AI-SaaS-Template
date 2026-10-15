@@ -50,14 +50,14 @@ function loadServiceWorker({ network }: { network: (request: Request) => Promise
   }
 
   // Resolves to the worker's response, or null when it leaves the request to the browser.
-  async function request(url: string, { navigate = false } = {}) {
+  async function request(url: string, { navigate = false, preload = Promise.resolve(undefined) }: { navigate?: boolean; preload?: Promise<Response | undefined> } = {}) {
     const responses: Promise<Response>[] = [];
     const request = new Request(url);
     // The Fetch API forbids constructing navigation requests, so set the mode afterwards.
     if (navigate) Object.defineProperty(request, "mode", { value: "navigate" });
     handlers.get("fetch")!({
       request,
-      preloadResponse: Promise.resolve(undefined),
+      preloadResponse: preload,
       respondWith: (promise) => responses.push(promise),
       waitUntil: () => {},
     });
@@ -104,6 +104,12 @@ describe("service worker", () => {
     const response = await worker.request("https://app.example/app", { navigate: true });
     expect(response!.status).toBe(503);
     expect(await response!.text()).toContain("You’re offline");
+  });
+
+  test("a failed navigation preload falls back to a normal request", async () => {
+    const worker = loadServiceWorker({ network: async () => new Response("account") });
+    const response = await worker.request("https://app.example/account", { navigate: true, preload: Promise.reject(new TypeError("Preload failed")) });
+    expect(await response!.text()).toBe("account");
   });
 
   test("a server error passes through instead of the offline page", async () => {
