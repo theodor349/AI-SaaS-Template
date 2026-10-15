@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import {
   classifyChecks,
@@ -9,6 +13,7 @@ import {
   parseCodeRabbitComment,
   parseCodeRabbitReview,
   repoFromRemoteUrl,
+  reviewCarryOver,
 } from "./pr-gate.mjs";
 
 const head = "dabd98847b44b3340cdfdb1ecb3e47f367aec099";
@@ -98,6 +103,80 @@ test("CodeRabbit gate passes only when a completed review covers the head", () =
   const late = evaluateCodeRabbit({ ...staleInput, now: minutesAfterPush(20) });
   assert.equal(late.gate, "action");
   assert.match(late.detail, /last reviewed 9e320af/);
+});
+
+test("a review of an earlier commit covers the head unless a later merge was complicated", () => {
+  const input = {
+    head, pushedAt, now: minutesAfterPush(20),
+    reviews: [{ id: 1, user: rabbit, state: "COMMENTED", commit_id: older, body: "**Actionable comments posted: 1**", submitted_at: "2026-10-13T14:00:00Z" }],
+    statuses: [status("pending", "Review in progress")], comments: [comment(inProgressSummary)],
+  };
+  const carried = evaluateCodeRabbit({ ...input, carryOver: { [older]: { ancestor: true, complicatedMerges: [] } } });
+  assert.equal(carried.gate, "pass");
+  assert.equal(carried.carriedFrom, older);
+  assert.match(carried.detail, /review of 9e320af covers head dabd988; no complicated merge since; a newer review is in progress/);
+  // A partial review already posted on the head does not hold the merge while it is still running.
+  const partial = { id: 2, user: rabbit, state: "COMMENTED", commit_id: head, body: "**Actionable comments posted: 1**", submitted_at: "2026-10-13T14:40:00Z" };
+  const running = evaluateCodeRabbit({ ...input, reviews: [...input.reviews, partial], carryOver: { [older]: { ancestor: true, complicatedMerges: [] } } });
+  assert.equal(running.state, "carried_over");
+
+  const conflicted = evaluateCodeRabbit({ ...input, statuses: [], comments: [], carryOver: { [older]: { ancestor: true, complicatedMerges: [base] } } });
+  assert.equal(conflicted.gate, "action");
+  assert.match(conflicted.detail, /merge 39964d3 after the review of 9e320af was not a clean merge/);
+  const rewritten = evaluateCodeRabbit({ ...input, carryOver: { [older]: { ancestor: false } } });
+  assert.equal(rewritten.gate, "wait");
+  const shallow = evaluateCodeRabbit({ ...input, statuses: [], comments: [], carryOver: { unavailable: "this checkout is shallow" } });
+  assert.equal(shallow.gate, "action");
+  assert.match(shallow.detail, /last reviewed 9e320af, but this checkout is shallow/);
+  assert.equal(evaluateCodeRabbit({ ...input, statuses: [], comments: [] }).gate, "action");
+});
+
+test("only conflicted or edited merges after a reviewed commit count as complicated", async (t) => {
+  const repo = mkdtempSync(join(tmpdir(), "pr gate carry over "));
+  t.after(() => rmSync(repo, { recursive: true, force: true }));
+  const git = (...args) => execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", ...args], { cwd: repo, encoding: "utf8" }).trim();
+  const commitFile = (name, text, message) => { writeFileSync(join(repo, name), text); git("add", name); git("commit", "-qm", message); return git("rev-parse", "HEAD"); };
+  git("init", "-q", "-b", "main");
+  commitFile("a.txt", "one\n", "base");
+  git("switch", "-qc", "task");
+  const reviewed = commitFile("task.txt", "task\n", "task");
+  const fix = commitFile("task.txt", "task fixed\n", "review fix");
+  git("switch", "-q", "main");
+  commitFile("b.txt", "main\n", "main change");
+  git("switch", "-q", "task");
+  git("merge", "-q", "--no-edit", "main");
+  const clean = git("rev-parse", "HEAD");
+  assert.deepEqual(await reviewCarryOver(clean, [reviewed, fix], { cwd: repo }), {
+    [reviewed]: { ancestor: true, complicatedMerges: [] },
+    [fix]: { ancestor: true, complicatedMerges: [] },
+  });
+
+  git("switch", "-q", "main");
+  commitFile("a.txt", "main edit\n", "main edit");
+  git("switch", "-q", "task");
+  commitFile("a.txt", "task edit\n", "task edit");
+  assert.throws(() => git("merge", "-q", "--no-edit", "main"));
+  commitFile("a.txt", "resolved\n", "resolve conflict");
+  const conflicted = git("rev-parse", "HEAD");
+  git("switch", "-q", "main");
+  commitFile("c.txt", "more\n", "another main change");
+  git("switch", "-q", "task");
+  git("merge", "-q", "--no-commit", "main");
+  writeFileSync(join(repo, "task.txt"), "edited during merge\n");
+  git("add", "task.txt");
+  git("commit", "-q", "--no-edit");
+  const edited = git("rev-parse", "HEAD");
+  const result = await reviewCarryOver(edited, [reviewed, conflicted, "0000000000000000000000000000000000000000"], { cwd: repo });
+  assert.deepEqual(result[reviewed], { ancestor: true, complicatedMerges: [conflicted, edited] });
+  assert.deepEqual(result[conflicted], { ancestor: true, complicatedMerges: [edited] });
+  assert.equal(result["0000000000000000000000000000000000000000"].ancestor, false);
+
+  // Git failures other than "not an ancestor" surface instead of looking like rewritten history.
+  await assert.rejects(reviewCarryOver("1111111111111111111111111111111111111111", [reviewed], { cwd: repo }), /merge-base/);
+  const shallowClone = mkdtempSync(join(tmpdir(), "pr gate shallow "));
+  t.after(() => rmSync(shallowClone, { recursive: true, force: true }));
+  execFileSync("git", ["clone", "-q", "--depth", "1", `file://${repo}`, shallowClone]);
+  assert.deepEqual(Object.keys(await reviewCarryOver(edited, [reviewed], { cwd: shallowClone })), ["unavailable"]);
 });
 
 test("CodeRabbit gate reports rate limits, unknown activity, and maintainer-confirmed disablement", () => {
