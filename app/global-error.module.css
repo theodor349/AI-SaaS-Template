@@ -1,5 +1,5 @@
 /* global-error replaces the root layout, so globals.css and Tailwind never load here.
-   These are the light theme tokens the page and its illustration need. */
+   These are the theme tokens the page and its illustration need. */
 .body {
   --background: oklch(1 0 0);
   --foreground: oklch(0.148 0.004 228.8);
@@ -13,6 +13,16 @@
   color: var(--foreground);
   font-family: system-ui, sans-serif;
   line-height: 1.5;
+}
+:global(.dark) .body {
+  --background: oklch(0.148 0.004 228.8);
+  --foreground: oklch(0.987 0.002 197.1);
+  --primary: oklch(0.925 0.005 214.3);
+  --primary-foreground: oklch(0.218 0.008 223.9);
+  --muted-foreground: oklch(0.723 0.014 214.4);
+  --border: oklch(1 0 0 / 10%);
+  --ring: oklch(0.56 0.021 213.5);
+  color-scheme: dark;
 }
 .page {
   display: flex;

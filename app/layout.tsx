@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import { ConvexClientProvider } from "./ConvexClientProvider";
 import { ClerkProvider } from "@clerk/nextjs";
+import { shadcn } from "@clerk/ui/themes";
 import { cn } from "@/lib/utils";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
@@ -16,6 +17,8 @@ import { openGraphDefaults, siteUrl } from "@/lib/seo";
 import { ConsentProvider } from "@/components/consent/consent-provider";
 import { ConsentBanner } from "@/components/consent/consent-banner";
 import { ConsentServices } from "@/components/consent/consent-services";
+import { themeScript } from "@/lib/theme";
+import { ThemeSync } from "@/components/theme/theme-sync";
 
 const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
@@ -38,10 +41,16 @@ export default async function RootLayout({
 }) {
   await throwIfE2ECrashRequested("layout");
   return (
-    <html lang="en" className={cn("font-sans", geist.variable)}>
+    // The theme script sets the theme class and color scheme on <html> before first paint.
+    <html lang="en" className={cn("font-sans", geist.variable)} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
       <body>
+        <ThemeSync />
         <ConsentProvider>
           <ClerkProvider
+            appearance={{ theme: shadcn }}
             signInUrl={SIGN_IN_PATH}
             signUpUrl={SIGN_UP_PATH}
             signInFallbackRedirectUrl={AUTHENTICATED_DESTINATION}

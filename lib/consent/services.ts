@@ -1,5 +1,6 @@
 import { appConfig } from "@/app.config";
 import { sentryConsentService } from "@/lib/sentry/consent-service";
+import { THEME_STORAGE_KEY } from "@/lib/theme";
 import { CONSENT_COOKIE } from "./cookie";
 import { defineConsentService } from "./service";
 
@@ -10,6 +11,16 @@ const consentChoice = defineConsentService({
   purpose: "Remembers your cookie choices.",
   storage: [
     { name: CONSENT_COOKIE, type: "cookie", purpose: "Stores which optional categories you allowed, and when.", duration: "12 months" },
+  ],
+});
+
+const themeChoice = defineConsentService({
+  id: "theme",
+  category: "essential",
+  name: appConfig.appName,
+  purpose: "Remembers your theme.",
+  storage: [
+    { name: THEME_STORAGE_KEY, type: "localStorage", purpose: "Stores whether you chose the light or dark theme. Absent when the theme follows your device.", duration: "Until you choose System or clear site data" },
   ],
 });
 
@@ -27,4 +38,4 @@ const clerk = defineConsentService({
 
 // Every service that may store data in the browser. The preferences dialog, the
 // cookie table on /cookies, and the service runner are all generated from this list.
-export const consentServices = [consentChoice, clerk, sentryConsentService];
+export const consentServices = [consentChoice, themeChoice, clerk, sentryConsentService];

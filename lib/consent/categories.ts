@@ -4,7 +4,7 @@
 export const consentCategories = {
   essential: {
     label: "Essential",
-    description: "Keep you signed in, protect your account, and remember your cookie choices. Always on.",
+    description: "Keep you signed in, protect your account, and remember your cookie and theme choices. Always on.",
   },
   analytics: {
     label: "Analytics",
