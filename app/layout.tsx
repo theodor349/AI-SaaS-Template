@@ -19,10 +19,21 @@ import { ConsentBanner } from "@/components/consent/consent-banner";
 import { ConsentServices } from "@/components/consent/consent-services";
 import { themeScript } from "@/lib/theme";
 import { ThemeSync } from "@/components/theme/theme-sync";
+import { ServiceWorkerRegistration } from "@/components/pwa/service-worker";
 
 const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
-export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover" };
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  // The on-screen keyboard shrinks the layout instead of covering form fields and the
+  // bottom navigation.
+  interactiveWidget: "resizes-content",
+  // No `themeColor`: the theme script sets theme-color to the chosen theme before first
+  // paint. React re-renders viewport tags on client navigation and drops the script's tag,
+  // so a light and dark pair here would override an explicit choice of the other theme.
+};
 
 const title = { default: appConfig.appName, template: `%s — ${appConfig.appName}` };
 
@@ -48,6 +59,7 @@ export default async function RootLayout({
       </head>
       <body>
         <ThemeSync />
+        <ServiceWorkerRegistration />
         <ConsentProvider>
           <ClerkProvider
             appearance={{ theme: shadcn }}
@@ -69,7 +81,8 @@ export default async function RootLayout({
           <ConsentBanner />
           <ConsentServices />
         </ConsentProvider>
-        <Toaster closeButton />
+        <Toaster closeButton offset={{ bottom: "var(--toast-offset-bottom, 24px)" }}
+          mobileOffset={{ bottom: "var(--toast-offset-bottom, 16px)" }} />
       </body>
     </html>
   );

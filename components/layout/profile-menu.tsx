@@ -5,10 +5,11 @@ import { useConvexAuth, useQuery } from "convex/react";
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { DropdownMenu as MenuPrimitive } from "radix-ui";
-import { Cookie, CreditCard, FileText, LogOut, Settings, Shield, SlidersHorizontal, UserRound } from "lucide-react";
+import { Cookie, CreditCard, Download, FileText, LogOut, Settings, Shield, SlidersHorizontal, UserRound } from "lucide-react";
 import { DropdownMenu, DropdownMenuPortal, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { CookiePreferences } from "@/components/consent/cookie-preferences";
+import { useInstallPrompt } from "@/components/pwa/use-install-prompt";
 import { api } from "@/convex/_generated/api";
 import styles from "./site-navigation.module.css";
 
@@ -27,6 +28,7 @@ export function ProfileMenu() {
   const { isAuthenticated } = useConvexAuth();
   const current = useQuery(api.users.current, isAuthenticated ? {} : "skip");
   const { signOut } = useClerk();
+  const { canInstall, install } = useInstallPrompt();
   const [open, setOpen] = useState(false);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
@@ -74,6 +76,12 @@ export function ProfileMenu() {
                   </Link>
                 </MenuPrimitive.Item>
               ))}
+              {canInstall && (
+                <MenuPrimitive.Item className={styles.menuItem} aria-label="Install app" title="Install app"
+                  onSelect={() => void install()}>
+                  <Download aria-hidden="true" size={16} /><span className={styles.pageLabel}>Install app</span>
+                </MenuPrimitive.Item>
+              )}
             </MenuPrimitive.Group>
             <MenuPrimitive.Separator className={styles.separator} />
             <MenuPrimitive.Group className={styles.menuGroup}>

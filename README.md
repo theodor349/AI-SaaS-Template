@@ -8,6 +8,7 @@ This template supports agents developing and testing features in parallel using 
 
 1. Set the product name, company, support email, and search and link preview details in
    [`app.config.ts`](app.config.ts), and replace the brand icon in [`app/icon.svg`](app/icon.svg).
+   The favicons, link previews, and installed app icons are drawn from these two files.
 2. In the main checkout, copy `.env.bootstrap.example` to `.env.bootstrap.local`
    and add Clerk development keys, a Polar sandbox organization access token,
    and the monthly, yearly, and lifetime sandbox product IDs. Linked worktrees

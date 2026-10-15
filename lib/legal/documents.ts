@@ -38,6 +38,7 @@ const storageTypes: Record<ConsentStorage["type"], string> = {
   cookie: "cookie",
   localStorage: "local storage",
   sessionStorage: "session storage",
+  cacheStorage: "cache storage",
 };
 
 const analyticsServices = consentServices.filter((service) => service.category === "analytics");

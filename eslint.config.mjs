@@ -72,7 +72,7 @@ export default defineConfig([
   {
     // Generated images render with Satori, which reads inline styles and plain img
     // elements, not stylesheets or next/image.
-    files: ["app/**/{opengraph-image,twitter-image,icon,apple-icon}{,[0-9]}.tsx"],
+    files: ["app/**/{opengraph-image,twitter-image,icon,apple-icon}{,[0-9]}.tsx", "app/pwa/**/route.tsx"],
     rules: { "shadcn/no-inline-styles": "off", "@next/next/no-img-element": "off" },
   },
   {
