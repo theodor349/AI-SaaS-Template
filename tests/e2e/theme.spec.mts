@@ -57,6 +57,11 @@ test("a chosen theme applies at once, persists without a flash, and System follo
     // Static legal pages and client navigation keep the choice too.
     await page.goto("/terms");
     await expectPaintedFirstAs(page, "dark");
+    await page.goto("/cookies");
+    await expectPaintedFirstAs(page, "dark");
+    const themeStorage = page.getByRole("row").filter({ has: page.locator("code", { hasText: /^theme$/ }) });
+    await expect(themeStorage).toContainText("Local storage");
+    await expect(themeStorage.getByRole("cell").nth(2)).toHaveText("Essential");
     await page.goto("/");
     await expectPaintedFirstAs(page, "dark");
     await page.getByRole("button", { name: "Open profile menu" }).click();
