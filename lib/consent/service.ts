@@ -1,3 +1,4 @@
+import type { CspOrigins } from "@/lib/security/csp";
 import { consentCategories, type ConsentCategory } from "./categories";
 
 export type ConsentStorage = {
@@ -16,6 +17,9 @@ export type ConsentService = {
   // Everything the service stores in the browser. The cookie table lists it, and
   // first-party entries are cleared when the user withdraws the category.
   storage: readonly ConsentStorage[];
+  // Third-party origins the service loads code from or sends data to. The Content
+  // Security Policy allows them on every page, whether or not the category is granted.
+  origins?: CspOrigins;
   // Called in the browser once the category is granted, and again after a later
   // re-grant. Import the service's code dynamically here so nobody downloads it
   // before agreeing. Essential services leave both out.

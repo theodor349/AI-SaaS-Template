@@ -1,6 +1,9 @@
 import { clerkMiddleware } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { isAuthPath, safeReturnTo } from "./lib/auth";
+import { consentServices } from "./lib/consent/services";
+import { contentSecurityPolicyHeaders, sentrySecurityEndpoint } from "./lib/security/csp";
+import { sentryDsn } from "./lib/sentry/options";
 
 // Clerk's recommended matcher: pages and API routes, skipping Next internals and static files.
 // This proxy never decides access. Each page, layout, route handler, or Server Function
@@ -31,7 +34,25 @@ export function withoutUnsafeReturnTo(request: Request, appUrl = process.env.NEX
   return url;
 }
 
+// Set here rather than in next.config.js so the policy can read the consent registry,
+// and per response without making static pages dynamic. CSP_REPORT_ONLY=1 reports
+// violations without blocking them, for rolling out a change to the policy.
+const securityHeaders = contentSecurityPolicyHeaders({
+  convexUrl: process.env.NEXT_PUBLIC_CONVEX_URL,
+  clerkPublishableKey: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+  development: process.env.NODE_ENV === "development",
+  appUrl: process.env.NEXT_PUBLIC_APP_URL,
+  services: consentServices,
+  reportOnly: process.env.CSP_REPORT_ONLY === "1",
+  reportUrl: sentryDsn && sentrySecurityEndpoint(sentryDsn, {
+    environment: process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT,
+    release: process.env.NEXT_PUBLIC_SENTRY_RELEASE,
+  }),
+});
+
 export default clerkMiddleware((_auth, request) => {
   const sanitized = withoutUnsafeReturnTo(request);
-  if (sanitized) return NextResponse.redirect(sanitized);
+  const response = sanitized ? NextResponse.redirect(sanitized) : NextResponse.next();
+  for (const [name, value] of Object.entries(securityHeaders)) response.headers.set(name, value);
+  return response;
 });
