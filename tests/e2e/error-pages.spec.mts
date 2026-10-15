@@ -10,7 +10,7 @@ const local = resolveLocalTestConfig();
 const appUrl = local.config.env.APP_URL;
 
 declare global {
-  interface Window { illustrationAnimation?: { started: number; ended: boolean } }
+  interface Window { illustrationAnimationStarts?: number }
 }
 
 function crash(context: BrowserContext, target: "page" | "layout") {
@@ -35,16 +35,18 @@ test("the 404 page sends signed-in visitors to their dashboard", async ({ page }
     await clerk.signIn({ page, emailAddress: user.email });
     // Count every start of the illustration's animation from the server-rendered HTML on.
     await page.addInitScript(() => {
-      const counts = { started: 0, ended: false };
-      window.illustrationAnimation = counts;
-      document.addEventListener("animationstart", () => counts.started++, true);
-      document.addEventListener("animationend", () => counts.ended = true, true);
+      document.addEventListener("animationstart", () => {
+        window.illustrationAnimationStarts = (window.illustrationAnimationStarts ?? 0) + 1;
+      }, true);
     });
     await page.goto("/this-page-was-not-part-of-it");
     // Clerk resolving the session after hydration must not remount the page and replay it.
-    await page.waitForFunction(() => window.illustrationAnimation?.ended);
-    expect(await page.evaluate(() => window.illustrationAnimation?.started)).toBe(1);
-    await page.getByRole("link", { name: "Go to dashboard" }).click();
+    // The dashboard link renders with the resolved session; a remount would happen then.
+    const dashboard = page.getByRole("link", { name: "Go to dashboard" });
+    await expect(dashboard).toBeVisible();
+    await page.locator("section > svg").evaluate((svg) => Promise.all(svg.getAnimations({ subtree: true }).map((a) => a.finished)));
+    expect(await page.evaluate(() => window.illustrationAnimationStarts)).toBe(1);
+    await dashboard.click();
     await expect(page).toHaveURL(/\/app$/);
   } finally {
     await user.cleanup();

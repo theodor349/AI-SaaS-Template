@@ -14,10 +14,11 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
   // render the previous scope while the SDK acquires and validates its next token.
   // Clerk's first load after hydration is not a change: Convex auth is still loading
   // then, so the server-rendered page stays mounted instead of replaying its animations.
+  // While Clerk reloads, as during an organization switch, the last loaded key holds.
   const scope = JSON.stringify([sessionId, orgId, orgRole]);
-  const [firstScope, setFirstScope] = useState<string>();
-  if (isLoaded && firstScope === undefined) setFirstScope(scope);
-  const key = scope === (firstScope ?? scope) ? "first" : scope;
+  const [scopes, setScopes] = useState<{ first: string; current: string }>();
+  if (isLoaded && scopes?.current !== scope) setScopes({ first: scopes?.first ?? scope, current: scope });
+  const key = !scopes || scopes.current === scopes.first ? "first" : scopes.current;
   return (
     <ConvexProviderWithClerk key={key} client={convex} useAuth={useAuth}>
       <UserProvisioning />
