@@ -3,12 +3,13 @@ import { scrub, scrubBreadcrumb, scrubEvent } from "./scrub";
 
 // Sentry is optional: without a DSN nothing initializes or downloads. next.config.js
 // derives the environment from WORKTREE_ID and the release from the Vercel Git SHA,
-// and points bootstrap's local stack at a fake ingest route. A DSN that isn't a URL
-// turns Sentry off rather than breaking the proxy, which derives the CSP from it.
+// and points bootstrap's local stack at a fake ingest route. A DSN that isn't an HTTP(S)
+// URL turns Sentry off rather than breaking the proxy, which derives the CSP from it.
 function validDsn(dsn: string | undefined) {
   if (!dsn) return undefined;
-  if (URL.canParse(dsn)) return dsn;
-  console.error("NEXT_PUBLIC_SENTRY_DSN is not a valid URL, so Sentry is off.");
+  const protocol = URL.canParse(dsn) && new URL(dsn).protocol;
+  if (protocol === "http:" || protocol === "https:") return dsn;
+  console.error("NEXT_PUBLIC_SENTRY_DSN is not an HTTP(S) URL, so Sentry is off.");
   return undefined;
 }
 

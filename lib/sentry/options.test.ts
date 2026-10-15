@@ -6,8 +6,8 @@ afterEach(() => {
   vi.resetModules();
 });
 
-test("a malformed DSN turns Sentry off instead of throwing on import", async () => {
-  vi.stubEnv("NEXT_PUBLIC_SENTRY_DSN", "not a url");
+test.each(["not a url", "file:///tmp/1"])("the DSN %s turns Sentry off instead of throwing on import", async (dsn) => {
+  vi.stubEnv("NEXT_PUBLIC_SENTRY_DSN", dsn);
   const error = vi.spyOn(console, "error").mockImplementation(() => {});
   const { sentryDsn } = await import("./options");
   const { sentryConsentService } = await import("./consent-service");
