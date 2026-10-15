@@ -8,7 +8,8 @@ export const dynamic = "force-static";
 // served from the service worker's cache with nothing else, so it is one
 // self-contained document: no Next.js scripts, stylesheets, fonts, Clerk, or
 // Convex, only the inline theme script and the global error page's theme tokens.
-// It reloads by itself when the connection comes back.
+// It reloads by itself when the connection comes back. Its scripts are inline, with no
+// event handler attributes, for the Content Security Policy (lib/security/csp.ts).
 export async function GET() {
   const appName = escapeHtml(appConfig.appName);
   const supportEmail = escapeHtml(appConfig.supportEmail);
@@ -56,10 +57,13 @@ button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 <h1>${appName} needs a connection.</h1>
 <p class="muted">Check your Wi-Fi or mobile data. This page reloads when you’re back online.</p>
 </div>
-<button type="button" onclick="location.reload()">Try again</button>
+<button type="button" id="retry">Try again</button>
 <p class="muted">Need a hand? Email <a href="mailto:${supportEmail}">${supportEmail}</a>.</p>
 </main>
-<script>addEventListener("online", () => location.reload());</script>
+<script>
+document.getElementById("retry").addEventListener("click", () => location.reload());
+addEventListener("online", () => location.reload());
+</script>
 </body>
 </html>`;
   return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
