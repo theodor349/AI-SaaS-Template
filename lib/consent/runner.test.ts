@@ -82,6 +82,24 @@ describe("consent runner", () => {
     errors.mockRestore();
   });
 
+  test("a load that fails after starting work is unloaded once, and a later withdrawal does not unload it again", async () => {
+    const events: string[] = [];
+    const service = defineConsentService({
+      id: "partial", category: "analytics", name: "Partial", purpose: "Starts, then fails.", storage: [],
+      load() {
+        events.push("start");
+        throw new Error("failed after starting");
+      },
+      unload() { events.push("unload"); },
+    });
+    const runner = createConsentRunner([service], () => events.push("clear"));
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await runner.sync(consent(true));
+    await runner.sync(consent(false));
+    expect(events).toEqual(["start", "unload", "clear"]);
+    errors.mockRestore();
+  });
+
   test("an older failed load does not forget a newer grant", async () => {
     const events: string[] = [];
     let failFirst = (_error: Error) => {};

@@ -20,7 +20,8 @@ export type ConsentService = {
   // re-grant. Import the service's code dynamically here so nobody downloads it
   // before agreeing. Essential services leave both out.
   load?: () => void | Promise<void>;
-  // Called when the category is withdrawn, after any pending load finishes.
+  // Called when the category is withdrawn, after any pending load finishes, and
+  // after a load that throws, so it must tolerate a partial load.
   unload?: () => void | Promise<void>;
 };
 

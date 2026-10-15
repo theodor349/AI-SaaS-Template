@@ -32,7 +32,13 @@ export function createConsentRunner(services: readonly ConsentService[], clear: 
           try {
             await service.load?.();
           } catch (error) {
-            if (loaded.get(service.id) === attempt) loaded.delete(service.id);
+            // Undo whatever the load started. A withdrawal that already took this
+            // attempt's record queued its own unload.
+            if (loaded.get(service.id) === attempt) {
+              loaded.delete(service.id);
+              await Promise.resolve(service.unload?.()).catch((cleanupError: unknown) =>
+                console.error(`Consent service ${service.id} failed to clean up a failed load`, cleanupError));
+            }
             throw error;
           }
         }));
