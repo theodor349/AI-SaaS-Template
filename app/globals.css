@@ -128,3 +128,11 @@
     @apply font-sans;
     }
 }
+
+/* Toasts clear the navigation bar while it sits at the bottom of the screen
+   (components/layout/site-navigation.module.css). The root layout's Toaster reads it. */
+@media (max-width: 767px) {
+  :root {
+    --toast-offset-bottom: calc(88px + env(safe-area-inset-bottom));
+  }
+}
