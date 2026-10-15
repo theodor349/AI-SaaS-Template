@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { worktreeConfig } from "./bootstrap.mjs";
 import { plannedProxies, serveWorktree, tailscaleConfig } from "./bootstrap-tailscale.mjs";
-import { chooseNetwork } from "./bootstrap/tailscale.mjs";
+import { chooseNetwork, removeRecordedRoutes } from "./bootstrap/tailscale.mjs";
 
 const local = worktreeConfig("/tmp/tailscale-test-worktree");
 const remote = tailscaleConfig(local, "agent.example.ts.net.");
@@ -117,4 +117,23 @@ test("serving records created and preserved routes for the state file", async ()
   const cleanup = await serveWorktree(local, remote, fake.command);
   assert.deepEqual(cleanup.created.map(route => route.port), [remote.ports.next, remote.ports.convex]);
   assert.deepEqual(cleanup.preserved, [{ port: remote.ports.site, target: `http://127.0.0.1:${local.ports.site}` }]);
+});
+
+test("a stale run's recorded routes are removed only while unchanged and unserved", async () => {
+  const fake = fakeTailscale();
+  const target = service => `http://127.0.0.1:${local.ports[service]}`;
+  for (const service of ["next", "convex", "site"]) {
+    const route = proxyState(remote.ports[service], target(service));
+    Object.assign(fake.state.TCP, route.TCP); Object.assign(fake.state.Web, route.Web);
+  }
+  fake.state.Web[authority(remote.ports.convex)].Handlers["/"].Proxy = "http://127.0.0.1:9999";
+  const recorded = ["next", "convex", "site"].map(service => ({ port: remote.ports[service], target: target(service) }));
+  const gone = { port: 65001, target: "http://127.0.0.1:1" };
+  const listening = async port => port === local.ports.site;
+  const result = await removeRecordedRoutes(remote.hostname, [...recorded, gone], { command: fake.command, listening });
+  assert.deepEqual(result, { removed: [recorded[0]], kept: [recorded[1], recorded[2]] });
+  assert.equal(fake.state.Web[authority(remote.ports.next)], undefined);
+  assert.ok(fake.state.Web[authority(remote.ports.convex)]);
+  assert.ok(fake.state.Web[authority(remote.ports.site)]);
+  assert.deepEqual(fake.state.Web["agent.example.ts.net:443"], existing.Web["agent.example.ts.net:443"]);
 });

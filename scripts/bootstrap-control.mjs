@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { gitRoot } from "./bootstrap/config.mjs";
 import { occupiedPorts } from "./bootstrap/network.mjs";
 import { processStart } from "./bootstrap/processes.mjs";
+import { reclaim } from "./bootstrap/reclaim.mjs";
 import { bootstrapPaths, inspectState, isVerifiedSupervisor, liveStatuses, logTail, readState } from "./bootstrap/state.mjs";
 
 const usage = `pnpm bootstrap:status [--json]   Show this worktree's bootstrap status, URLs, and log path.
@@ -11,7 +12,8 @@ pnpm bootstrap:wait [--timeout <seconds>]   Wait until ready (default 300 second
 pnpm bootstrap:stop [--timeout <seconds>]   Stop this worktree's bootstrap and its services (default 30 seconds).
 
 Status comes from the state file bootstrap writes in this worktree's Git directory.
-A recorded PID whose process is gone or has a different start time is reported as stale.`;
+A recorded PID whose process is gone or has a different start time is reported as stale.
+Stopping a stale run reclaims the services and Tailscale routes it recorded.`;
 
 // A run that fails or stops while waiting is reported at once. A terminal state
 // that predates "wait" may belong to an earlier run, so a bootstrap started just
@@ -51,6 +53,7 @@ function describe(state, paths) {
     `App: ${state.urls.app}`, `Convex: ${state.urls.convex}`, `Site: ${state.urls.site}`,
   ];
   if (state.error) lines.push(`Error: ${state.error}`);
+  if (state.status === "stale") lines.push("Run pnpm bootstrap:stop to reclaim the services and routes it recorded.");
   lines.push(`Log: ${state.log}`, `State: ${paths.state}`);
   return lines.join("\n");
 }
@@ -105,14 +108,17 @@ async function waitForPorts(ports, deadline) {
 }
 
 // Signals only the recorded supervisor, after rechecking its PID and start time.
-// Its own shutdown stops Convex, Next, Polar, and Tailscale routes it created.
+// Its own shutdown stops Convex, Next, Polar, and Tailscale routes it created. A
+// supervisor that died without that shutdown is reclaimed from its state file.
 async function stop(paths, options, root) {
   const timeoutMs = (options.timeout ?? 30) * 1000;
   const recorded = readState(paths.state);
   const state = inspectState(recorded);
   if (recorded && recorded.root !== root) throw new Error(`State file ${paths.state} belongs to ${recorded.root}; refusing to act on it.`);
   if (!liveStatuses.includes(state.status)) {
-    console.log(state.status === "absent" ? "Bootstrap is not running in this worktree." : `Bootstrap is not running (${state.status}).`);
+    if (state.status === "stale") {
+      if (!(await reclaim(paths.state, recorded))) process.exitCode = 1;
+    } else console.log(state.status === "absent" ? "Bootstrap is not running in this worktree." : `Bootstrap is not running (${state.status}).`);
     const occupied = state.ports ? await occupiedPorts(state.ports) : [];
     if (occupied.length) {
       console.error(`Ports still in use: ${occupied.join(", ")}. No verified bootstrap owns them, so nothing was signalled.`);

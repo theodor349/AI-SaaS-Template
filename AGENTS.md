@@ -26,7 +26,7 @@ This template provides shared architecture, UI patterns, and an agent-friendly d
 
 ## The ways to hurt yourself
 
-1. Never kill processes solely by matching a name, path, or worktree string. Multiple agents and dev servers share this machine, and those matches can include unrelated processes or the agent itself. Stop `pnpm bootstrap` with Ctrl+C in its original terminal or `pnpm bootstrap:stop`, which verifies the recorded supervisor before signaling it, so it cleans up its managed services. If manual cleanup is necessary, target only processes you started or have verified belong to that bootstrap instance. A matching port or working directory alone does not prove ownership.
+1. Never kill processes solely by matching a name, path, or worktree string. Multiple agents and dev servers share this machine, and those matches can include unrelated processes or the agent itself. Stop `pnpm bootstrap` with Ctrl+C in its original terminal or `pnpm bootstrap:stop`, which verifies the recorded supervisor before signaling it, so it cleans up its managed services. If the supervisor died without shutting down, `bootstrap:stop` reclaims the service process groups and Tailscale routes its state file recorded. If manual cleanup is necessary, target only processes you started or have verified belong to that bootstrap instance. A matching port or working directory alone does not prove ownership.
 
 ## Worktree development
 
@@ -34,7 +34,7 @@ This template provides shared architecture, UI patterns, and an agent-friendly d
 - `pnpm setup:check` checks prerequisites and provider setup. Run it first when a worktree misbehaves.
 - `pnpm bootstrap` starts Next.js, local Convex, and Polar sandbox forwarding, syncing dependencies along the way. Run it in a persistent terminal (or the background) and use `pnpm bootstrap:wait` to block until it is ready. This is the worktree entry point instead of `pnpm dev`.
 - Bootstrap uses private Tailscale HTTPS URLs when Tailscale is connected with HTTPS, and loopback URLs otherwise. `--local` forces loopback; `--tailscale` requires Tailscale. The URLs are fixed at startup, so switching modes needs a restart.
-- `pnpm bootstrap:status` shows the run's state, URLs, and log file; `pnpm bootstrap:stop` stops this worktree's verified bootstrap from any terminal. Service output is also written to the log, so read it there when you do not own the terminal.
+- `pnpm bootstrap:status` shows the run's state, URLs, and log file; `pnpm bootstrap:stop` stops this worktree's verified bootstrap from any terminal. A `stale` status means the supervisor was killed without its shutdown; `pnpm bootstrap:stop`, or the next `pnpm bootstrap`, reclaims what it left running. Service output is also written to the log, so read it there when you do not own the terminal.
 - Share inspection links with the maintainer only over Tailscale HTTPS, verified to respond first. `pnpm review-link [--plan …] [--path …]` prints a single-use signed-in link for them; never paste it into PRs or issues. Do not share localhost or loopback URLs for maintainer inspection.
 - Ports and `WORKTREE_ID` derive from the worktree path and stay stable across restarts. `pnpm bootstrap --print` shows the effective configuration. On a port collision, set `BOOTSTRAP_PORT_BLOCK` in this worktree's `.env.bootstrap.local`.
 - Local database state lives in the worktree's gitignored `.convex`; Next.js output lives in `.next`. Restarting bootstrap keeps the database; `pnpm db:reset --yes` clears it while bootstrap is stopped. Each worktree gets its own generated environment files.
@@ -55,7 +55,7 @@ This template provides shared architecture, UI patterns, and an agent-friendly d
 - A maintainer request to implement something (an issue, bug fix, or feature) follows [$implement](.agents/skills/implement/SKILL.md), whether or not they name the skill. Example: `$implement issue #123` or "fix the broken pricing toggle".
 - Once the change is implemented and verified, continue into [$complete-worktree](.agents/skills/complete-worktree/SKILL.md) in the same session without asking.
 - Hold the merge, not the PR, when the maintainer asked to see the change first or when you need their input: an open question about scope or behavior, a visual or product choice they should judge, or a blocker you cannot resolve. Open the PR and handle CI and bot review while you wait, report what you need, and merge once they confirm. Skip the PR only when the maintainer asked you not to open one.
-- Invoking `$complete-worktree` directly requests completion of existing task changes, including from a session that never used `$implement`. Both workflows authorize one PR, bot review and fixes, merge after the skill's verification gates, deletion of the task branch, and shutdown of owned services and terminals. Stay in the current T3-assigned worktree; do not create another worktree. Reading or editing these skills does not invoke the workflows. Honor explicit maintainer restrictions such as keeping a PR open.
+- Invoking `$complete-worktree` directly requests completion of existing task changes, including from a session that never used `$implement`. Both workflows authorize one PR, bot review and fixes, merge after the skill's verification gates, deletion of the task branch, shutdown of owned services and terminals, and removal of the worktree's build output and temporary files after merge. Stay in the current T3-assigned worktree; do not create another worktree. Reading or editing these skills does not invoke the workflows. Honor explicit maintainer restrictions such as keeping a PR open.
 - Questions, research, plans, and reviews are not implementation requests. Never make a PR for them unless the maintainer explicitly asks.
 - Conventional commit titles, plain language: `fix(web): correctly handle Polar subscription events`.
 - Body: the problem in a sentence or two, then how you fixed it. End with the model and harness that did the work.
@@ -76,7 +76,7 @@ Most code changes do not need an internal documentation change. Agents can read 
 
 ## Plans and work artifacts
 
-- Do not commit implementation plans, research notes, or agent scratch files. Keep temporary working material outside the worktree.
+- Do not commit implementation plans, research notes, or agent scratch files. Keep temporary working material in this worktree's scratch directory, `$(git rev-parse --path-format=absolute --git-path agent-scratch)`. It is outside tracked source, on disk rather than in a memory-backed `/tmp`, and removed with the worktree.
 
 ## Taste
 

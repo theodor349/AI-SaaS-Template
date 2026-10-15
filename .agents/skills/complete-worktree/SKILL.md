@@ -7,7 +7,7 @@ description: Complete existing changes in the current T3-assigned worktree by sy
 
 Accept the current worktree's existing changes, an associated PR number or URL, or the continuation from [implement](../implement/SKILL.md). For example: `$complete-worktree` or `$complete-worktree PR #123`. No prior use of `implement` or session memory is required.
 
-A maintainer request to run this workflow authorizes task commits, pushing, opening one PR, review commands and replies, merging after the gates below, deleting the task's local and remote branch, and shutting down its owned services and terminals. The continuation from `implement`, which follows any implementation request, carries the same authorization; do not ask again. Reading or editing this skill alone does not authorize these actions. Honor any explicit restriction such as keeping the PR open. Production deployment, removing the worktree directory or its database, and unrelated external actions are outside this workflow.
+A maintainer request to run this workflow authorizes task commits, pushing, opening one PR, review commands and replies, merging after the gates below, deleting the task's local and remote branch, shutting down its owned services and terminals, and removing its build output and temporary files after merge. The continuation from `implement`, which follows any implementation request, carries the same authorization; do not ask again. Reading or editing this skill alone does not authorize these actions. Honor any explicit restriction such as keeping the PR open. Production deployment, removing the worktree directory or its database, and unrelated external actions are outside this workflow.
 
 ## 1. Recover the task and environment
 
@@ -60,7 +60,7 @@ Run `pnpm pr:gate <url>` again to confirm `MERGED` with its merge commit. Save t
 
 ## 6. Shut down resources and delete the task branch
 
-Execute [resource cleanup](references/cleanup.md), including its session and terminal-panel rules, even if a later branch-deletion step fails. Unverified process or service shutdown remains a cleanup blocker.
+Execute [resource cleanup](references/cleanup.md), including its session and terminal-panel rules and task-file removal, even if a later branch-deletion step fails. Unverified process or service shutdown remains a cleanup blocker.
 
 After confirmed merge, inspect status and refs again. If new uncommitted work appeared, preserve it and report a cleanup blocker before detaching or deleting branches. Delete only the task branch whose tip still equals the confirmed merged PR head. If local or remote refs advanced, preserve them and report the extra work. If GitHub already deleted the remote branch, verify its absence and continue. Otherwise delete on the head remote with an exact expected-SHA lease so a concurrent push cannot be lost. Never delete `main` or unrelated branches.
 

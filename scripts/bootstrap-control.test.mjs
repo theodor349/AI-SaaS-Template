@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { waitDecision } from "./bootstrap-control.mjs";
-import { processStart } from "./bootstrap/processes.mjs";
+import { groupMembers, processStart } from "./bootstrap/processes.mjs";
+import { reclaim, reclaimStaleRun } from "./bootstrap/reclaim.mjs";
 import { createStateRecorder, inspectState, isVerifiedSupervisor, readState, writeState } from "./bootstrap/state.mjs";
 import { resetTargets } from "./db-reset.mjs";
 
@@ -79,4 +80,42 @@ test("db:reset removes database files and the watch env but keeps the deployment
   const linkedRoot = temporary(t, "db reset linked ");
   symlinkSync(join(root, ".convex"), join(linkedRoot, ".convex"));
   assert.throws(() => resetTargets(linkedRoot), /not a directory/);
+});
+
+test("reclaiming a stale run signals only groups that still contain a recorded member", async () => {
+  // pid ppid pgid: group 200 is intact, 300's member restarted, 400's member moved, 500 is gone.
+  const table = "201 1 200\n202 201 200\n301 1 300\n401 1 999\n";
+  const starts = { 201: "start 201", 202: "start 202", 301: "restarted", 401: "start 401" };
+  const services = [200, 300, 400, 500].map((pgid) => ({ pgid, members: [{ pid: pgid + 1, start: `start ${pgid + 1}` }] }));
+  const live = new Set([200, 300, 999]);
+  const signals = [];
+  const signal = (group, name) => {
+    if (name === 0) return live.has(group);
+    signals.push([group, name]);
+    if (name === "SIGTERM" || name === "SIGKILL") live.delete(group);
+    return true;
+  };
+  const routes = [{ port: 51000, target: "http://127.0.0.1:20000" }];
+  const result = await reclaimStaleRun({ services, tailscale: { hostname: "agent.example.ts.net", createdRoutes: routes } }, {
+    table: async () => table, startOf: (pid) => starts[pid] ?? null, signal, graceMs: 100,
+    removeRoutes: async (hostname, created) => ({ removed: created, kept: [] }),
+  });
+  assert.deepEqual(signals, [[200, "SIGTERM"]]);
+  assert.deepEqual(result, { stopped: [200], survivors: [], routes: { removed: routes, kept: [] } });
+  assert.deepEqual(groupMembers([200, 300], table, (pid) => starts[pid] ?? null), [
+    { pgid: 200, members: [{ pid: 201, start: "start 201" }, { pid: 202, start: "start 202" }] },
+    { pgid: 300, members: [{ pid: 301, start: "restarted" }] },
+  ]);
+});
+
+test("a reclaimed run is marked stopped only when nothing it owned remains", async (t) => {
+  const file = join(temporary(t, "bootstrap reclaim "), "bootstrap-state.json");
+  const recorded = { version: 1, pid: 4242, processStart: "gone", status: "ready", services: [{ pgid: 600, members: [{ pid: 601, start: "s" }] }] };
+  const quiet = { log: () => {}, warn: () => {}, table: async () => "601 1 600\n", startOf: () => "s", graceMs: 50 };
+  writeState(file, recorded);
+  assert.equal(await reclaim(file, recorded, { ...quiet, signal: (group, name) => name !== 0 }), true);
+  assert.equal(readState(file).status, "stopped");
+  writeState(file, recorded);
+  assert.equal(await reclaim(file, recorded, { ...quiet, signal: () => true }), false);
+  assert.equal(readState(file).status, "ready");
 });

@@ -45,8 +45,13 @@ export async function superviseNext(url, controller) {
   }
 }
 
+// Rows of `ps -eo pid=,ppid=,pgid=` as [pid, ppid, pgid].
+export function processRows(processTable) {
+  return processTable.trim().split("\n").map((line) => line.trim().split(/\s+/).map(Number));
+}
+
 export function descendantProcessGroups(pids, processTable) {
-  const rows = processTable.trim().split("\n").map((line) => line.trim().split(/\s+/).map(Number));
+  const rows = processRows(processTable);
   const descendants = new Set(pids);
   let previousSize;
   do {
@@ -99,7 +104,17 @@ export function processStart(pid) {
   }
 }
 
-async function processTable() {
+// Records each group's members with their start times, so a later command can
+// tell these groups apart from new ones after their IDs are reused.
+export function groupMembers(groups, processTable, startOf = processStart) {
+  const rows = processRows(processTable);
+  return groups.map((pgid) => ({
+    pgid,
+    members: rows.filter(([, , group]) => group === pgid).map(([pid]) => ({ pid, start: startOf(pid) })).filter(({ start }) => start),
+  })).filter(({ members }) => members.length);
+}
+
+export async function processTable() {
   try { return execFileSync("ps", ["-eo", "pid=,ppid=,pgid="], { encoding: "utf8" }); }
   catch (error) {
     // A terminal Ctrl+C can also interrupt the process inspection started during cleanup.
@@ -178,9 +193,11 @@ export function createSupervisor({ root, env, controller, log }) {
     run,
     supervise(task) { supervision.push(task); },
     // Record groups while services are healthy; a crashed parent hides its descendants later.
+    // Returns them with their members for the state file, which outlives a killed supervisor.
     async recordServiceGroups() {
-      serviceGroups = descendantProcessGroups(children.filter(({ persistent }) => persistent).map(({ child }) => child.pid),
-        await processTable());
+      const table = await processTable();
+      serviceGroups = descendantProcessGroups(children.filter(({ persistent }) => persistent).map(({ child }) => child.pid), table);
+      return groupMembers(serviceGroups, table);
     },
     async stop() {
       stopping = true;

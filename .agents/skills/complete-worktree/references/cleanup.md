@@ -4,11 +4,11 @@ Read this before starting persistent commands and again when completing a worktr
 
 ## Bootstrap owns its own record
 
-`pnpm bootstrap` writes this worktree's ownership record to `$(git rev-parse --path-format=absolute --git-path bootstrap-state.json)`: supervisor PID and start time, status, mode, ports, URLs, created and preserved Tailscale routes, and the log path (`--git-path bootstrap.log`). It lives in the worktree's Git admin directory, outside tracked source, and survives the session.
+`pnpm bootstrap` writes this worktree's ownership record to `$(git rev-parse --path-format=absolute --git-path bootstrap-state.json)`: supervisor PID and start time, status, mode, ports, URLs, service process groups with their members' start times, created and preserved Tailscale routes, and the log path (`--git-path bootstrap.log`). It lives in the worktree's Git admin directory, outside tracked source, and survives the session.
 
-- `pnpm bootstrap:status` shows status, URLs, mode, PID, and log path; `--json` for scripts. A recorded PID that is gone or has a different start time is reported as `stale`.
+- `pnpm bootstrap:status` shows status, URLs, mode, PID, and log path; `--json` for scripts. A recorded PID that is gone or has a different start time is reported as `stale`: the supervisor was killed without its own shutdown.
 - `pnpm bootstrap:wait [--timeout <seconds>]` exits 0 once ready and prints the log tail on failure. Use it after starting bootstrap in the background.
-- `pnpm bootstrap:stop [--timeout <seconds>]` rechecks PID and start time, sends SIGINT to the supervisor only, then waits for exit and for this worktree's ports to be free. If it does not exit, it sends SIGTERM to the same verified supervisor once. Bootstrap's own shutdown stops Convex, Next, and Polar and removes only Tailscale routes that run created.
+- `pnpm bootstrap:stop [--timeout <seconds>]` rechecks PID and start time, sends SIGINT to the supervisor only, then waits for exit and for this worktree's ports to be free. If it does not exit, it sends SIGTERM to the same verified supervisor once. Bootstrap's own shutdown stops Convex, Next, and Polar and removes only Tailscale routes that run created. For a `stale` run it reclaims instead: it signals only recorded process groups that still contain a recorded member with its recorded start time, and removes recorded routes that still point only to their original target with no listener. The next `pnpm bootstrap` in the worktree does the same before starting.
 
 Do not copy bootstrap PIDs into another inventory. If `bootstrap:stop` reports a failure, read the log and the reported survivors; do not signal anything it did not verify.
 
@@ -27,7 +27,7 @@ In a fresh session, check each recorded PID against its start time; PIDs are reu
 ## Stop services
 
 1. Finish checks and evidence capture.
-2. Run `pnpm bootstrap:stop`. It works from any session and is equivalent to Ctrl+C in bootstrap's terminal. Confirm it reports the stack stopped and ports free; `pnpm bootstrap:status` should then show `stopped`.
+2. Run `pnpm bootstrap:stop`. It works from any session and is equivalent to Ctrl+C in bootstrap's terminal, and it reclaims a `stale` run. Confirm it reports the stack stopped and ports free; `pnpm bootstrap:status` should then show `stopped`.
 3. Stop other task commands through their owning terminals or verified supervisors and wait for exit. For a manual fallback, establish the exact descendants belonging to that launch, recheck identity, and terminate gracefully before escalating only verified survivors after a bounded wait.
 4. Never use `pkill`/`killall`, kill-by-search pipelines, port-based killing, or Tailscale-wide resets. Do not signal the agent/harness or unrelated/shared services. An occupied port held by an unrelated process is not permission to stop it.
 
@@ -40,4 +40,14 @@ In a fresh session, check each recorded PID against its start time; PIDs are reu
 - A new session may lack an earlier session's terminal handles. Use available session controls or the verified supervisor fallback above to stop live resources. Retain the inventory if their shutdown cannot be verified, even when panel controls are unavailable.
 - Do not terminate the current agent/harness to close its own execution channel. Finish the final report normally and let the harness release that channel.
 
-Continue cleaning independently verified resources if another item fails. Clean Git status does not require removing ignored `.convex`, `.next`, generated environment files, or the bootstrap state and log. Preserve the worktree directory and database. Delete the inventory after its items are verified complete; on a blocker, mark completed items and keep the unresolved ones.
+## Remove task files after merge
+
+Only after the PR is confirmed merged and `pnpm bootstrap:status` shows `stopped` or `absent`, remove files that only this task used. They regenerate when needed and otherwise stay until T3 Code removes the worktree:
+
+- `.next` in this worktree: Next.js build output, often gigabytes.
+- The scratch directory, `$(git rev-parse --path-format=absolute --git-path agent-scratch)`.
+- This worktree's PR evidence, `$TMPDIR/pr-evidence/<worktreeId>` (the ID is in `pnpm bootstrap:status`), once it is uploaded to the PR.
+
+Remove these exact paths only, never by pattern. Keep them while the merge is held or blocked.
+
+Continue cleaning independently verified resources if another item fails. Clean Git status does not require removing ignored `.convex`, generated environment files, or the bootstrap state and log. Preserve the worktree directory and database. Delete the inventory after its items are verified complete; on a blocker, mark completed items and keep the unresolved ones.

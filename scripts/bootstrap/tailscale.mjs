@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { assertPortsAvailable } from "./network.mjs";
+import { assertPortsAvailable, portAcceptsConnections } from "./network.mjs";
 
 const magicDnsName = /^[a-z0-9-]+\.[a-z0-9-]+\.ts\.net$/;
+const tailscaleCommand = args => execFileSync("tailscale", args, { encoding: "utf8", timeout: 15000 });
 
 // Separate ports avoid conflicting with Convex's wildcard local listeners.
 export function tailscaleConfig(config, dnsName) {
@@ -68,6 +69,32 @@ export function plannedProxies(config, remote, serve) {
   });
 }
 
+// True while the route on port proxies only to target, without public Funnel.
+function routesOnlyTo(serve, hostname, { port, target }) {
+  const authority = `${hostname}:${port}`;
+  const handlers = serve.Web?.[authority]?.Handlers;
+  return !serve.AllowFunnel?.[authority] && serve.TCP?.[port]?.HTTPS === true &&
+    handlers?.["/"]?.Proxy === target && Object.keys(handlers).length === 1;
+}
+
+// Removes routes a stopped run recorded as created, while they still point only to
+// its targets and nothing listens there. Routes that changed or gained a listener
+// may belong to someone else and are kept.
+export async function removeRecordedRoutes(hostname, routes, { command = tailscaleCommand, listening = portAcceptsConnections } = {}) {
+  const current = JSON.parse(command(["serve", "status", "--json"]));
+  const removed = [];
+  const kept = [];
+  for (const route of routes) {
+    if (!current.TCP?.[route.port] && !current.Web?.[`${hostname}:${route.port}`]) continue;
+    const served = await listening(Number(new URL(route.target).port)).catch(() => true);
+    if (routesOnlyTo(current, hostname, route) && !served) {
+      command(["serve", `--https=${route.port}`, "off"]);
+      removed.push(route);
+    } else kept.push(route);
+  }
+  return { removed, kept };
+}
+
 export function cleanupProxies(cleanup) {
   try { cleanup(); return true; }
   catch (error) { console.error(`Tailscale cleanup failed: ${error.message}`); return false; }
@@ -75,7 +102,7 @@ export function cleanupProxies(cleanup) {
 
 // Returns a cleanup function that removes only routes this run created.
 // Its created/preserved lists are recorded in the bootstrap state file.
-export async function serveWorktree(config, remote, command = args => execFileSync("tailscale", args, { encoding: "utf8", timeout: 15000 })) {
+export async function serveWorktree(config, remote, command = tailscaleCommand) {
   const plans = plannedProxies(config, remote, JSON.parse(command(["serve", "status", "--json"])));
   await assertPortsAvailable(Object.fromEntries(plans.filter(p => p.create).map(p => [`tailscale-${p.port}`, p.port])));
   const created = [];
@@ -84,10 +111,7 @@ export async function serveWorktree(config, remote, command = args => execFileSy
     const current = JSON.parse(command(["serve", "status", "--json"]));
     for (const plan of [...created].reverse()) {
       // Only remove routes we created that still point to our original target.
-      const authority = `${remote.hostname}:${plan.port}`;
-      if (!current.AllowFunnel?.[authority] && current.TCP?.[plan.port]?.HTTPS === true && current.Web?.[authority]?.Handlers?.["/"]?.Proxy === plan.target && Object.keys(current.Web[authority].Handlers).length === 1) {
-        command(["serve", `--https=${plan.port}`, "off"]);
-      }
+      if (routesOnlyTo(current, remote.hostname, plan)) command(["serve", `--https=${plan.port}`, "off"]);
     }
   };
   try {
