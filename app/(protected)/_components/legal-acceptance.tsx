@@ -55,7 +55,7 @@ function AcceptanceText({ updated }: { updated: boolean }) {
     <>
       Accept the <Link href="/terms">Terms of Service</Link> and confirm you’ve read
       the <Link href="/privacy">Privacy Policy</Link> to {updated ? "keep using" : "use"} {appConfig.appName} and
-      to buy a plan. Your account, billing, and account deletion stay available either way.
+      to buy a plan. Your account settings, billing, data export, and account deletion stay available either way.
     </>
   );
 }

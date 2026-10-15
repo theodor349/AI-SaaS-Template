@@ -57,7 +57,7 @@ We're liable under Danish law for loss we cause through negligence. We're not li
 
 ## 11. Changes to these terms
 
-If we change these terms in a way that matters to you, we publish a new version and ask you to accept it the next time you use {{APP_NAME}}. Until you accept, you can still use your account settings, billing, and account deletion, and get a copy of your data, but not the rest of {{APP_NAME}}, and you can't buy a new plan. If you don't want to accept, you can cancel your subscription. Contact us and we'll refund the prepaid subscription time you couldn't use. Smaller changes, such as corrections, only update the effective date.
+If we change these terms in a way that matters to you, we publish a new version and ask you to accept it the next time you use {{APP_NAME}}. Until you accept, you can still use your account settings, billing, data export, and account deletion, but not the rest of {{APP_NAME}}, and you can't buy a new plan. If you don't want to accept, you can cancel your subscription. Contact us and we'll refund the prepaid subscription time you couldn't use. Smaller changes, such as corrections, only update the effective date.
 
 ## 12. Law and disputes
 

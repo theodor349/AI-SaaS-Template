@@ -46,7 +46,7 @@ These providers are based in the United States, so your data may be transferred 
 
 ## Your rights
 
-You can ask us to give you a copy of your data, also in a portable format, and to correct, erase, or restrict it. You can object to processing based on our legitimate interests, and withdraw consent at any time without affecting earlier processing. You can change your display name and delete your account yourself on the Account page. For anything else, email [{{SUPPORT_EMAIL}}](mailto:{{SUPPORT_EMAIL}}). We answer within one month.
+You have the right to a copy of your data, also in a portable format, and to have it corrected, erased, or restricted. You can object to processing based on our legitimate interests, and withdraw consent at any time without affecting earlier processing. On the Account page you can download a copy of your data, change your display name, and delete your account yourself. For anything else, email [{{SUPPORT_EMAIL}}](mailto:{{SUPPORT_EMAIL}}). We answer within one month.
 
 You can complain to the Danish Data Protection Agency: Datatilsynet, Carl Jacobsens Vej 35, 2500 Valby, [datatilsynet.dk](https://www.datatilsynet.dk).
 
