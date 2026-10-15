@@ -4,6 +4,7 @@ import { appConfig } from "../../app.config";
 import { seedPaidTestUser } from "../../scripts/billing-test-fixtures.mjs";
 import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
+import { captureEvidence } from "./evidence.mjs";
 import { acceptTerms } from "./legal.mjs";
 
 const local = resolveLocalTestConfig();
@@ -35,6 +36,7 @@ test("a user who hasn't accepted the terms keeps account and billing, and accept
     await page.goto("/app");
     await expect(page.getByText(`Before you start using ${appConfig.appName}`)).toBeVisible();
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toHaveCount(0);
+    await captureEvidence(page, "app-acceptance");
     await acceptTerms(page);
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();
     await page.reload();

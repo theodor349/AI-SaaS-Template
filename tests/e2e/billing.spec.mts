@@ -179,6 +179,8 @@ test("sandbox checkout and recovery work when another customer uses the sign-in 
     collisionCustomerId = collision.id;
     await page.goto("/billing"); await clerk.signIn({ page, emailAddress: user.email });
     await page.getByRole("button", { name: "Choose monthly" }).click();
+    await expect(page.getByRole("dialog", { name: "Accept the terms to continue" })).toBeVisible();
+    await captureEvidence(page, "billing-acceptance-dialog");
     await acceptTerms(page);
     await expect(page).toHaveURL(/https:\/\/sandbox\.polar\.sh\/checkout\//);
     // Don't record provider pages, tokens, or payment details in PR artifacts.
