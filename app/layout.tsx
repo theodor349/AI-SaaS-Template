@@ -10,6 +10,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { AUTHENTICATED_DESTINATION, SIGN_IN_PATH, SIGN_UP_PATH } from "@/lib/auth";
 import { SiteNavigation } from "@/components/layout/site-navigation";
 import { PageContent } from "@/components/layout/page-content";
+import { ConnectionStatus } from "@/components/layout/connection-status";
 import navigationStyles from "@/components/layout/site-navigation.module.css";
 import { appConfig } from "@/app.config";
 import { throwIfE2ECrashRequested } from "@/lib/e2e-crash";
@@ -72,6 +73,7 @@ export default async function RootLayout({
             <TooltipProvider>
               <ConvexClientProvider>
                 <SiteNavigation />
+                <ConnectionStatus />
                 <main className={cn("container mx-auto max-w-6xl px-4 py-8 sm:px-8", navigationStyles.content)}>
                   <PageContent>{children}</PageContent>
                 </main>
