@@ -5,7 +5,8 @@ import type { ConsentService } from "@/lib/consent/service";
 
 // Origins a service loads from, by CSP fetch directive. Consent services declare
 // them in their `origins` field, so registering a service updates the policy.
-export type CspOrigins = Partial<Record<"connect" | "frame" | "img" | "script" | "style" | "worker", readonly string[]>>;
+const originKinds = ["connect", "frame", "img", "script", "style", "worker"] as const;
+export type CspOrigins = Partial<Record<(typeof originKinds)[number], readonly string[]>>;
 
 export type CspOptions = {
   // The deployment's Convex URL, for its HTTPS and WebSocket origins.
@@ -82,9 +83,10 @@ export function contentSecurityPolicyHeaders(options: CspOptions) {
     "base-uri": new Set(["'self'"]),
     "object-src": new Set(["'none'"]),
   };
+  // Only the known kinds: defineConsentService's generic accepts extra keys.
   for (const { origins = {} } of options.services) {
-    for (const [kind, values] of Object.entries(origins)) {
-      for (const value of values ?? []) directives[`${kind}-src`].add(value);
+    for (const kind of originKinds) {
+      for (const value of origins[kind] ?? []) directives[`${kind}-src`].add(value);
     }
   }
   const policy = Object.entries(directives).map(([name, values]) => [name, ...values].join(" "));

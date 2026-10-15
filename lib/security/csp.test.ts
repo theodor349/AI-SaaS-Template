@@ -69,6 +69,16 @@ test("a consent service's origins join the policy with no other change", () => {
   expect(policy["frame-src"]).toContain("https://embed.widget.example");
 });
 
+test("an origin kind the policy doesn't know is ignored instead of breaking every page", () => {
+  const widget = defineConsentService({
+    id: "widget", category: "analytics", name: "Widget", purpose: "Test.", storage: [],
+    origins: { connect: ["https://api.widget.example"], fonts: ["https://fonts.widget.example"] },
+  });
+  const headers = contentSecurityPolicyHeaders({ ...base, services: [widget] });
+  expect(headers["Content-Security-Policy"]).toContain("https://api.widget.example");
+  expect(headers["Content-Security-Policy"]).not.toContain("fonts");
+});
+
 test("report-only mode reports to Sentry's security endpoint without enforcing", () => {
   const reportUrl = sentrySecurityEndpoint("https://abc123@o1.ingest.us.sentry.io/456", { environment: "production", release: "deadbeef" });
   expect(reportUrl).toBe("https://o1.ingest.us.sentry.io/api/456/security/?sentry_key=abc123&sentry_environment=production&sentry_release=deadbeef");
