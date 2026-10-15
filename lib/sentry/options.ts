@@ -1,3 +1,4 @@
+import type { init } from "@sentry/nextjs";
 import { scrub, scrubBreadcrumb, scrubEvent } from "./scrub";
 
 // Sentry is optional: without a DSN nothing initializes or downloads. next.config.js
@@ -5,19 +6,26 @@ import { scrub, scrubBreadcrumb, scrubEvent } from "./scrub";
 // and points bootstrap's local stack at a fake ingest route.
 export const sentryDsn = process.env.NEXT_PUBLIC_SENTRY_DSN || undefined;
 
-function sampleRate(value: string | undefined, fallback: number) {
-  const rate = Number(value);
-  return value && rate >= 0 && rate <= 1 ? rate : fallback;
-}
-
-// Options shared by every Sentry SDK in the app, including the privacy settings.
+// Options shared by the browser and server SDKs, including the privacy settings: no
+// user details, IP addresses, cookies, request bodies, or local variables. Request
+// headers are allowlisted because proxies add identifying ones, such as Vercel's
+// geolocation. Emails and credentials are scrubbed from everything else.
 export const sentryOptions = {
   dsn: sentryDsn,
   environment: process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT || undefined,
   release: process.env.NEXT_PUBLIC_SENTRY_RELEASE || undefined,
-  sendDefaultPii: false,
-  tracesSampleRate: sampleRate(process.env.NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE, 1),
+  dataCollection: {
+    userInfo: false,
+    cookies: false,
+    httpHeaders: { request: { allow: ["host", "user-agent", "accept", "content-type", "referer"] }, response: false },
+    httpBodies: [],
+    stackFrameVariables: false,
+    databaseQueryData: false,
+    queues: false,
+    graphQL: { document: false, variables: false },
+    genAI: { inputs: false, outputs: false },
+  },
   beforeSend: scrubEvent,
   beforeSendSpan: scrub,
   beforeBreadcrumb: scrubBreadcrumb,
-};
+} satisfies Parameters<typeof init>[0];

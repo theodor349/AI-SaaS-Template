@@ -295,6 +295,8 @@ export async function doctor({ offline = false } = {}) {
   return { root, worktree: config.id, results: [
     nodeCheck(process.version, packageJson.engines.node), pnpmCheck(pnpm, packageJson.packageManager), ...credentialResults,
     ...(clerk ?? offlineSkip("Clerk API")), ...(polar ?? offlineSkip("Polar API")),
+    // Sentry is optional and hosted-only; bootstrap points local stacks at a fake ingest route.
+    ok("Sentry", "optional; this worktree reports to its fake local endpoint. Hosted setup: docs/deployment.md"),
     ...tailscale, ...gh, playwright, ...ports,
   ] };
 }
