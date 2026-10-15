@@ -111,3 +111,25 @@ test("a choice in one tab updates the other tabs", async ({ page, context }) => 
     await user.cleanup();
   }
 });
+
+test("a choice the browser refuses to store still applies and says it won't last", async ({ page }) => {
+  const user = await createClerkTestUser(local);
+  try {
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.goto("/");
+    await clerk.signIn({ page, emailAddress: user.email });
+    await page.goto("/account");
+    await page.evaluate(() => {
+      Storage.prototype.setItem = () => { throw new DOMException("Quota exceeded", "QuotaExceededError"); };
+    });
+    const theme = page.getByRole("radiogroup", { name: "Theme" });
+    await theme.getByRole("radio", { name: "Dark" }).click();
+    await expectTheme(page, "dark");
+    await expect(theme.getByRole("radio", { name: "Dark" })).toHaveAttribute("aria-checked", "true");
+    await expect(page.getByRole("alert").filter({ hasText: "couldn’t save your choice" })).toBeVisible();
+    await page.reload();
+    await expectTheme(page, "light");
+  } finally {
+    await user.cleanup();
+  }
+});

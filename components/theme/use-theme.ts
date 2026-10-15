@@ -5,6 +5,8 @@ import { parseThemePreference, resolveTheme, THEME_STORAGE_KEY, type ThemePrefer
 
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 const listeners = new Set<() => void>();
+// A choice the browser refused to store. It applies until the page reloads.
+let unsaved: ThemePreference | undefined;
 
 // Notifies on choices in this tab, choices in other tabs, and OS theme changes.
 function subscribe(onChange: () => void) {
@@ -23,6 +25,7 @@ function subscribe(onChange: () => void) {
 }
 
 function readPreference() {
+  if (unsaved) return unsaved;
   try {
     return parseThemePreference(localStorage.getItem(THEME_STORAGE_KEY));
   } catch {
@@ -34,13 +37,21 @@ export function setThemePreference(preference: ThemePreference) {
   try {
     if (preference === "system") localStorage.removeItem(THEME_STORAGE_KEY);
     else localStorage.setItem(THEME_STORAGE_KEY, preference);
-  } catch {}
+    unsaved = undefined;
+  } catch {
+    unsaved = preference;
+  }
   for (const listener of listeners) listener();
 }
 
 // The stored choice for this browser; `undefined` while server rendering and hydrating.
 export function useThemePreference() {
   return useSyncExternalStore(subscribe, readPreference, () => undefined);
+}
+
+// Whether the current choice is stored, so it will survive a reload.
+export function useThemeSaved() {
+  return useSyncExternalStore(subscribe, () => !unsaved, () => true);
 }
 
 // The theme in effect; `undefined` while server rendering and hydrating.

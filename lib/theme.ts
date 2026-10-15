@@ -17,13 +17,16 @@ export function resolveTheme(preference: ThemePreference, systemDark: boolean): 
   return preference;
 }
 
-// Applies the stored theme to the document. It also runs as an inline script before
-// first paint (see `themeScript`), so it must not reference anything outside itself.
-export function applyStoredTheme(storageKey: string, colors: Record<ResolvedTheme, string>) {
-  let stored = null;
-  try {
-    stored = localStorage.getItem(storageKey);
-  } catch {}
+// Applies `choice`, or the stored choice when it is left out, to the document. It also
+// runs as an inline script before first paint (see `themeScript`), so it must not
+// reference anything outside itself.
+export function applyTheme(storageKey: string, colors: Record<ResolvedTheme, string>, choice?: string | null) {
+  let stored = choice;
+  if (stored === undefined) {
+    try {
+      stored = localStorage.getItem(storageKey);
+    } catch {}
+  }
   const dark = stored === "dark" || (stored !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
   const root = document.documentElement;
   root.classList.toggle("dark", dark);
@@ -37,4 +40,4 @@ export function applyStoredTheme(storageKey: string, colors: Record<ResolvedThem
   meta.content = dark ? colors.dark : colors.light;
 }
 
-export const themeScript = `(${applyStoredTheme.toString()})(${JSON.stringify(THEME_STORAGE_KEY)}, ${JSON.stringify(themeColors)})`;
+export const themeScript = `(${applyTheme.toString()})(${JSON.stringify(THEME_STORAGE_KEY)}, ${JSON.stringify(themeColors)})`;
