@@ -9,6 +9,10 @@ import { captureEvidence } from "./evidence.mjs";
 const local = resolveLocalTestConfig();
 const appUrl = local.config.env.APP_URL;
 
+declare global {
+  interface Window { illustrationAnimation?: { started: number; ended: boolean } }
+}
+
 function crash(context: BrowserContext, target: "page" | "layout") {
   return context.addCookies([{ name: E2E_CRASH_COOKIE, value: target, url: appUrl }]);
 }
@@ -29,7 +33,17 @@ test("the 404 page sends signed-in visitors to their dashboard", async ({ page }
   try {
     await page.goto("/");
     await clerk.signIn({ page, emailAddress: user.email });
+    // Count every start of the illustration's animation from the server-rendered HTML on.
+    await page.addInitScript(() => {
+      const counts = { started: 0, ended: false };
+      window.illustrationAnimation = counts;
+      document.addEventListener("animationstart", () => counts.started++, true);
+      document.addEventListener("animationend", () => counts.ended = true, true);
+    });
     await page.goto("/this-page-was-not-part-of-it");
+    // Clerk resolving the session after hydration must not remount the page and replay it.
+    await page.waitForFunction(() => window.illustrationAnimation?.ended);
+    expect(await page.evaluate(() => window.illustrationAnimation?.started)).toBe(1);
     await page.getByRole("link", { name: "Go to dashboard" }).click();
     await expect(page).toHaveURL(/\/app$/);
   } finally {
