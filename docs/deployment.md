@@ -7,7 +7,9 @@ development keys, and Polar sandbox payments.
 This repository's instance: Vercel project `ai-saas-template`
 (`https://ai-saas-template-hazel.vercel.app`), Convex deployment
 `kindhearted-bandicoot-875` (reference `cloud-dev`) in the `jes` team's
-`ai-saas-template` project. Downstream projects replace these values.
+`ai-saas-template` project, and a Sentry project in Sentry's EU region
+(`ingest.de.sentry.io`) whose DSN is set in Vercel. Downstream projects replace
+these values.
 
 ## Vercel
 
