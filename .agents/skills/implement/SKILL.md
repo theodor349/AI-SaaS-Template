@@ -1,13 +1,13 @@
 ---
 name: implement
-description: Implement a GitHub issue or feature description in the current T3-assigned worktree, then use complete-worktree to publish, review, merge, and clean up the task. Use when the maintainer requests the full implementation workflow.
+description: Implement a GitHub issue, bug fix, or feature in the current T3-assigned worktree, then use complete-worktree to publish, review, merge, and clean up the task. Use whenever the maintainer asks for something to be implemented, whether or not they name this skill.
 ---
 
 # Implement a feature and complete its worktree
 
-Accept a GitHub issue number or URL, a problem description, or a feature request. For example: `$implement issue #123` or `$implement let users rename their projects`.
+Accept a GitHub issue number or URL, a problem description, or a feature request. For example: `$implement issue #123`, `$implement let users rename their projects`, or simply "let users rename their projects". Questions, research, plans, and reviews are not implementation requests.
 
-Invoking this skill with a task authorizes implementation followed by the [complete-worktree](../complete-worktree/SKILL.md) workflow: task commits, pushing, one PR, review commands and replies, merging after verification and bot review, deleting the task branch, and shutting down the task's services and terminals. Do not ask for these permissions again. Reading or editing this skill does not invoke it or authorize publishing the current changes. Production deployment and unrelated external actions remain outside this authorization.
+A maintainer request to implement something, with or without naming this skill, authorizes implementation followed by the [complete-worktree](../complete-worktree/SKILL.md) workflow: task commits, pushing, one PR, review commands and replies, merging after verification and bot review, deleting the task branch, and shutting down the task's services and terminals. Do not ask for these permissions again. Reading or editing this skill does not invoke it or authorize publishing the current changes. Production deployment and unrelated external actions remain outside this authorization.
 
 ## Establish the task
 
@@ -25,9 +25,20 @@ Invoking this skill with a task authorizes implementation followed by the [compl
 - When the maintainer wants to inspect the change, share a `pnpm review-link [--plan …] [--path …]` link: a single-use signed-in link over Tailscale. Never paste it into PRs, issues, or commits.
 - Commit only the task changes using the repository's conventional commit format. Keep services available for subsequent checks; completion owns their shutdown.
 
+## Decide whether the maintainer needs to weigh in
+
+Always continue into completion, which opens the PR so CI and bot review run without waiting on the maintainer. Hold the merge for their feedback when:
+
+- the maintainer asked to see the change before it merges;
+- an open question about scope or behavior would change what ships;
+- the result involves a visual or product choice they should judge rather than one the task already settles;
+- a blocker needs their input or an external change.
+
+Ordinary implementation choices, passing checks, and bot review findings are not reasons to hold. Skip the PR only when the maintainer asked you not to open one; then commit and report back.
+
 ## Complete the worktree
 
-Read and execute [complete-worktree](../complete-worktree/SKILL.md) in this same session. Pass along the task scope, issue, verified commit and check results, UI evidence, and resource inventory. This is an automatic continuation, not a handoff to the maintainer or a requirement to invoke a second command.
+Read and execute [complete-worktree](../complete-worktree/SKILL.md) in this same session, passing along whether the merge is held for maintainer feedback and why. Pass along the task scope, issue, verified commit and check results, UI evidence, and resource inventory. This is an automatic continuation, not a handoff to the maintainer or a requirement to invoke a second command.
 
 That skill owns syncing fresh `main`, PR publication, bot review and fixes, the final merge, branch deletion, and resource cleanup. Reuse verification for an unchanged commit; rerun it when code or a merge changes the result. Do not duplicate the PR workflow here.
 

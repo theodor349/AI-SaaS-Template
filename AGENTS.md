@@ -52,9 +52,11 @@ This template provides shared architecture, UI patterns, and an agent-friendly d
 
 ## Pull requests
 
-- Never make a PR unless the developer explicitly asks you to do so.
-- Invoking [$implement](.agents/skills/implement/SKILL.md) with an issue, problem, or feature requests implementation followed automatically by [$complete-worktree](.agents/skills/complete-worktree/SKILL.md). Example: `$implement issue #123`.
+- A maintainer request to implement something (an issue, bug fix, or feature) follows [$implement](.agents/skills/implement/SKILL.md), whether or not they name the skill. Example: `$implement issue #123` or "fix the broken pricing toggle".
+- Once the change is implemented and verified, continue into [$complete-worktree](.agents/skills/complete-worktree/SKILL.md) in the same session without asking.
+- Hold the merge, not the PR, when the maintainer asked to see the change first or when you need their input: an open question about scope or behavior, a visual or product choice they should judge, or a blocker you cannot resolve. Open the PR and handle CI and bot review while you wait, report what you need, and merge once they confirm. Skip the PR only when the maintainer asked you not to open one.
 - Invoking `$complete-worktree` directly requests completion of existing task changes, including from a session that never used `$implement`. Both workflows authorize one PR, bot review and fixes, merge after the skill's verification gates, deletion of the task branch, and shutdown of owned services and terminals. Stay in the current T3-assigned worktree; do not create another worktree. Reading or editing these skills does not invoke the workflows. Honor explicit maintainer restrictions such as keeping a PR open.
+- Questions, research, plans, and reviews are not implementation requests. Never make a PR for them unless the maintainer explicitly asks.
 - Conventional commit titles, plain language: `fix(web): correctly handle Polar subscription events`.
 - Body: the problem in a sentence or two, then how you fixed it. End with the model and harness that did the work.
 - UI changes need before/after images. Motion or timing needs a short video. Capture them with `pnpm capture <path…> --label before|after [--video <seconds>]` and attach them with `gh pr create|edit|comment --attach` (gh 2.99.0+).

@@ -1,4 +1,4 @@
 interface:
   display_name: "Implement and complete worktree"
   short_description: "Implement a feature, merge its PR, and clean up"
-  default_prompt: "Use $implement to build this issue or feature in the current T3-assigned worktree, then run $complete-worktree to review and merge its PR and clean up its services and terminals."
+  default_prompt: "Use $implement to build this issue or feature in the current T3-assigned worktree, then run $complete-worktree to open and review its PR, merge it unless you need my feedback first, and clean up its services and terminals."
