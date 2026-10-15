@@ -123,7 +123,7 @@ export function parseCodeRabbitReview(body = "") {
   };
 }
 
-export function evaluateCodeRabbit({ head, pushedAt, now = Date.now(), disabled = false, statuses = [], checkRuns = [], reviews = [], comments = [], repoActivity, configFile }) {
+export function evaluateCodeRabbit({ head, pushedAt, now = Date.now(), disabled = false, statuses = [], checkRuns = [], reviews = [], comments = [], repoActivity, configFile, carryOver = {} }) {
   if (disabled) return { state: "disabled", gate: "pass", detail: "maintainer confirmed CodeRabbit is disabled", evidence: [] };
   const status = statuses.find((item) => /coderabbit/i.test(item.context));
   const runs = checkRuns.filter((item) => item.app?.slug === "coderabbitai");
@@ -156,6 +156,13 @@ export function evaluateCodeRabbit({ head, pushedAt, now = Date.now(), disabled 
   const headReview = submitted.filter((item) => sameSha(item.commit_id, head)).at(-1);
   const findings = headReview ? parseCodeRabbitReview(headReview.body) : undefined;
   const base = { evidence, lastReviewedCommit, coveredBy: [...new Set(coversHead.map((item) => item.source))], findings, summaryUrl: summary?.html_url };
+  // A completed review of an earlier commit in the head's history still covers the
+  // head unless a later merge was complicated: conflicted, or edited beyond what a
+  // clean automatic merge produces. Those merges need a fresh review.
+  const earlier = [...new Set(coverage.map((item) => item.commit))].filter((commit) => commit && !sameSha(commit, head))
+    .map((commit) => ({ commit, ...carryOver[commit] })).filter((item) => item.ancestor);
+  const carried = earlier.find((item) => !item.complicatedMerges?.length);
+  const complicated = earlier.find((item) => item.complicatedMerges?.length);
 
   const inProgress = status?.state === "pending" || runs.some((item) => item.status !== "completed")
     || (parsedSummary?.inProgress && (!parsedSummary.inProgressCommit || sameSha(parsedSummary.inProgressCommit, head)));
@@ -164,6 +171,11 @@ export function evaluateCodeRabbit({ head, pushedAt, now = Date.now(), disabled 
   const failed = status && ["failure", "error"].includes(status.state);
 
   if (!evidence.length) return { ...base, state: "unknown", gate: "action", detail: "no CodeRabbit activity, status, or config found; confirm with the maintainer whether it is enabled" };
+  if (carried && (inProgress || !coversHead.length)) {
+    const note = inProgress ? "; a newer review is in progress but not required" : "";
+    return { ...base, state: "carried_over", gate: "pass", carriedFrom: carried.commit,
+      detail: `completed review of ${short(carried.commit)} covers head ${short(head)}; no complicated merge since${note}` };
+  }
   if (inProgress) return { ...base, state: "in_progress", gate: "wait", detail: `review in progress for ${short(parsedSummary?.inProgressCommit ?? head)}` };
   if (coversHead.length) {
     const extra = findings ? `; ${findings.actionable} actionable, ${findings.nitpicks} nitpick, ${findings.outsideDiff} outside-diff comment(s) in the review body` : "";
@@ -173,7 +185,9 @@ export function evaluateCodeRabbit({ head, pushedAt, now = Date.now(), disabled 
   if (skipped) return { ...base, state: "skipped", gate: "action", detail: `review skipped or paused for this head (${status?.description ?? "see CodeRabbit comment"})` };
   if (failed) return { ...base, state: "failed", gate: "action", detail: `CodeRabbit status ${status.state}: ${status.description ?? ""}` };
   const sincePush = now - time(pushedAt);
-  const stale = lastReviewedCommit ? `last reviewed ${short(lastReviewedCommit)}` : "no completed review yet";
+  const stale = complicated
+    ? `merge ${short(complicated.complicatedMerges.at(-1))} after the review of ${short(complicated.commit)} was not a clean merge`
+    : lastReviewedCommit ? `last reviewed ${short(lastReviewedCommit)}` : "no completed review yet";
   if (!(sincePush > REVIEW_START_GRACE_MS)) return { ...base, state: "not_started", gate: "wait", detail: `no review for head ${short(head)} yet (${stale})` };
   return { ...base, state: "not_started", gate: "action", detail: `no review started for head ${short(head)} ${Math.round(sincePush / 60_000)} min after push (${stale}); request one with @coderabbitai review` };
 }
@@ -407,6 +421,29 @@ async function gitState(pr) {
   return state;
 }
 
+// For each earlier reviewed commit, records whether it is in the head's history and
+// which later merges were complicated: conflicted, or with a result that differs from
+// the tree a clean automatic merge of the same parents produces.
+export async function reviewCarryOver(head, commits, { cwd } = {}) {
+  const repoGit = (args) => command("git", args, { cwd }).then((out) => out.trim());
+  const result = {};
+  for (const commit of new Set(commits)) {
+    if (!commit || sameSha(commit, head)) continue;
+    const ancestor = await repoGit(["merge-base", "--is-ancestor", commit, head]).then(() => true, () => false);
+    if (!ancestor) { result[commit] = { ancestor }; continue; }
+    const merges = (await repoGit(["rev-list", "--merges", "--parents", "--reverse", `${commit}..${head}`])).split("\n").filter(Boolean).map((line) => line.split(" "));
+    const complicatedMerges = [];
+    for (const [merge, ...parents] of merges) {
+      const automatic = parents.length === 2
+        ? await repoGit(["merge-tree", "--write-tree", ...parents]).then((out) => out.split("\n")[0], () => null)
+        : null;
+      if (!automatic || automatic !== await repoGit(["rev-parse", `${merge}^{tree}`])) complicatedMerges.push(merge);
+    }
+    result[commit] = { ancestor, complicatedMerges };
+  }
+  return result;
+}
+
 const PR_FIELDS = "number,url,title,state,isDraft,baseRefName,headRefName,headRefOid,headRepository,headRepositoryOwner,mergeable,mergeStateStatus,reviewDecision,mergeCommit,mergedAt";
 
 export async function collect(options) {
@@ -436,6 +473,11 @@ export async function collect(options) {
   if (!pushedAt) pushedAt = (await ghJson(["api", `${repo}/commits/${pr.headSha}`])).commit?.committer?.date;
 
   const coderabbit = { disabled: options.coderabbitDisabled };
+  const reviewedCommits = [
+    ...reviews.filter((item) => isCodeRabbit(item.user?.login) && item.body?.trim()).map((item) => item.commit_id),
+    ...comments.filter((item) => isCodeRabbit(item.user?.login)).flatMap((item) => parseCodeRabbitComment(item.body).reviewedCommits ?? []),
+  ];
+  if (!options.coderabbitDisabled) coderabbit.carryOver = await reviewCarryOver(pr.headSha, reviewedCommits);
   const onPr = statuses.some((item) => /coderabbit/i.test(item.context))
     || [...reviews, ...comments, ...reviewComments].some((item) => isCodeRabbit(item.user?.login));
   if (!onPr && !options.coderabbitDisabled) {
