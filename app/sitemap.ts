@@ -1,5 +1,6 @@
-import { sitemapFor } from "@/lib/seo";
+import type { MetadataRoute } from "next";
+import { PUBLIC_PATHS, siteUrl } from "@/lib/seo";
 
-export default function sitemap() {
-  return sitemapFor(process.env.NEXT_PUBLIC_APP_URL);
+export default function sitemap(): MetadataRoute.Sitemap {
+  return PUBLIC_PATHS.map((path) => ({ url: new URL(path, siteUrl()).href }));
 }

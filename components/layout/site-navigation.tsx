@@ -2,10 +2,9 @@
 
 import { SignInButton, SignUpButton, useAuth } from "@clerk/nextjs";
 import { useConvexAuth } from "convex/react";
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, LogIn, UserPlus } from "lucide-react";
+import { LayoutDashboard, LogIn, Sparkles, UserPlus } from "lucide-react";
 import { appConfig } from "@/app.config";
 import { AUTHENTICATED_DESTINATION } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -27,8 +26,7 @@ export function SiteNavigation() {
       <nav aria-label="Main navigation" className={styles.navigation}>
         <div className={styles.destinations}>
           <Link href="/" className={styles.brand}>
-            {/* The brand icon from app/icon.svg; the name beside it labels the link. */}
-            <Image src="/icon.svg" alt="" width={36} height={36} loading="eager" />
+            <span className={styles.logo}><Sparkles aria-hidden="true" size={20} /></span>
             <span>{appConfig.appName}</span>
           </Link>
           {isSignedIn && pages.map(({ href, label, icon: Icon }) => {

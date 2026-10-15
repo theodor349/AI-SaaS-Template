@@ -2,9 +2,9 @@ import { auth } from "@clerk/nextjs/server";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { AuthBoundary } from "@/components/auth/auth-boundary";
-import { NOINDEX } from "@/lib/seo";
+import { noIndex } from "@/lib/seo";
 
-export const metadata: Metadata = { robots: NOINDEX };
+export const metadata: Metadata = { robots: noIndex };
 
 // Every page in this group requires a signed-in user. Pages here render no protected
 // data on the server; their components read it from Convex, whose functions check the

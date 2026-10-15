@@ -6,9 +6,8 @@ This template supports agents developing and testing features in parallel using 
 
 ## Development
 
-1. Set the product, company, SEO, and brand colors in [`app.config.ts`](app.config.ts),
-   and replace the brand icon in [`app/icon.svg`](app/icon.svg). The navigation logo,
-   favicons, Apple touch icon, and Open Graph image come from them.
+1. Set the product name, company, support email, and search and link preview details in
+   [`app.config.ts`](app.config.ts), and replace the brand icon in [`app/icon.svg`](app/icon.svg).
 2. In the main checkout, copy `.env.bootstrap.example` to `.env.bootstrap.local`
    and add Clerk development keys, a Polar sandbox organization access token,
    and the monthly, yearly, and lifetime sandbox product IDs. Linked worktrees

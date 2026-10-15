@@ -1,23 +1,23 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowDown, ArrowRight, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { appConfig } from "@/app.config";
+import { publicPageMetadata } from "@/lib/seo";
 import { LandingFeatures } from "./_components/landing-features";
 import { LandingPricing } from "./_components/landing-pricing";
 import { GettingStarted } from "./_components/getting-started";
-import { OrganizationJsonLd } from "./_components/organization-json-ld";
+import { OrganizationSchema } from "./_components/organization-schema";
 
-export const metadata: Metadata = {
+export const metadata = publicPageMetadata({
   title: { absolute: `${appConfig.appName} — ${appConfig.tagline}` },
   description: appConfig.description,
-  alternates: { canonical: "/" },
-};
+  path: "/",
+});
 
 export default function Home() {
   return (
     <div className="flex flex-col gap-20 sm:gap-28">
-      <OrganizationJsonLd />
+      <OrganizationSchema />
       <section aria-labelledby="hero-heading" className="grid items-center gap-12 py-8 sm:py-16 lg:grid-cols-2 lg:gap-20">
         <div className="flex flex-col items-start gap-7">
           <p className="flex items-center gap-2 text-xs font-medium tracking-widest uppercase text-muted-foreground">

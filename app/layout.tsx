@@ -12,7 +12,7 @@ import { PageContent } from "@/components/layout/page-content";
 import navigationStyles from "@/components/layout/site-navigation.module.css";
 import { appConfig } from "@/app.config";
 import { throwIfE2ECrashRequested } from "@/lib/e2e-crash";
-import { siteUrl } from "@/lib/seo";
+import { openGraphDefaults, siteUrl } from "@/lib/seo";
 import { ConsentProvider } from "@/components/consent/consent-provider";
 import { ConsentBanner } from "@/components/consent/consent-banner";
 import { ConsentServices } from "@/components/consent/consent-services";
@@ -21,18 +21,14 @@ const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
 export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover" };
 
-// Defaults for every page. Public pages add their own title, description, and canonical
-// URL, which Next copies into the Open Graph and Twitter tags. Pages must not set
-// `openGraph` themselves: it would replace this one, dropping the generated image
-// from opengraph-image.tsx.
+const title = { default: appConfig.appName, template: `%s — ${appConfig.appName}` };
+
 export const metadata: Metadata = {
   metadataBase: siteUrl(),
-  title: { default: appConfig.appName, template: `%s — ${appConfig.appName}` },
+  title,
   description: appConfig.description,
-  applicationName: appConfig.appName,
-  keywords: appConfig.keywords,
-  openGraph: { type: "website", siteName: appConfig.appName, locale: "en" },
-  twitter: { card: "summary_large_image", site: appConfig.socialHandle },
+  openGraph: { ...openGraphDefaults, title, description: appConfig.description },
+  twitter: { card: "summary_large_image", site: appConfig.xHandle ?? undefined },
 };
 
 export default async function RootLayout({

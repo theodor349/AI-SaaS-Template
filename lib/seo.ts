@@ -1,36 +1,55 @@
-import type { Metadata, MetadataRoute } from "next";
+import type { Metadata } from "next";
+import { appConfig } from "@/app.config";
+import { SIGN_IN_PATH, SIGN_UP_PATH } from "@/lib/auth";
 
-// Pages listed in the sitemap. Each one sets its own title, description, and canonical URL.
+// Pages search engines may index. The sitemap lists exactly these.
 export const PUBLIC_PATHS = ["/", "/privacy", "/terms", "/cookies"];
 
-// Kept out of crawls. These pages also render noindex, which is what removes them from
-// results; robots.txt only saves crawling them. "/app" is a path prefix, so it also
-// covers "/apple-icon", which `ROBOTS_ALLOWED_PATHS` lets back in.
-const ROBOTS_DISALLOWED_PATHS = [
-  "/app", "/account", "/billing", "/checkout", "/sign-in", "/sign-up",
-  "/api/", "/webhooks/", "/__clerk/", "/e2e/",
-];
-const ROBOTS_ALLOWED_PATHS = ["/", "/apple-icon"];
+// Routes robots.txt keeps crawlers out of, with everything below them.
+export const PRIVATE_PATHS = ["/app", "/account", "/billing", "/checkout", SIGN_IN_PATH, SIGN_UP_PATH, "/api", "/__clerk"];
 
-export const NOINDEX: Metadata["robots"] = { index: false };
-
-// The public origin for absolute URLs. Falls back to Next's own default so builds
-// without NEXT_PUBLIC_APP_URL, such as CI, still work; production always sets it.
-export function siteUrl(appUrl = process.env.NEXT_PUBLIC_APP_URL) {
-  return new URL(appUrl ?? "http://localhost:3000");
+// The public origin for canonical URLs, link previews, the sitemap, and robots.txt.
+// Next.js inlines it at build time.
+export function siteUrl() {
+  return new URL(process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000");
 }
 
-// Only the public production deployment sets ALLOW_SEARCH_INDEXING=true. Worktrees and
-// the hosted development deployment leave it unset, so crawlers skip them entirely.
-export function robotsFor({ allowIndexing, appUrl }: { allowIndexing: boolean; appUrl: string | undefined }): MetadataRoute.Robots {
-  if (!allowIndexing) return { rules: { userAgent: "*", disallow: "/" } };
-  if (!appUrl) throw new Error("ALLOW_SEARCH_INDEXING requires NEXT_PUBLIC_APP_URL for the sitemap URL.");
+// Only the public production deployment sets ALLOW_SEARCH_INDEXING=true. Worktrees
+// and the hosted development deployment leave it unset, so crawlers skip them.
+export function searchIndexingAllowed() {
+  return process.env.ALLOW_SEARCH_INDEXING === "true";
+}
+
+// Drawn by app/opengraph-image.tsx. Next.js drops that file's image from pages in
+// other route segments that set their own Open Graph tags, so the defaults link it.
+export const openGraphImage = {
+  url: "/opengraph-image",
+  width: 1200,
+  height: 630,
+  alt: `${appConfig.appName} — ${appConfig.tagline}`,
+};
+
+export const openGraphDefaults = {
+  type: "website",
+  siteName: appConfig.appName,
+  locale: "en",
+  images: openGraphImage,
+} satisfies Metadata["openGraph"];
+
+export const noIndex = { index: false, follow: false };
+
+// Metadata for a page in PUBLIC_PATHS. A page's Open Graph tags replace the root
+// layout's rather than merging, so they repeat the title, description, and defaults;
+// Twitter cards fill in from Open Graph.
+export function publicPageMetadata({ title, description, path }: {
+  title: string | { absolute: string };
+  description: string;
+  path: string;
+}): Metadata {
   return {
-    rules: { userAgent: "*", allow: ROBOTS_ALLOWED_PATHS, disallow: ROBOTS_DISALLOWED_PATHS },
-    sitemap: new URL("/sitemap.xml", appUrl).href,
+    title,
+    description,
+    alternates: { canonical: path },
+    openGraph: { ...openGraphDefaults, title, description, url: path },
   };
-}
-
-export function sitemapFor(appUrl: string | undefined): MetadataRoute.Sitemap {
-  return PUBLIC_PATHS.map((path) => ({ url: new URL(path, siteUrl(appUrl)).href }));
 }

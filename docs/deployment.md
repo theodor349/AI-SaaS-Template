@@ -38,10 +38,8 @@ Browser Sentry starts only after a visitor grants analytics consent; see
 [consent](internals/consent.md). Its `release` is the Vercel Git SHA, which
 Vercel exposes to the build automatically.
 
-Leave `ALLOW_SEARCH_INDEXING` unset on this development deployment, so `robots.txt`
-disallows all crawling. Set it to `true` only on a public production deployment;
-the build then requires `NEXT_PUBLIC_APP_URL` for the sitemap's absolute URLs.
-
+Leave `ALLOW_SEARCH_INDEXING` unset. Without it, `robots.txt` disallows every
+page, so search engines skip this shared development deployment and worktrees.
 Do not set `CONVEX_DEPLOYMENT` or copy a worktree's `.env.local` into Vercel.
 `convex deploy` supplies `NEXT_PUBLIC_CONVEX_URL` to the Next.js build. Backend
 secrets belong on Convex, not in browser variables or GitHub Actions; only the
@@ -151,10 +149,11 @@ pnpm exec convex run --deployment <team>:<project>:cloud-dev polar:syncCatalog '
 
 The catalog is subsequently refreshed by the existing six-hour cron job.
 Use test accounts and test cards. Before accepting real users/payments, configure
-Clerk production and Polar production credentials, products, and webhook secrets,
-and set `ALLOW_SEARCH_INDEXING=true` once search engines may index the site;
+Clerk production and Polar production credentials, products, and webhook secrets;
 plan the new Clerk user identities and billing associations rather than assuming
 development data transfers. Clerk development accounts remain test accounts.
+Set `ALLOW_SEARCH_INDEXING=true` only on that public production deployment, with
+`NEXT_PUBLIC_APP_URL` as its public origin; both are read at build time.
 
 Provider references: [Convex on Vercel](https://docs.convex.dev/production/hosting/vercel),
 [Vercel Git configuration](https://vercel.com/docs/project-configuration/git-configuration),

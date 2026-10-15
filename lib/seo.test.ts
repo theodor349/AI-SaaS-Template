@@ -1,41 +1,43 @@
-import { describe, expect, it } from "vitest";
-import { PUBLIC_PATHS, robotsFor, sitemapFor } from "./seo";
+import { afterEach, expect, test, vi } from "vitest";
+import robots from "../app/robots";
+import sitemap from "../app/sitemap";
+import { PRIVATE_PATHS, PUBLIC_PATHS } from "./seo";
 
-const hosted = "https://app.example.com";
+afterEach(() => vi.unstubAllEnvs());
 
-describe("robotsFor", () => {
-  it("disallows everything when indexing is not allowed", () => {
-    for (const appUrl of ["http://127.0.0.1:10000", "https://agent.example.ts.net:54321", hosted, undefined]) {
-      const robots = robotsFor({ allowIndexing: false, appUrl });
-      expect(robots).toEqual({ rules: { userAgent: "*", disallow: "/" } });
-    }
-  });
+// Google's matching: rules are path prefixes, and a trailing `$` anchors the end.
+function blocked(path: string) {
+  const rules = [robots().rules].flat().filter((rule) => [rule.userAgent].flat().includes("*"));
+  return rules.flatMap((rule) => [rule.disallow ?? []].flat())
+    .some((rule) => rule.endsWith("$") ? path === rule.slice(0, -1) : path.startsWith(rule));
+}
 
-  it("disallows protected and auth routes and links the sitemap in production", () => {
-    const robots = robotsFor({ allowIndexing: true, appUrl: hosted });
-    const rules = [robots.rules].flat()[0];
-    expect(rules.disallow).toEqual(expect.arrayContaining(["/app", "/account", "/billing", "/checkout", "/sign-in", "/sign-up", "/api/", "/webhooks/"]));
-    expect(rules.allow).toEqual(expect.arrayContaining(["/", "/apple-icon"]));
-    expect(robots.sitemap).toBe("https://app.example.com/sitemap.xml");
-  });
-
-  it("refuses to allow indexing without a public app URL", () => {
-    expect(() => robotsFor({ allowIndexing: true, appUrl: undefined })).toThrow(/NEXT_PUBLIC_APP_URL/);
-  });
+test("deployments that do not allow search indexing block every page", () => {
+  for (const value of [undefined, "", "false", "1"]) {
+    vi.stubEnv("ALLOW_SEARCH_INDEXING", value);
+    expect(robots().sitemap).toBeUndefined();
+    for (const path of [...PUBLIC_PATHS, "/app"]) expect(blocked(path)).toBe(true);
+  }
 });
 
-describe("sitemapFor", () => {
-  it("lists only public pages as absolute URLs on the app origin", () => {
-    expect(sitemapFor(`${hosted}/`).map((entry) => entry.url)).toEqual([
-      "https://app.example.com/",
-      "https://app.example.com/privacy",
-      "https://app.example.com/terms",
-      "https://app.example.com/cookies",
-    ]);
-  });
+test("production robots.txt blocks private routes and allows public pages and icons", () => {
+  vi.stubEnv("ALLOW_SEARCH_INDEXING", "true");
+  vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://app.example.com");
+  expect(robots().sitemap).toBe("https://app.example.com/sitemap.xml");
+  for (const path of [...PUBLIC_PATHS, "/apple-icon", "/icon.svg", "/opengraph-image", "/accounting"]) {
+    expect(blocked(path), path).toBe(false);
+  }
+  for (const path of [...PRIVATE_PATHS, "/app/settings", "/sign-in/factor-one", "/billing/"]) {
+    expect(blocked(path), path).toBe(true);
+  }
+});
 
-  it("keeps protected and auth routes out", () => {
-    const paths = sitemapFor(hosted).map((entry) => new URL(entry.url).pathname);
-    expect(paths).toEqual(PUBLIC_PATHS);
-  });
+test("the sitemap lists only public pages, as absolute URLs on the app's origin", () => {
+  vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://app.example.com");
+  expect(sitemap().map((entry) => entry.url)).toEqual([
+    "https://app.example.com/",
+    "https://app.example.com/privacy",
+    "https://app.example.com/terms",
+    "https://app.example.com/cookies",
+  ]);
 });

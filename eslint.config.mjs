@@ -70,14 +70,13 @@ export default defineConfig([
     rules: { "no-restricted-imports": ["error", { patterns: [convexRuntime] }] },
   },
   {
-    files: ["lib/convex.ts"],
-    rules: { "no-restricted-imports": "off" },
+    // Generated images render with Satori, which reads inline styles and no stylesheets.
+    files: ["app/**/{opengraph-image,twitter-image,icon,apple-icon}.tsx"],
+    rules: { "shadcn/no-inline-styles": "off" },
   },
   {
-    // ImageResponse renders with Satori, which reads inline styles and plain img
-    // elements, not classes or next/image.
-    files: ["app/**/{opengraph-image,twitter-image,icon,apple-icon}{,[0-9]}.tsx"],
-    rules: { "shadcn/no-inline-styles": "off", "@next/next/no-img-element": "off" },
+    files: ["lib/convex.ts"],
+    rules: { "no-restricted-imports": "off" },
   },
   globalIgnores(["convex/_generated/**", "components/ui/**"]),
 ]);
