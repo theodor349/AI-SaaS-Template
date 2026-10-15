@@ -74,9 +74,10 @@ export default defineConfig([
     rules: { "no-restricted-imports": "off" },
   },
   {
-    // ImageResponse renders with Satori, which reads inline styles, not classes.
-    files: ["app/**/{opengraph-image,twitter-image,icon,apple-icon}.tsx"],
-    rules: { "shadcn/no-inline-styles": "off" },
+    // ImageResponse renders with Satori, which reads inline styles and plain img
+    // elements, not classes or next/image.
+    files: ["app/**/{opengraph-image,twitter-image,icon,apple-icon}{,[0-9]}.tsx"],
+    rules: { "shadcn/no-inline-styles": "off", "@next/next/no-img-element": "off" },
   },
   globalIgnores(["convex/_generated/**", "components/ui/**"]),
 ]);
