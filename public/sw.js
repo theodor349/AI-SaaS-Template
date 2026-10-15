@@ -42,7 +42,11 @@ self.addEventListener("fetch", (event) => {
       return (await event.preloadResponse) ?? (await fetch(event.request));
     } catch {
       // Only a network failure lands here; error responses from the server pass through.
-      return (await caches.match(OFFLINE_URL)) ?? Response.error();
+      // The plain page covers a cache the browser or the user cleared.
+      return (await caches.match(OFFLINE_URL)) ?? new Response(
+        "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width, initial-scale=1'><title>You’re offline</title><p>You’re offline. Check your connection and try again.</p>",
+        { status: 503, headers: { "Content-Type": "text/html; charset=utf-8" } },
+      );
     }
   })());
 });

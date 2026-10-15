@@ -80,6 +80,21 @@ test("the install offer appears once after sign-up and the profile menu keeps of
   }
 });
 
+test("installing from the profile menu while the offer shows closes the offer", async ({ page }) => {
+  const user = await signUpPaidUser(page);
+  try {
+    await openApplication(page);
+    await becomeInstallable(page);
+    await expect(offer(page)).toBeVisible();
+    await page.getByRole("button", { name: "Open profile menu" }).click();
+    await page.getByRole("menuitem", { name: "Install app" }).click();
+    await expect.poll(() => page.evaluate(() => window.installDialogs)).toBe(1);
+    await expect(offer(page)).toHaveCount(0);
+  } finally {
+    await user.cleanup();
+  }
+});
+
 test("installing from the offer opens the browser's dialog, and the installed app never offers", async ({ page, browser }) => {
   const user = await signUpPaidUser(page);
   try {

@@ -99,6 +99,13 @@ describe("service worker", () => {
     expect(await response!.text()).toContain("You’re offline");
   });
 
+  test("without a cached offline page, a failed navigation still gets a page", async () => {
+    const worker = loadServiceWorker({ network: async () => { throw new TypeError("Failed to fetch"); } });
+    const response = await worker.request("https://app.example/app", { navigate: true });
+    expect(response!.status).toBe(503);
+    expect(await response!.text()).toContain("You’re offline");
+  });
+
   test("a server error passes through instead of the offline page", async () => {
     const worker = loadServiceWorker({ network: async () => new Response("down", { status: 503 }) });
     const response = await worker.request("https://app.example/app", { navigate: true });
