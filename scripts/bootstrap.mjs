@@ -9,6 +9,7 @@ import {
 import { assertPortsAvailable, waitForServer } from "./bootstrap/network.mjs";
 import { preflight } from "./doctor.mjs";
 import { createSupervisor, superviseConvex, superviseNext } from "./bootstrap/processes.mjs";
+import { reclaim } from "./bootstrap/reclaim.mjs";
 import { bootstrapPaths, createStateRecorder, inspectState, liveStatuses, openLog, readState } from "./bootstrap/state.mjs";
 import { chooseNetwork, cleanupProxies, readTailscaleStatus, serveWorktree, tailscaleConfig } from "./bootstrap/tailscale.mjs";
 
@@ -53,10 +54,21 @@ function resolveNetwork(config, options) {
   return network.mode === "tailscale" ? { ...network, remote: tailscaleConfig(config, network.dnsName) } : network;
 }
 
-function assertNotRunning(stateFile) {
-  const current = inspectState(readState(stateFile));
-  if (liveStatuses.includes(current.status)) {
-    throw new Error(`Bootstrap is already ${current.status} in this worktree (pid ${current.pid}). Use pnpm bootstrap:status or pnpm bootstrap:stop.`);
+// A previous supervisor that died without its shutdown left services and routes
+// behind; reclaim them before this run replaces the state file that records them.
+async function reclaimPreviousRun(stateFile) {
+  const assertNotRunning = (current) => {
+    if (liveStatuses.includes(current.status)) {
+      throw new Error(`Bootstrap is already ${current.status} in this worktree (pid ${current.pid}). Use pnpm bootstrap:status or pnpm bootstrap:stop.`);
+    }
+  };
+  const recorded = readState(stateFile);
+  const current = inspectState(recorded);
+  assertNotRunning(current);
+  if (current.status === "stale" && !(await reclaim(stateFile, recorded))) {
+    // Another bootstrap may have claimed the state file meanwhile.
+    assertNotRunning(inspectState(readState(stateFile)));
+    throw new Error("The previous bootstrap left services or routes behind that could not be reclaimed.");
   }
 }
 
@@ -85,13 +97,14 @@ function serviceEnvironment(config, credentials, browserEnv) {
 // fails on CLERK_JWT_ISSUER_DOMAIN, and the CLI can miss an env change that lands
 // before it starts watching, leaving the stack waiting forever. So a database that
 // lacks this environment gets it from a short-lived backend before the real one starts.
-async function setEnvironmentBeforePush({ root, env, controller, log, healthUrl, start, setEnvironment }) {
+async function setEnvironmentBeforePush({ root, env, controller, log, healthUrl, start, setEnvironment, onServices }) {
   const setupController = new AbortController();
   const forwardAbort = () => setupController.abort(controller.signal.reason);
   controller.signal.addEventListener("abort", forwardAbort, { once: true });
   const setup = createSupervisor({ root, env, controller: setupController, log });
   try {
     start(setup);
+    onServices(await setup.recordServiceGroups());
     await waitForServer(healthUrl, setupController.signal);
     await setEnvironment(setup);
   } finally {
@@ -102,7 +115,7 @@ async function setEnvironmentBeforePush({ root, env, controller, log, healthUrl,
 
 // Starts Convex, Next.js, and Polar under the supervisor, then waits until stopped.
 // env is shared with the supervisor; the Polar secret added here reaches later services.
-async function runServices({ root, config, credentials, polar, browserEnv, env, supervisor, controller, log, say, onReady }) {
+async function runServices({ root, config, credentials, polar, browserEnv, env, supervisor, controller, log, say, onServices, onReady }) {
   const fileEnv = { ...childEnvironment(config, credentials, {}), ...browserEnv };
   const localFile = join(root, ".env.local");
   const stateFile = convexStateFile(root);
@@ -161,6 +174,7 @@ async function runServices({ root, config, credentials, polar, browserEnv, env, 
         root, env, controller, log, healthUrl: backendHealthUrl,
         start: (setup) => setup.start(tool("convex"), hostArgs(idle, "--typecheck", "disable", "--codegen", "disable"), { persistent: true, terminal: false }),
         setEnvironment: setBackendEnvironment,
+        onServices,
       });
       writeFileSync(appliedEnvFile, envDigest, { mode: 0o600 });
     }
@@ -169,19 +183,24 @@ async function runServices({ root, config, credentials, polar, browserEnv, env, 
     // anonymous CLI's extra dashboard server, whose port cannot be configured.
     // Its shell runs in the worktree root; relative tool paths avoid quoting the root.
     const watchCommand = `./node_modules/.bin/convex dev --env-file .env.convex-watch.local --start "./node_modules/.bin/next dev --hostname 127.0.0.1 --port ${config.ports.next}"`;
+    // Each persistent service is recorded as it starts and again once its children
+    // exist, so a supervisor killed during a readiness wait can still be reclaimed.
     supervisor.start(tool("convex"), hostArgs(watchCommand), { persistent: true });
+    onServices(await supervisor.recordServiceGroups());
     await waitForServer(backendHealthUrl, controller.signal);
+    onServices(await supervisor.recordServiceGroups());
     supervisor.supervise(superviseConvex(backendHealthUrl, controller));
     saveWatchEnvironment();
     if (envApplied) await setBackendEnvironment(supervisor);
     if (polar) {
       supervisor.start(tool("polar"), ["listen", config.env.POLAR_WEBHOOK_URL, ...orgArgs], { persistent: true });
+      onServices(await supervisor.recordServiceGroups());
       say(`Polar sandbox webhooks: ${config.env.POLAR_WEBHOOK_URL}`);
     }
     // Next starts only after the initial Convex push, so its readiness also proves functions exist.
     await waitForServer(config.env.APP_URL, controller.signal);
     if (polar) await supervisor.run(["run", "--env-file", watchEnvFile, "polar:syncCatalog", "{}"], { command: tool("convex") });
-    await supervisor.recordServiceGroups();
+    onServices(await supervisor.recordServiceGroups());
     supervisor.supervise(superviseNext(config.env.APP_URL, controller));
     // The local Convex CLI rewrites its browser URLs during initial setup.
     if (Object.keys(browserEnv).length) saveEnvironment(localFile, fileEnv);
@@ -215,7 +234,7 @@ export async function bootstrap({ argv = process.argv.slice(2) } = {}) {
     return;
   }
   const paths = bootstrapPaths(root);
-  assertNotRunning(paths.state);
+  await reclaimPreviousRun(paths.state);
   const remote = network.remote;
   const urls = (env) => ({ app: env.APP_URL, convex: env.NEXT_PUBLIC_CONVEX_URL, site: env.NEXT_PUBLIC_CONVEX_SITE_URL });
   const log = openLog(paths.log);
@@ -255,6 +274,8 @@ export async function bootstrap({ argv = process.argv.slice(2) } = {}) {
     const supervisor = createSupervisor({ root, env, controller, log });
     await runServices({
       root, config, credentials, polar: options.polar, browserEnv, env, supervisor, controller, log, say,
+      // Recorded so a later bootstrap or bootstrap:stop can reclaim them if this process is killed.
+      onServices: (services) => state.update({ services }),
       onReady: async (appUrl) => {
         if (remote) {
           await waitForServer(remote.env.APP_URL, controller.signal);
