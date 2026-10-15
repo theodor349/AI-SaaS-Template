@@ -62,33 +62,51 @@ test("an unreachable backend shows reconnecting while the browser is online, and
   const backendHost = new URL(local.config.env.NEXT_PUBLIC_CONVEX_URL).host;
   let reachable = true;
   const open = new Set<{ close: () => Promise<void> }>();
-  const subscriptions: string[] = [];
+  const subscribed = new Set<string>();
+  // Paths of the query results the backend delivered, in order.
+  const results: string[] = [];
   await page.routeWebSocket((url) => url.host === backendHost && url.pathname.endsWith("/sync"), (socket) => {
     if (!reachable) {
       void socket.close({ code: 1011, reason: "unreachable" });
       return;
     }
     const server = socket.connectToServer();
+    // Query IDs are per connection; a reconnect starts a new query set.
+    const queryPaths = new Map<number, string>();
     open.add(socket);
-    socket.onClose(() => open.delete(socket));
+    // With a close handler, Playwright no longer forwards the closure to the backend.
+    socket.onClose(() => {
+      open.delete(socket);
+      void server.close();
+    });
     socket.onMessage((message) => {
-      const frame = JSON.parse(message.toString()) as { type: string; modifications?: Array<{ type: string; udfPath?: string }> };
-      for (const modification of frame.modifications ?? []) {
-        if (frame.type === "ModifyQuerySet" && modification.type === "Add") subscriptions.push(modification.udfPath!);
+      const frame = JSON.parse(message.toString()) as { type: string; modifications?: Array<{ type: string; queryId: number; udfPath?: string }> };
+      for (const modification of frame.type === "ModifyQuerySet" ? frame.modifications ?? [] : []) {
+        if (modification.type !== "Add") continue;
+        queryPaths.set(modification.queryId, modification.udfPath!);
+        subscribed.add(modification.udfPath!);
       }
       server.send(message);
     });
+    server.onMessage((message) => {
+      const frame = JSON.parse(message.toString()) as { type: string; modifications?: Array<{ type: string; queryId: number }> };
+      for (const modification of frame.type === "Transition" ? frame.modifications ?? [] : []) {
+        if (modification.type === "QueryUpdated") results.push(queryPaths.get(modification.queryId)!);
+      }
+      socket.send(message);
+    });
   });
   await openConnected(page);
-  const subscribedBefore = subscriptions.length;
+  const pagePaths = [...subscribed];
+  expect(pagePaths).not.toHaveLength(0);
 
   reachable = false;
   await Promise.all([...open].map((socket) => socket.close()));
   await expect(indicator(page)).toHaveText("Reconnecting…");
+  const resultsBefore = results.length;
 
   reachable = true;
   await expect(indicator(page)).toHaveCount(0, { timeout: 60_000 });
-  // The reconnected socket subscribes to the page's queries again.
-  await expect.poll(() => subscriptions.length).toBeGreaterThan(subscribedBefore);
-  expect(subscriptions.slice(subscribedBefore)).toEqual(expect.arrayContaining(subscriptions.slice(0, subscribedBefore)));
+  // The reconnected socket subscribes again and the backend delivers fresh results.
+  await expect.poll(() => results.slice(resultsBefore)).toEqual(expect.arrayContaining(pagePaths));
 });
