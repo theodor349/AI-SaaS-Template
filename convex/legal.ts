@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
+import { exportOne, exportTime } from "./lib/dataExport";
 import { appError } from "./lib/errors";
 import { internalMutation, internalQuery, mutation, query, type MutationCtx } from "./lib/functions";
 import { hasAcceptedCurrent, legalVersions } from "./lib/legal";
@@ -60,3 +61,15 @@ export const requireAccepted = internalQuery({
     return null;
   },
 });
+
+// Data export section: the document versions the user accepted, and when.
+export const legalExport = {
+  acceptance: exportOne(
+    v.object({ termsVersion: v.number(), privacyVersion: v.number(), acceptedAt: v.string() }),
+    async (_ctx, owner) => {
+      const acceptance = owner.legalAcceptance;
+      if (!acceptance) return null;
+      return { termsVersion: acceptance.terms, privacyVersion: acceptance.privacy, acceptedAt: exportTime(acceptance.acceptedAt) };
+    },
+  ),
+};

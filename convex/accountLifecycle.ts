@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { accountForUser, syncForCustomer } from "./lib/billing";
 import { clerkTokenIdentifier } from "./lib/clerk";
+import { exportMany, exportTime } from "./lib/dataExport";
 import { deleteClerkUser } from "./lib/clerkApi";
 import { appError } from "./lib/errors";
 import { internalAction, internalMutation, internalQuery, mutation, query } from "./lib/functions";
@@ -235,3 +236,15 @@ export const process = internalAction({
     return null;
   },
 });
+// Data export section. Retry, lease, and provider delivery bookkeeping stay internal.
+export const accountLifecycleExport = {
+  requests: exportMany(
+    v.object({ source: v.union(v.literal("user"), v.literal("clerk")), status: v.union(v.literal("pending"), v.literal("cancelled"), v.literal("completed")),
+      requestedAt: v.string(), deleteAfter: v.union(v.string(), v.null()) }),
+    async (ctx, owner, paginationOpts) => {
+      const result = await ctx.db.query("accountLifecycleRequests").withIndex("by_userId", q => q.eq("userId", owner._id)).paginate(paginationOpts);
+      return { ...result, page: result.page.map(request => ({ source: request.source, status: request.status,
+        requestedAt: exportTime(request.requestedAt), deleteAfter: exportTime(request.deleteAfter) })) };
+    },
+  ),
+};

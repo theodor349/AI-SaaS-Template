@@ -9,7 +9,7 @@ This policy explains the cookies and similar storage, such as local storage, tha
 
 ## Essential storage
 
-Essential storage keeps you signed in and protects your account. The service doesn't work without it, so it doesn't need your consent and you can't turn it off here. Clerk, which runs our sign-in, sets some of these cookies on its own sign-in domain.
+Essential storage keeps you signed in, protects your account, and remembers your cookie choices. The service doesn't work without it, so it doesn't need your consent and you can't turn it off here. Clerk, which runs our sign-in, sets some of these cookies on its own sign-in domain.
 
 {{#if ANALYTICS}}
 ## Analytics
@@ -29,7 +29,7 @@ We don't use advertising cookies.
 
 ## Your choices
 
-Use the Cookie Preferences button on this page, or in the profile menu when you're signed in, to see and change your choices at any time. You can also delete or block cookies in your browser settings, but blocking essential cookies stops you from signing in.
+Use the Cookie Preferences button on this page, or in the profile menu when you're signed in, to see and change your choices at any time. Your choices are stored in this browser only, and we ask again after 12 months or when this policy changes. You can also delete or block cookies in your browser settings, but blocking essential cookies stops you from signing in.
 
 ## Changes and contact
 

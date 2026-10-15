@@ -1,38 +1,30 @@
-// Every service that stores data in the visitor's browser, with the storage it
-// uses. The cookie policy's table and optional sections are generated from this
-// list, so add a service here when it starts storing anything.
-export type ConsentCategory = "essential" | "analytics";
+import { appConfig } from "@/app.config";
+import { sentryConsentService } from "@/lib/sentry/consent-service";
+import { CONSENT_COOKIE } from "./cookie";
+import { defineConsentService } from "./service";
 
-export type BrowserStorage = {
-  name: string;
-  kind: "Cookie" | "Local storage" | "Session storage";
-  purpose: string;
-  duration: string;
-};
+const consentChoice = defineConsentService({
+  id: "consent",
+  category: "essential",
+  name: appConfig.appName,
+  purpose: "Remembers your cookie choices.",
+  storage: [
+    { name: CONSENT_COOKIE, type: "cookie", purpose: "Stores which optional categories you allowed, and when.", duration: "12 months" },
+  ],
+});
 
-export type BrowserService = {
-  id: string;
-  name: string;
-  // The company that sets the storage, or "app" for this app's own storage.
-  provider: string;
-  category: ConsentCategory;
-  purpose: string;
-  storage: BrowserStorage[];
-};
+const clerk = defineConsentService({
+  id: "clerk",
+  category: "essential",
+  name: "Clerk",
+  purpose: "Signs you in and keeps your account secure.",
+  storage: [
+    { name: "__session", type: "cookie", purpose: "Holds a short-lived token that proves you are signed in.", duration: "Until sign-out (refreshed every minute)" },
+    { name: "__client_uat", type: "cookie", purpose: "Records when your sign-in last changed so open tabs stay in sync.", duration: "1 year" },
+    { name: "__client", type: "cookie", purpose: "Keeps you signed in between visits. Set on Clerk's sign-in domain.", duration: "Session lifetime (7 days by default)" },
+  ],
+});
 
-export const browserServices: BrowserService[] = [
-  {
-    id: "clerk",
-    name: "Clerk",
-    provider: "Clerk",
-    category: "essential",
-    purpose: "Keeps you signed in and protects your account.",
-    storage: [
-      { name: "__session", kind: "Cookie", purpose: "Short-lived token that proves you are signed in.", duration: "Until it is refreshed, about 1 minute" },
-      { name: "__client_uat", kind: "Cookie", purpose: "Records when you last signed in or out, so the server knows whether to check your session.", duration: "Up to 1 year" },
-      { name: "__refresh", kind: "Cookie", purpose: "Lets the session token refresh across page loads.", duration: "Session" },
-      { name: "__clerk_handshake", kind: "Cookie", purpose: "Passes your session to the app while you sign in.", duration: "A few seconds" },
-      { name: "__client", kind: "Cookie", purpose: "Keeps you signed in on Clerk's sign-in domain.", duration: "Until you sign out or the session expires" },
-    ],
-  },
-];
+// Every service that may store data in the browser. The preferences dialog, the
+// cookie table on /cookies, and the service runner are all generated from this list.
+export const consentServices = [consentChoice, clerk, sentryConsentService];

@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { appConfig, type AppConfig } from "../../app.config";
-import { browserServices } from "../consent/services";
+import { consentCategories } from "../consent/categories";
+import type { ConsentService, ConsentStorage } from "../consent/service";
+import { consentServices } from "../consent/services";
 import { subprocessors } from "./subprocessors";
 import { markdownTable, parseFrontMatter, renderTemplate } from "./template";
 
@@ -30,32 +32,39 @@ function required(value: string | undefined, name: string) {
   return value;
 }
 
-const analyticsServices = browserServices.filter((service) => service.category === "analytics");
+const storageTypes: Record<ConsentStorage["type"], string> = {
+  cookie: "cookie",
+  localStorage: "local storage",
+  sessionStorage: "session storage",
+};
 
-function blocks(config: AppConfig) {
-  return {
-    "cookie-table": markdownTable(
-      ["Name", "Provider", "Category", "Purpose", "Duration"],
-      browserServices.flatMap((service) => service.storage.map((storage) => [
-        `\`${storage.name}\` (${storage.kind.toLowerCase()})`,
-        service.provider === "app" ? config.appName : service.provider,
-        service.category === "essential" ? "Essential" : "Analytics",
-        storage.purpose,
-        storage.duration,
-      ])),
-    ),
-    "analytics-services": analyticsServices.map((service) => `- **${service.name}:** ${service.purpose}`).join("\n"),
-    subprocessors: markdownTable(
-      ["Provider", "What they do for us", "Where", "Transfer safeguard"],
-      subprocessors.map((processor) => [
-        `[${processor.name}](${processor.privacyUrl}) (${processor.entity})`,
-        processor.purpose,
-        processor.location,
-        processor.safeguard,
-      ]),
-    ),
-  };
+const analyticsServices = consentServices.filter((service) => service.category === "analytics");
+
+// One row per stored item. A service that stores nothing still gets a row, so
+// the table lists every service the consent registry can load.
+function cookieRows(service: ConsentService) {
+  const category = consentCategories[service.category].label;
+  if (service.storage.length === 0) {
+    return [["None", service.name, category, `${service.purpose} Stores nothing in your browser.`, "Not applicable"]];
+  }
+  return service.storage.map((storage) => [
+    `\`${storage.name}\` (${storageTypes[storage.type]})`, service.name, category, storage.purpose, storage.duration,
+  ]);
 }
+
+const blocks = {
+  "cookie-table": markdownTable(["Name", "Provider", "Category", "Purpose", "Duration"], consentServices.flatMap(cookieRows)),
+  "analytics-services": analyticsServices.map((service) => `- **${service.name}:** ${service.purpose}`).join("\n"),
+  subprocessors: markdownTable(
+    ["Provider", "What they do for us", "Where", "Transfer safeguard"],
+    subprocessors.map((processor) => [
+      `[${processor.name}](${processor.privacyUrl}) (${processor.entity})`,
+      processor.purpose,
+      processor.location,
+      processor.safeguard,
+    ]),
+  ),
+};
 
 // Pages call this while prerendering, so NEXT_PUBLIC_APP_URL must be set for every build.
 export function loadLegalDocument(slug: LegalSlug, options: { config?: AppConfig; appUrl?: string } = {}) {
@@ -73,7 +82,7 @@ export function loadLegalDocument(slug: LegalSlug, options: { config?: AppConfig
       APP_URL: new URL(appUrl).origin,
       EFFECTIVE_DATE: effective,
     },
-    blocks: blocks(config),
+    blocks,
     flags: { ANALYTICS: analyticsServices.length > 0 },
   });
   return {

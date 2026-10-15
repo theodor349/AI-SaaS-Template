@@ -7,7 +7,9 @@ development keys, and Polar sandbox payments.
 This repository's instance: Vercel project `ai-saas-template`
 (`https://ai-saas-template-hazel.vercel.app`), Convex deployment
 `kindhearted-bandicoot-875` (reference `cloud-dev`) in the `jes` team's
-`ai-saas-template` project. Downstream projects replace these values.
+`ai-saas-template` project, and a Sentry project in Sentry's EU region
+(`ingest.de.sentry.io`) whose DSN is set in Vercel. Downstream projects replace
+these values.
 
 ## Vercel
 
@@ -28,6 +30,13 @@ Set these environment variables for **Production only**:
 | `CLERK_SECRET_KEY` | Matching Clerk development secret key (`sk_test_...`). |
 | `NEXT_PUBLIC_APP_URL` | The Vercel project's stable application URL. The build needs it to render the legal pages. |
 | `NEXT_PUBLIC_AUTHENTICATED_DESTINATION` | `/app`, or the intended authenticated landing route. |
+| `NEXT_PUBLIC_SENTRY_DSN` | Optional. The Sentry project's DSN. Without it, browser Sentry never loads. |
+| `WORKTREE_ID` | `cloud-dev`, matching Convex below; becomes the Sentry `environment`. |
+| `NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE` | Optional share of page loads and navigations traced, between 0 and 1; defaults to 1. |
+
+Browser Sentry starts only after a visitor grants analytics consent; see
+[consent](internals/consent.md). Its `release` is the Vercel Git SHA, which
+Vercel exposes to the build automatically.
 
 Do not set `CONVEX_DEPLOYMENT` or copy a worktree's `.env.local` into Vercel.
 `convex deploy` supplies `NEXT_PUBLIC_CONVEX_URL` to the Next.js build. Backend
