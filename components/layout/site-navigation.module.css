@@ -24,15 +24,6 @@
   letter-spacing: -0.025em;
   white-space: nowrap;
 }
-.logo {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
-  background: var(--primary);
-  color: var(--primary-foreground);
-}
 .controls { display: flex; align-items: center; gap: 8px; }
 .destinations { display: flex; align-items: center; gap: 32px; }
 .pageLink {
