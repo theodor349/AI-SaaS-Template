@@ -7,6 +7,7 @@ export function clearConsentStorage(storage: readonly ConsentStorage[]) {
   for (const item of storage) {
     try {
       if (item.type === "cookie") expireCookie(item.name);
+      else if (item.type === "cacheStorage") void caches.delete(item.name).catch(() => {});
       else window[item.type].removeItem(item.name);
     } catch {
       // Blocked storage holds nothing this service could have written.

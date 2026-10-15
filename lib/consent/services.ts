@@ -1,5 +1,6 @@
 import { appConfig } from "@/app.config";
 import { sentryConsentService } from "@/lib/sentry/consent-service";
+import { INSTALL_OFFER_STORAGE_KEY } from "@/lib/pwa/install-offer";
 import { THEME_STORAGE_KEY } from "@/lib/theme";
 import { CONSENT_COOKIE } from "./cookie";
 import { defineConsentService } from "./service";
@@ -24,6 +25,19 @@ const themeChoice = defineConsentService({
   ],
 });
 
+// public/sw.js, whose CACHE is the cache named here, and the install offer in
+// app/(protected)/app/_components/install-offer.tsx.
+const installedApp = defineConsentService({
+  id: "installed-app",
+  category: "essential",
+  name: appConfig.appName,
+  purpose: "Lets you install the app and shows a page when you lose your connection.",
+  storage: [
+    { name: "offline", type: "cacheStorage", purpose: "Keeps a copy of the offline page to show when a page can't load without a connection.", duration: "Until the next version of the app replaces it" },
+    { name: INSTALL_OFFER_STORAGE_KEY, type: "localStorage", purpose: "Remembers that you closed or answered the offer to install the app.", duration: "Until you clear site data" },
+  ],
+});
+
 const clerk = defineConsentService({
   id: "clerk",
   category: "essential",
@@ -38,4 +52,4 @@ const clerk = defineConsentService({
 
 // Every service that may store data in the browser. The preferences dialog, the
 // cookie table on /cookies, and the service runner are all generated from this list.
-export const consentServices = [consentChoice, themeChoice, clerk, sentryConsentService];
+export const consentServices = [consentChoice, themeChoice, installedApp, clerk, sentryConsentService];

@@ -5,7 +5,7 @@ export type ResolvedTheme = "light" | "dark";
 export const THEME_STORAGE_KEY = "theme";
 
 // The `--background` of each theme in app/globals.css as hex, which every browser
-// accepts for `theme-color`. The PWA manifest should use the same values.
+// accepts for `theme-color`. The PWA manifest uses the same values.
 export const themeColors = { light: "#ffffff", dark: "#090b0c" } satisfies Record<ResolvedTheme, string>;
 
 export function parseThemePreference(stored: string | null): ThemePreference {

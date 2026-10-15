@@ -2,7 +2,7 @@ import { consentCategories, type ConsentCategory } from "./categories";
 
 export type ConsentStorage = {
   name: string;
-  type: "cookie" | "localStorage" | "sessionStorage";
+  type: "cookie" | "localStorage" | "sessionStorage" | "cacheStorage";
   purpose: string;
   duration: string;
 };
