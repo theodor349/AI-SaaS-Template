@@ -80,7 +80,8 @@ async function startFixture(t) {
   await writeFile(join(fixture, "bin/ps"), `#!/usr/bin/env node
     const { existsSync, writeFileSync } = require("node:fs");
     const { execFileSync } = require("node:child_process");
-    const table = process.argv.includes("pid=,ppid=,pgid=");
+    // Startup also records groups; interrupt only the inspection after the app is ready.
+    const table = process.argv.includes("pid=,ppid=,pgid=") && existsSync("catalog-synced");
     if (table && existsSync("inspect-started") && !existsSync("inspect-interrupted")) {
       writeFileSync("inspect-interrupted", "yes");
       process.kill(process.pid, "SIGINT");
@@ -187,4 +188,24 @@ test("bootstrap:stop signals only the verified supervisor and waits for its serv
   const again = await control(fixture, ["stop"]);
   assert.equal(again.code, 0, again.output);
   assert.match(again.output, /not running \(stopped\)/);
+});
+
+test("bootstrap:stop reclaims the services of a supervisor killed without its shutdown", { timeout: 20000 }, async (t) => {
+  const fixture = await startFixture(t);
+  const polarPid = Number(await readFile(join(fixture.root, "polar.pid"), "utf8"));
+  const recorded = JSON.parse(await readFile(fixture.statePath, "utf8"));
+  assert.ok(recorded.services.some(({ pgid }) => pgid === polarPid), "Polar's group is recorded while ready");
+  process.kill(fixture.child.pid, "SIGKILL");
+  await closedWithin(fixture, 2000);
+  assert.doesNotThrow(() => process.kill(polarPid, 0));
+  const status = await control(fixture, ["status"]);
+  assert.match(status.output, /stale[\s\S]*bootstrap:stop to reclaim/);
+  const stop = await control(fixture, ["stop", "--timeout", "10"]);
+  assert.equal(stop.code, 0, stop.output);
+  assert.match(stop.output, /reclaiming[\s\S]*Stopped \d+ leftover service process groups?/);
+  assert.throws(() => process.kill(polarPid, 0), { code: "ESRCH" });
+  await assertPortsAvailable(fixture.config.ports);
+  const reclaimed = JSON.parse(await readFile(fixture.statePath, "utf8"));
+  assert.equal(reclaimed.status, "stopped");
+  assert.ok(reclaimed.reclaimedAt);
 });
