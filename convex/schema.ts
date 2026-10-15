@@ -141,7 +141,8 @@ export default defineSchema(
       failureCode: v.optional(v.string()),
     }).index("by_userId", ["userId"])
       .index("by_orderId", ["orderId"])
-      .index("by_status_and_nextAttemptAt", ["status", "nextAttemptAt"]),
+      .index("by_status_and_nextAttemptAt", ["status", "nextAttemptAt"])
+      .index("by_failureCode", ["failureCode"]),
     // Per-deployment state for flags declared in lib/featureFlags.ts. A flag
     // without a row uses its default; rows for removed flags are ignored.
     featureFlags: defineTable({

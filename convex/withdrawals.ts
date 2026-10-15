@@ -266,12 +266,9 @@ export const sweep = internalMutation({
 export const recoveryIssues = internalQuery({
   args: {},
   returns: v.array(schema.doc("withdrawals")),
-  handler: async (ctx) => {
-    const pending = await ctx.db.query("withdrawals")
-      .withIndex("by_status_and_nextAttemptAt", (q) => q.eq("status", "pending"))
-      .take(100);
-    return pending.filter((w) => w.failureCode);
-  },
+  handler: (ctx) => ctx.db.query("withdrawals")
+    .withIndex("by_failureCode", (q) => q.eq("failureCode", "REFUND_FAILED"))
+    .take(100),
 });
 
 // Data export section. Retry and lease bookkeeping stay internal.

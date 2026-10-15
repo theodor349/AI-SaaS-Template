@@ -41,7 +41,8 @@ test("a purchase can be withdrawn after a confirmation step", async ({ page }) =
 test("the withdrawal control disappears when the period ends and the server refuses a late withdrawal", async ({ page }) => {
   const user = await createClerkTestUser(local);
   try {
-    // Fourteen days ago, so the period ends at the coming Danish midnight.
+    // Fourteen days ago, so the period ends at the coming Danish midnight, or
+    // with the next working day when that is a weekend or holiday.
     await seedPaidTestUser(user, "lifetime", true, { purchasedAt: Date.now() - 14 * day });
     await page.clock.install();
     await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email }); await page.goto("/billing");
@@ -51,7 +52,6 @@ test("the withdrawal control disappears when the period ends and the server refu
     const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
     client.setAuth(token!);
     const [purchase] = await client.query(api.withdrawals.purchases, {});
-    expect(purchase.withdrawUntil - Date.now()).toBeLessThanOrEqual(day);
 
     await page.clock.fastForward(purchase.withdrawUntil - Date.now());
     await expect(card).toHaveCount(0);
@@ -60,7 +60,7 @@ test("the withdrawal control disappears when the period ends and the server refu
 
   const late = await createClerkTestUser(local);
   try {
-    await seedPaidTestUser(late, "lifetime", true, { purchasedAt: Date.now() - 15 * day });
+    await seedPaidTestUser(late, "lifetime", true, { purchasedAt: Date.now() - 30 * day });
     await page.goto("/"); await clerk.signIn({ page, emailAddress: late.email }); await page.goto("/billing");
     await expect(page.getByText("You have lifetime access.")).toBeVisible();
     await expect(page.getByLabel("Withdraw from contract", { exact: true })).toHaveCount(0);

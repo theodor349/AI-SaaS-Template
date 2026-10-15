@@ -160,6 +160,13 @@ test("a failed refund is visible, retried, and never refunded twice", async () =
   expect((await withdrawalsOf(t, userId))[0]).toMatchObject({ status: "pending", attempts: 1, failureCode: "REFUND_FAILED" });
   expect(provider.subscriptions.revoke).not.toHaveBeenCalled();
   expect((await as(t, "alice").query(api.withdrawals.purchases, {}))[0].withdrawal).toMatchObject({ status: "pending", failed: true });
+  // Other healthy pending withdrawals don't hide it from support.
+  await t.run(async ctx => {
+    for (let i = 0; i < 150; i++) {
+      await ctx.db.insert("withdrawals", { userId, customerId: "customer-a", orderId: `other-${i}`, model: "monthly",
+        purchasedAt, receivedAt: purchasedAt, refundOrderIds: [], status: "pending", nextAttemptAt: 0, leaseUntil: 0, attempts: 0 });
+    }
+  });
   expect(await t.query(internal.withdrawals.recoveryIssues, {})).toEqual([expect.objectContaining({ _id: withdrawalId })]);
 
   // A refund Polar is still processing is waited for, not repeated.
