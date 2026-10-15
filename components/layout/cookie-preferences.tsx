@@ -14,7 +14,7 @@ export function CookiePreferences({ open, onOpenChange, onCloseAutoFocus }: {
       <DialogContent onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>Cookie Preferences</DialogTitle>
-          <DialogDescription>This template uses essential cookies for sign-in and security. No optional analytics or advertising cookies are configured.</DialogDescription>
+          <DialogDescription>This template uses essential cookies and browser storage for sign-in, security, and remembering your theme. No optional analytics or advertising cookies are configured.</DialogDescription>
         </DialogHeader>
         <div className="flex items-center justify-between gap-4">
           <div>

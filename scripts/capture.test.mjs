@@ -8,7 +8,10 @@ import { captureNames, captureOptions, evidenceDirectory } from "./capture.mjs";
 test("capture options reject ambiguous or unsafe requests", () => {
   assert.deepEqual(captureOptions(["/billing", "/", "--label", "after", "--plan", "yearly", "--video", "2.5"]), {
     paths: ["/billing", "/"], label: "after", plan: "yearly", signedOut: false, out: null, waitFor: null, videoSeconds: 2.5,
+    colorScheme: "light",
   });
+  assert.equal(captureOptions(["/", "--color-scheme", "dark"]).colorScheme, "dark");
+  assert.throws(() => captureOptions(["/", "--color-scheme", "sepia"]), /--color-scheme/);
   assert.equal(captureOptions(["/"]).label, "capture");
   assert.throws(() => captureOptions([]), /Usage/);
   assert.throws(() => captureOptions(["/", "--plan", "yearly", "--signed-out"]), /--plan needs a signed-in user/);
