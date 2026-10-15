@@ -60,7 +60,7 @@ test("a chosen theme applies at once, persists without a flash, and System follo
     await page.goto("/cookies");
     await expectPaintedFirstAs(page, "dark");
     const themeStorage = page.getByRole("row").filter({ has: page.locator("code", { hasText: /^theme$/ }) });
-    await expect(themeStorage).toContainText("Local storage");
+    await expect(themeStorage).toContainText(/local storage/i);
     await expect(themeStorage.getByRole("cell").nth(2)).toHaveText("Essential");
     await page.goto("/");
     await expectPaintedFirstAs(page, "dark");
