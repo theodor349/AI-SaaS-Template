@@ -28,37 +28,47 @@ for (const width of [1280, 390]) {
       await page.reload();
 
       const profile = page.locator('[data-slot="card"][aria-label="Profile"]');
+      const dataExport = page.locator('[data-slot="card"][aria-label="Export your data"]');
       const deletion = page.locator('[data-slot="card"][aria-label="Account deletion"]');
 
       await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
       await expect(profile).toHaveAttribute("aria-busy", "true");
+      await expect(dataExport).toHaveAttribute("aria-busy", "true");
       await expect(deletion).toHaveAttribute("aria-busy", "true");
       await expect(page.getByRole("button", { name: "Save profile" })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Export data" })).toHaveCount(0);
       await expect(page.getByRole("button", { name: "Delete account", exact: true })).toHaveCount(0);
       await expect(page.getByRole("link", { name: "Manage subscription" })).toHaveCount(0);
       await expect.poll(backend.pendingResponses).toBeGreaterThan(0);
 
       const profileBefore = await profile.boundingBox();
+      const dataExportBefore = await dataExport.boundingBox();
       const deletionBefore = await deletion.boundingBox();
       await captureEvidence(page, `account-loading-${width}`);
 
       backend.releaseResponses();
 
       await expect(page.getByLabel("Display name", { exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Export data" })).toBeVisible();
       await expect(page.getByRole("button", { name: "Delete account", exact: true })).toBeVisible();
       await expect(profile).not.toHaveAttribute("aria-busy", "true");
+      await expect(dataExport).not.toHaveAttribute("aria-busy", "true");
       await expect(deletion).not.toHaveAttribute("aria-busy", "true");
 
       const profileAfter = await profile.boundingBox();
+      const dataExportAfter = await dataExport.boundingBox();
       const deletionAfter = await deletion.boundingBox();
 
       expect(profileBefore).not.toBeNull();
+      expect(dataExportBefore).not.toBeNull();
       expect(deletionBefore).not.toBeNull();
       expect(profileAfter).not.toBeNull();
+      expect(dataExportAfter).not.toBeNull();
       expect(deletionAfter).not.toBeNull();
 
       for (const dimension of ["x", "y", "width", "height"] as const) {
         expect(profileAfter![dimension]).toBeCloseTo(profileBefore![dimension], 0);
+        expect(dataExportAfter![dimension]).toBeCloseTo(dataExportBefore![dimension], 0);
         expect(deletionAfter![dimension]).toBeCloseTo(deletionBefore![dimension], 0);
       }
 
@@ -80,13 +90,13 @@ test("stalled account skeletons offer recovery and resolve when responses arrive
 
     const backend = await holdBackendResponses(page);
     await page.reload();
-    await expect(page.locator('[data-slot="card"][aria-busy="true"]')).toHaveCount(2);
+    await expect(page.locator('[data-slot="card"][aria-busy="true"]')).toHaveCount(3);
     await expect(page.getByRole("button", { name: "Sign in", exact: true })).toHaveCount(0);
 
     await expect(
       page.getByRole("alert").filter({ hasText: "We couldn’t load your account" }),
-    ).toHaveCount(2);
-    await expect(page.getByRole("button", { name: "Try again" })).toHaveCount(2);
+    ).toHaveCount(3);
+    await expect(page.getByRole("button", { name: "Try again" })).toHaveCount(3);
     await expect(page.locator('[data-slot="card"][aria-busy="true"]')).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Delete account", exact: true })).toHaveCount(0);
 
@@ -111,7 +121,7 @@ test("profile saving uses the button state and persists changes while email stay
 
     const backend = await holdBackendResponses(page);
     await page.reload();
-    await expect(page.locator('[data-slot="card"][aria-busy="true"]')).toHaveCount(2);
+    await expect(page.locator('[data-slot="card"][aria-busy="true"]')).toHaveCount(3);
     backend.releaseResponses();
 
     const displayName = page.getByLabel("Display name", { exact: true });

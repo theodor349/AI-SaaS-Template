@@ -1,6 +1,8 @@
 import { v } from "convex/values";
+import { exportOne, exportTime } from "./lib/dataExport";
 import { appError } from "./lib/errors";
 import { mutation } from "./lib/functions";
+import { getDisplayName } from "./lib/profile";
 import { requireUser } from "./lib/users";
 
 // The display name belongs to the application after the first edit; email remains Clerk-owned.
@@ -17,3 +19,11 @@ export const save = mutation({
     return null;
   },
 });
+
+// Data export section. Sign-in identifiers and sync timestamps stay internal.
+export const profileExport = {
+  account: exportOne(
+    v.object({ email: v.union(v.string(), v.null()), displayName: v.union(v.string(), v.null()), createdAt: v.string() }),
+    async (_ctx, owner) => ({ email: owner.email ?? null, displayName: getDisplayName(owner) ?? null, createdAt: exportTime(owner._creationTime) }),
+  ),
+};
