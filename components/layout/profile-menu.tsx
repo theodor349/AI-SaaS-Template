@@ -52,7 +52,7 @@ export function ProfileMenu() {
     <>
       <DropdownMenu open={open} onOpenChange={setOpen} modal={false}>
         <DropdownMenuTrigger asChild>
-          <button ref={triggerRef} className={styles.profileButton} aria-label="Open profile menu" title="Your account">
+          <button ref={triggerRef} className={styles.profileButton} aria-label="Open profile menu">
             <Avatar size="lg">
               <AvatarImage src={user?.imageUrl} alt="" />
               <AvatarFallback><UserRound aria-hidden="true" size={20} /></AvatarFallback>
@@ -71,13 +71,13 @@ export function ProfileMenu() {
             <MenuPrimitive.Group className={styles.menuGroup} aria-label="Account pages">
               {accountPages.map(({ href, label, icon: Icon }) => (
                 <MenuPrimitive.Item key={href} asChild>
-                  <Link href={href} prefetch={false} className={styles.menuItem} aria-label={label} title={label}>
+                  <Link href={href} prefetch={false} className={styles.menuItem} aria-label={label}>
                     <Icon aria-hidden="true" size={16} /><span className={styles.pageLabel}>{label}</span>
                   </Link>
                 </MenuPrimitive.Item>
               ))}
               {canInstall && (
-                <MenuPrimitive.Item className={styles.menuItem} aria-label="Install app" title="Install app"
+                <MenuPrimitive.Item className={styles.menuItem} aria-label="Install app"
                   onSelect={() => void install()}>
                   <Download aria-hidden="true" size={16} /><span className={styles.pageLabel}>Install app</span>
                 </MenuPrimitive.Item>
@@ -87,18 +87,18 @@ export function ProfileMenu() {
             <MenuPrimitive.Group className={styles.menuGroup}>
               {legalPages.map(({ href, label, icon: Icon }) => (
                 <MenuPrimitive.Item key={href} asChild>
-                  <Link href={href} className={styles.menuItem} aria-label={label} title={label}>
+                  <Link href={href} className={styles.menuItem} aria-label={label}>
                     <Icon aria-hidden="true" size={16} /><span className={styles.pageLabel}>{label}</span>
                   </Link>
                 </MenuPrimitive.Item>
               ))}
-              <MenuPrimitive.Item className={styles.menuItem} aria-label="Cookie Preferences" title="Cookie Preferences"
+              <MenuPrimitive.Item className={styles.menuItem} aria-label="Cookie Preferences"
                 onSelect={() => setPreferencesOpen(true)}>
                 <SlidersHorizontal aria-hidden="true" size={16} /><span className={styles.pageLabel}>Cookie Preferences</span>
               </MenuPrimitive.Item>
             </MenuPrimitive.Group>
             <MenuPrimitive.Separator className={styles.separator} />
-            <MenuPrimitive.Item className={styles.signOut} disabled={signingOut} aria-busy={signingOut} aria-label="Sign out" title="Sign out"
+            <MenuPrimitive.Item className={styles.signOut} disabled={signingOut} aria-busy={signingOut} aria-label="Sign out"
               onSelect={(event) => { event.preventDefault(); void handleSignOut(); }}>
               <LogOut aria-hidden="true" size={16} />
               <span className={styles.pageLabel}>{signingOut ? "Signing out…" : "Sign out"}</span>

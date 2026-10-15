@@ -48,9 +48,9 @@ export default function Home() {
       <footer className="flex flex-col justify-between gap-4 border-t pt-6 text-xs text-muted-foreground sm:flex-row">
         <p>{appConfig.appName} · Built for your next project.</p>
         <nav aria-label="Legal" className="flex flex-wrap gap-5">
-          <Link href="/privacy" className="hover:text-foreground focus-visible:underline">Privacy</Link>
-          <Link href="/terms" className="hover:text-foreground focus-visible:underline">Terms</Link>
-          <Link href="/cookies" className="hover:text-foreground focus-visible:underline">Cookies</Link>
+          <Link href="/privacy" className="inline-flex items-center justify-center hover:text-foreground focus-visible:underline pointer-coarse:min-h-12 pointer-coarse:min-w-12">Privacy</Link>
+          <Link href="/terms" className="inline-flex items-center justify-center hover:text-foreground focus-visible:underline pointer-coarse:min-h-12 pointer-coarse:min-w-12">Terms</Link>
+          <Link href="/cookies" className="inline-flex items-center justify-center hover:text-foreground focus-visible:underline pointer-coarse:min-h-12 pointer-coarse:min-w-12">Cookies</Link>
         </nav>
       </footer>
     </div>

@@ -4,12 +4,17 @@ import * as React from "react"
 import { cn } from "cn"
 import { AlertDialog as AlertDialogPrimitive } from "radix-ui"
 
+import { useOverlayState } from "@/components/overlay/use-overlay-state"
 import { Button } from "@/components/ui/button"
 
 function AlertDialog({
+  open: openProp,
+  defaultOpen,
+  onOpenChange,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Root>) {
-  return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />
+  const [open, setOpen] = useOverlayState({ open: openProp, defaultOpen, onOpenChange })
+  return <AlertDialogPrimitive.Root data-slot="alert-dialog" open={open} onOpenChange={setOpen} {...props} />
 }
 
 function AlertDialogTrigger({

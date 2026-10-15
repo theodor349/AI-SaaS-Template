@@ -129,6 +129,19 @@
     }
 }
 
+/* Sonner sizes its toast buttons for a mouse. On touch, actions get 48px targets and the
+   small close button an invisible 48px hit area. */
+@media (pointer: coarse) {
+  [data-sonner-toaster] [data-sonner-toast][data-styled] [data-button] {
+    height: 48px;
+  }
+  [data-sonner-toaster] [data-sonner-toast][data-styled] [data-close-button]::after {
+    content: "";
+    position: absolute;
+    inset: -14px;
+  }
+}
+
 /* Toasts clear the navigation bar while it sits at the bottom of the screen
    (components/layout/site-navigation.module.css). The root layout's Toaster reads it. */
 @media (max-width: 767px) {
