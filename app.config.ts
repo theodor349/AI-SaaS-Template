@@ -4,6 +4,8 @@
 // variables. The brand icon lives in app/icon.svg.
 export type AppConfig = {
   appName: string;
+  // The installed app's label under its home screen icon; keep it to about 12 characters.
+  shortName: string;
   companyName: string;
   // Shown on every legal page, as the Danish E-Commerce Act requires.
   companyCvr: `${number}`;
@@ -17,12 +19,13 @@ export type AppConfig = {
   socialProfiles: `https://${string}`[];
   // The X account credited on link previews, or null.
   xHandle: `@${string}` | null;
-  // The Open Graph image's colors, as hex. Match app/icon.svg.
+  // The Open Graph image, app icon, and install screenshot colors, as hex. Match app/icon.svg.
   brandColors: { background: `#${string}`; foreground: `#${string}`; muted: `#${string}` };
 };
 
 export const appConfig = {
   appName: "AI SaaS Template",
+  shortName: "AI SaaS",
   companyName: "Just Enough Solutions ApS",
   companyCvr: "00000000",
   companyAddress: "Example Street 1, 8000 Aarhus C, Denmark",
