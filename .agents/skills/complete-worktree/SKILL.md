@@ -7,7 +7,7 @@ description: Complete existing changes in the current T3-assigned worktree by sy
 
 Accept the current worktree's existing changes, an associated PR number or URL, or the continuation from [implement](../implement/SKILL.md). For example: `$complete-worktree` or `$complete-worktree PR #123`. No prior use of `implement` or session memory is required.
 
-A maintainer request to run this workflow authorizes task commits, pushing, opening one PR, review commands and replies, merging after the gates below, deleting the task's local and remote branch, and shutting down its owned services and terminals. The continuation from `implement` carries the same authorization; do not ask again. Reading or editing this skill alone does not authorize these actions. Honor any explicit restriction such as keeping the PR open. Production deployment, removing the worktree directory or its database, and unrelated external actions are outside this workflow.
+A maintainer request to run this workflow authorizes task commits, pushing, opening one PR, review commands and replies, merging after the gates below, deleting the task's local and remote branch, and shutting down its owned services and terminals. The continuation from `implement`, which follows any implementation request, carries the same authorization; do not ask again. Reading or editing this skill alone does not authorize these actions. Honor any explicit restriction such as keeping the PR open. Production deployment, removing the worktree directory or its database, and unrelated external actions are outside this workflow.
 
 ## 1. Recover the task and environment
 
@@ -29,7 +29,8 @@ A maintainer request to run this workflow authorizes task commits, pushing, open
 - Push the task branch and create one normal open PR against `main`, or update the existing task PR. Follow `AGENTS.md` for title, description, issue link, validation, evidence, and actual model/harness attribution. Write multiline bodies to a temporary file outside the worktree and pass `--body-file`.
 - Upload UI evidence with `gh pr create|edit|comment --attach '<file>#<alt text>'` (gh 2.99.0 or newer). Never commit evidence or paste `pnpm review-link` sign-in links into the PR.
 - Register the full PR URL with T3 Code's `link_pull_request` immediately after creation. Before finishing, use `list_thread_pull_requests` and register any missing PR from this task. Report linking failures accurately.
-- Continue through merge without a routine maintainer handoff unless a gate needs their intervention.
+- Continue through merge without a routine maintainer handoff unless a gate needs their intervention or the merge is held for maintainer feedback.
+- When `implement` held the merge for feedback, or the maintainer asked to see the change before it merges, say so in your report with exactly what you need, and keep handling CI and bot review in step 4 meanwhile. Share a `pnpm review-link` if they should inspect the running change. Apply requested changes, verify, and push; the gates restart for the new head. Merge only after the maintainer confirms.
 
 ## 4. Poll the gates and handle review
 
@@ -49,7 +50,7 @@ A maintainer request to run this workflow authorizes task commits, pushing, open
 
 ## 5. Merge the verified head
 
-Merge only when `pnpm pr:gate` exits `0` and, for that same head, local verification passed and the PR description and evidence reflect the final change. Exit `0` means the local, remote, and PR heads match with no uncommitted changes, freshly fetched `main` is an ancestor, GitHub reports the PR mergeable, required checks pass (it says when it treats all checks as required), CodeRabbit covers the head, and no review thread is unresolved. Explain skipped or neutral checks if they replace required verification. If `main` advanced, merge it, verify, push, and return to step 4.
+Merge only when `pnpm pr:gate` exits `0`, any maintainer hold from step 3 is released, and, for that same head, local verification passed and the PR description and evidence reflect the final change. Exit `0` means the local, remote, and PR heads match with no uncommitted changes, freshly fetched `main` is an ancestor, GitHub reports the PR mergeable, required checks pass (it says when it treats all checks as required), CodeRabbit covers the head, and no review thread is unresolved. Explain skipped or neutral checks if they replace required verification. If `main` advanced, merge it, verify, push, and return to step 4.
 
 Use the merge command from its verdict line (`gh pr merge <url> --match-head-commit <head>`) with the repository's allowed merge method. Never pass `--admin` or bypass protections. Keep branch deletion out of `gh pr merge --delete-branch`, which can try to switch a linked worktree to an already checked-out `main`. A rejected merge must be investigated; do not retry indefinitely or remove protections.
 
