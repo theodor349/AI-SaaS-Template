@@ -3,6 +3,7 @@ import { MisplacedSquare } from "./_components/misplaced-square";
 import { StatusMessage } from "./_components/status-message";
 import { HomeLink } from "./_components/home-link";
 
+// Next.js marks not-found responses noindex itself.
 export const metadata: Metadata = { title: "Page not found" };
 
 export default function NotFound() {

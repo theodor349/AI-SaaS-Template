@@ -70,6 +70,11 @@ export default defineConfig([
     rules: { "no-restricted-imports": ["error", { patterns: [convexRuntime] }] },
   },
   {
+    // Generated images render with Satori, which reads inline styles and no stylesheets.
+    files: ["app/**/{opengraph-image,twitter-image,icon,apple-icon}.tsx"],
+    rules: { "shadcn/no-inline-styles": "off" },
+  },
+  {
     files: ["lib/convex.ts"],
     rules: { "no-restricted-imports": "off" },
   },

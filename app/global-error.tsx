@@ -23,6 +23,7 @@ export default function GlobalError({ error, retry }: {
     <html lang="en" className={theme}>
       <body className={styles.body}>
         <title>{`Something went wrong — ${appConfig.appName}`}</title>
+        <meta name="robots" content="noindex" />
         <main className={styles.page}>
           <MisplacedSquare variant="popped" snapped={retrying} />
           <div className={styles.text}>
