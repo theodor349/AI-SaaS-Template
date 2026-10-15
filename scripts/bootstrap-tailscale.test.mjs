@@ -131,7 +131,7 @@ test("a stale run's recorded routes are removed only while unchanged and unserve
   const gone = { port: 65001, target: "http://127.0.0.1:1" };
   const listening = async port => port === local.ports.site;
   const result = await removeRecordedRoutes(remote.hostname, [...recorded, gone], { command: fake.command, listening });
-  assert.deepEqual(result, { removed: [recorded[0]], kept: [recorded[1], recorded[2]] });
+  assert.deepEqual(result, { removed: [recorded[0]], kept: [recorded[1]], blocked: [recorded[2]] });
   assert.equal(fake.state.Web[authority(remote.ports.next)], undefined);
   assert.ok(fake.state.Web[authority(remote.ports.convex)]);
   assert.ok(fake.state.Web[authority(remote.ports.site)]);

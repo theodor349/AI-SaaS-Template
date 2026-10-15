@@ -98,10 +98,10 @@ test("reclaiming a stale run signals only groups that still contain a recorded m
   const routes = [{ port: 51000, target: "http://127.0.0.1:20000" }];
   const result = await reclaimStaleRun({ services, tailscale: { hostname: "agent.example.ts.net", createdRoutes: routes } }, {
     table: async () => table, startOf: (pid) => starts[pid] ?? null, signal, graceMs: 100,
-    removeRoutes: async (hostname, created) => ({ removed: created, kept: [] }),
+    removeRoutes: async (hostname, created) => ({ removed: created, kept: [], blocked: [] }),
   });
   assert.deepEqual(signals, [[200, "SIGTERM"]]);
-  assert.deepEqual(result, { stopped: [200], survivors: [], routes: { removed: routes, kept: [] } });
+  assert.deepEqual(result, { stopped: [200], survivors: [], routes: { removed: routes, kept: [], blocked: [] } });
   assert.deepEqual(groupMembers([200, 300], table, (pid) => starts[pid] ?? null), [
     { pgid: 200, members: [{ pid: 201, start: "start 201" }, { pid: 202, start: "start 202" }] },
     { pgid: 300, members: [{ pid: 301, start: "restarted" }] },
@@ -110,12 +110,26 @@ test("reclaiming a stale run signals only groups that still contain a recorded m
 
 test("a reclaimed run is marked stopped only when nothing it owned remains", async (t) => {
   const file = join(temporary(t, "bootstrap reclaim "), "bootstrap-state.json");
-  const recorded = { version: 1, pid: 4242, processStart: "gone", status: "ready", services: [{ pgid: 600, members: [{ pid: 601, start: "s" }] }] };
+  const route = { port: 51000, target: "http://127.0.0.1:20000" };
+  const recorded = {
+    version: 1, pid: 4242, processStart: "gone", status: "ready", services: [{ pgid: 600, members: [{ pid: 601, start: "s" }] }],
+    tailscale: { hostname: "agent.example.ts.net", createdRoutes: [route] },
+  };
+  const exited = (group, name) => name !== 0;
+  const routes = (result) => async () => ({ removed: [], kept: [], blocked: [], ...result });
   const quiet = { log: () => {}, warn: () => {}, table: async () => "601 1 600\n", startOf: () => "s", graceMs: 50 };
-  writeState(file, recorded);
-  assert.equal(await reclaim(file, recorded, { ...quiet, signal: (group, name) => name !== 0 }), true);
-  assert.equal(readState(file).status, "stopped");
-  writeState(file, recorded);
-  assert.equal(await reclaim(file, recorded, { ...quiet, signal: () => true }), false);
-  assert.equal(readState(file).status, "ready");
+  const attempt = async (options) => {
+    writeState(file, recorded);
+    return { ok: await reclaim(file, recorded, { ...quiet, ...options }), status: readState(file).status };
+  };
+  assert.deepEqual(await attempt({ signal: exited, removeRoutes: routes({ removed: [route] }) }), { ok: true, status: "stopped" });
+  assert.deepEqual(await attempt({ signal: () => true, removeRoutes: routes({ removed: [route] }) }), { ok: false, status: "ready" });
+  assert.deepEqual(await attempt({ signal: exited, removeRoutes: routes({ blocked: [route] }) }), { ok: false, status: "ready" });
+  assert.deepEqual(await attempt({ signal: exited, removeRoutes: routes({ kept: [route] }) }), { ok: true, status: "stopped" });
+  // Another bootstrap claimed the state file while this one was reclaiming.
+  const replacing = async () => {
+    writeState(file, { ...recorded, pid: 5151, processStart: "new", status: "starting" });
+    return { removed: [route], kept: [], blocked: [] };
+  };
+  assert.deepEqual(await attempt({ signal: exited, removeRoutes: replacing }), { ok: false, status: "starting" });
 });

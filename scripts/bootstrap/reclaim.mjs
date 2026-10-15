@@ -25,16 +25,17 @@ export async function reclaimStaleRun(state, {
 
   // Routes go after the services, so their targets no longer count as listening.
   const created = state.tailscale?.createdRoutes ?? [];
-  let routes = { removed: [], kept: [] };
+  let routes = { removed: [], kept: [], blocked: [] };
   if (created.length) {
     try { routes = await removeRoutes(state.tailscale.hostname, created); }
-    catch (error) { routes = { removed: [], kept: created, error: error.message }; }
+    catch (error) { routes = { removed: [], kept: [], blocked: created, error: error.message }; }
   }
   return { stopped: owned.filter((group) => !survivors.includes(group)), survivors, routes };
 }
 
 // Reclaims a stale run, reports the result, and marks the state stopped once
-// nothing it owned remains. Returns false when something needs attention.
+// nothing it owned remains. Returns false when something needs attention, which
+// leaves the run stale so a later command retries.
 export async function reclaim(stateFile, recorded, { log = console.log, warn = console.error, ...options } = {}) {
   log(`Bootstrap supervisor ${recorded.pid} exited without cleaning up; reclaiming the services and routes it recorded.`);
   const { stopped, survivors, routes } = await reclaimStaleRun(recorded, options);
@@ -42,11 +43,14 @@ export async function reclaim(stateFile, recorded, { log = console.log, warn = c
   if (routes.removed.length) log(`Removed Tailscale routes on ports ${routes.removed.map(({ port }) => port).join(", ")}.`);
   if (survivors.length) warn(`Process groups ${survivors.join(", ")} survived SIGKILL; inspect them before restarting.`);
   if (routes.error) warn(`Tailscale route cleanup failed: ${routes.error}. Check tailscale serve status.`);
-  else if (routes.kept.length) warn(`Kept Tailscale routes on ports ${routes.kept.map(({ port }) => port).join(", ")}; they changed or have a listener.`);
-  const ok = !survivors.length && !routes.error;
+  else if (routes.blocked.length) warn(`Tailscale routes on ports ${routes.blocked.map(({ port }) => port).join(", ")} still point to this worktree, but something listens on their targets. Stop it, then rerun pnpm bootstrap:stop.`);
+  if (routes.kept.length) log(`Kept Tailscale routes on ports ${routes.kept.map(({ port }) => port).join(", ")}; they now point elsewhere.`);
   const current = readState(stateFile);
-  if (ok && current?.pid === recorded.pid && current.processStart === recorded.processStart) {
-    writeState(stateFile, { ...current, status: "stopped", reclaimedAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+  if (current?.pid !== recorded.pid || current.processStart !== recorded.processStart) {
+    warn("The bootstrap state file changed during reclamation; check pnpm bootstrap:status.");
+    return false;
   }
+  const ok = !survivors.length && !routes.error && !routes.blocked.length;
+  if (ok) writeState(stateFile, { ...current, status: "stopped", reclaimedAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
   return ok;
 }

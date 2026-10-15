@@ -78,21 +78,23 @@ function routesOnlyTo(serve, hostname, { port, target }) {
 }
 
 // Removes routes a stopped run recorded as created, while they still point only to
-// its targets and nothing listens there. Routes that changed or gained a listener
-// may belong to someone else and are kept.
+// its targets and nothing listens there. Changed routes now belong to someone else
+// and are kept; unchanged routes with a listener are blocked until it stops.
 export async function removeRecordedRoutes(hostname, routes, { command = tailscaleCommand, listening = portAcceptsConnections } = {}) {
   const current = JSON.parse(command(["serve", "status", "--json"]));
   const removed = [];
   const kept = [];
+  const blocked = [];
   for (const route of routes) {
     if (!current.TCP?.[route.port] && !current.Web?.[`${hostname}:${route.port}`]) continue;
-    const served = await listening(Number(new URL(route.target).port)).catch(() => true);
-    if (routesOnlyTo(current, hostname, route) && !served) {
+    if (!routesOnlyTo(current, hostname, route)) kept.push(route);
+    else if (await listening(Number(new URL(route.target).port)).catch(() => true)) blocked.push(route);
+    else {
       command(["serve", `--https=${route.port}`, "off"]);
       removed.push(route);
-    } else kept.push(route);
+    }
   }
-  return { removed, kept };
+  return { removed, kept, blocked };
 }
 
 export function cleanupProxies(cleanup) {
