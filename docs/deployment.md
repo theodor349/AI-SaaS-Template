@@ -30,13 +30,24 @@ Set these environment variables for **Production only**:
 | `CLERK_SECRET_KEY` | Matching Clerk development secret key (`sk_test_...`). |
 | `NEXT_PUBLIC_APP_URL` | The Vercel project's stable application URL. The build needs it to render the legal pages. |
 | `NEXT_PUBLIC_AUTHENTICATED_DESTINATION` | `/app`, or the intended authenticated landing route. |
-| `NEXT_PUBLIC_SENTRY_DSN` | Optional. The Sentry project's DSN. Without it, browser Sentry never loads. |
+| `NEXT_PUBLIC_SENTRY_DSN` | Optional. The Sentry project's DSN. Without it, neither browser nor server Sentry loads. |
 | `WORKTREE_ID` | `cloud-dev`, matching Convex below; becomes the Sentry `environment`. |
 | `NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE` | Optional share of page loads and navigations traced, between 0 and 1; defaults to 1. |
+| `SENTRY_AUTH_TOKEN` | Optional. A Sentry organization auth token, for uploading source maps. |
+| `SENTRY_ORG`, `SENTRY_PROJECT` | The organization and project slugs the source maps belong to. Needed with `SENTRY_AUTH_TOKEN`. |
+| `CSP_REPORT_ONLY` | Optional. `1` reports Content Security Policy violations to Sentry without blocking them; see [security headers](internals/security-headers.md). |
 
-Browser Sentry starts only after a visitor grants analytics consent; see
-[consent](internals/consent.md). Its `release` is the Vercel Git SHA, which
-Vercel exposes to the build automatically.
+Next.js reports errors from server components, route handlers, Server Functions,
+and `proxy.ts` through [`instrumentation.ts`](../instrumentation.ts). It reports errors
+only; it doesn't trace server requests. Browser Sentry starts only after a visitor grants
+analytics consent; see [consent](internals/consent.md). Both tag events with the
+`environment` from `WORKTREE_ID` and the `release` from the Vercel Git SHA, which Vercel
+exposes to the build automatically. They send no cookies, IP addresses, or user details,
+and they scrub emails and credentials; see [the shared options](../lib/sentry/options.ts).
+
+With `SENTRY_AUTH_TOKEN` set, the build uploads source maps for the release and
+removes them from the deployment. Without it the build skips Sentry's build plugin.
+A failed upload logs a warning and doesn't fail the deployment.
 
 Leave `ALLOW_SEARCH_INDEXING` unset. Without it, `robots.txt` disallows every
 page, so search engines skip this shared development deployment and worktrees.
@@ -83,6 +94,24 @@ Enable Clerk's Convex integration or its `convex` JWT template (`aud=convex`).
 Both frontends share Clerk accounts, so account edits/deletions affect both.
 Billing customers and subscriptions are separated by the deployment namespace;
 buying a sandbox subscription locally does not grant hosted access.
+
+### Sentry for Convex functions
+
+Convex functions report errors through Convex's built-in exception reporting, not a
+Sentry SDK in the functions. It needs the Convex Pro plan. In the production deployment's
+**Settings > Integrations**, add Sentry with the DSN of a separate Sentry project using the
+Node.js platform. Convex tags its events with its own `environment` (`prod` for this
+deployment), so a shared project would mix them with the Next.js `cloud-dev` events.
+Filter the Convex logs by an event's `request_id` tag to find the function's wide
+event and its `flowId`.
+
+Convex sets Sentry's user ID to the caller's Clerk token identifier, which the
+[logging rules](internals/logging.md#no-personal-data) keep out of logs. Add an
+Advanced Data Scrubbing rule to that Sentry project: **Remove** **Anything** from
+`$user`.
+
+Local worktree deployments don't report to Sentry. Their errors stay in the structured
+logs, which `pnpm bootstrap` writes to its log file.
 
 ## Hosted webhooks
 
