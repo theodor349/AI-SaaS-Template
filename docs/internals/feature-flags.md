@@ -10,7 +10,7 @@ A flag's value comes from its `featureFlags` row: an `override` turns it on or o
 
 Hiding UI is not access control. Every backend function behind a flag calls `requireFlag(ctx, key)`, which throws `FEATURE_UNAVAILABLE`, or branches on `isFlagEnabled(ctx, key)`. Both record a `feature_flag` decision in the function's wide event.
 
-Components read flags with [`useFlag(key)`](../../lib/feature-flags.ts). All of them share one subscription to `featureFlags.current`, which returns only the caller's values, never another user's allowlist membership. `useFlag` returns `undefined` until Convex auth settles and the values arrive; render the component's skeleton until then, so flagged content never appears and then disappears. Don't add per-flag queries.
+Components read flags with [`useFlag(key)`](../../lib/feature-flags.ts). All of them share one subscription to `featureFlags.current`, which returns only the caller's values, never another user's allowlist membership. Don't add per-flag queries.
 
 ## Changing a flag
 
