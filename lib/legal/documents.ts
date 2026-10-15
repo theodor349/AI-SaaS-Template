@@ -72,7 +72,7 @@ export function loadLegalDocument(slug: LegalSlug, options: { config?: AppConfig
   if (!appUrl) throw new Error("NEXT_PUBLIC_APP_URL is required to render the legal documents");
   const { data, body } = parseFrontMatter(readFileSync(path.join(contentDirectory, `${slug}.md`), "utf8"));
   const effective = effectiveDate(data.effective);
-  const markdown = renderTemplate(body, {
+  const values = {
     variables: {
       APP_NAME: config.appName,
       COMPANY_NAME: config.companyName,
@@ -84,10 +84,12 @@ export function loadLegalDocument(slug: LegalSlug, options: { config?: AppConfig
     },
     blocks,
     flags: { ANALYTICS: analyticsServices.length > 0 },
-  });
+  };
+  const markdown = renderTemplate(body, values);
   return {
     title: required(data.title, "title"),
-    description: required(data.description, "description"),
+    // Used for search results and link previews; variables work here too.
+    description: renderTemplate(required(data.description, "description"), values),
     version: version(data.version),
     effectiveDate: effective,
     markdown,

@@ -1,6 +1,6 @@
 ---
 title: Terms of Service
-description: The agreement between you and us when you use and buy our service.
+description: The terms for using and buying {{APP_NAME}}, provided by {{COMPANY_NAME}}.
 version: 1
 effective: 2026-10-14
 ---

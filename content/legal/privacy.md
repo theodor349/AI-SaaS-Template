@@ -1,6 +1,6 @@
 ---
 title: Privacy Policy
-description: How we collect, use, and protect your personal data.
+description: How {{COMPANY_NAME}} collects, uses, and protects personal data in {{APP_NAME}}.
 version: 1
 effective: 2026-10-14
 ---

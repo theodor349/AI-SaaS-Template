@@ -1,6 +1,6 @@
 ---
 title: Cookie Policy
-description: The cookies and similar browser storage we use, and how to control them.
+description: The cookies {{APP_NAME}} uses and how to change your cookie preferences.
 version: 1
 effective: 2026-10-14
 ---

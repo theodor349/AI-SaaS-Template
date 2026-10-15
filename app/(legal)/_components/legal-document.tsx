@@ -6,10 +6,11 @@ import { appConfig } from "@/app.config";
 import { Link } from "@/components/typography/link";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { loadLegalDocument, type LegalSlug } from "@/lib/legal/documents";
+import { publicPageMetadata } from "@/lib/seo";
 
 export function legalMetadata(slug: LegalSlug): Metadata {
   const { title, description } = loadLegalDocument(slug);
-  return { title, description };
+  return publicPageMetadata({ title, description, path: `/${slug}` });
 }
 
 // Renders a document from content/legal on the server. Pages stay static and
