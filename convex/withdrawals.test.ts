@@ -208,3 +208,16 @@ test("without email configured, the withdrawal is still received", async () => {
   expect(withdrawal.status).toBe("pending");
   expect(withdrawal.receiptEmailId).toBeUndefined();
 });
+
+test("a purchase shows its own withdrawal however many others the owner has", async () => {
+  const t = setup();
+  const userId = await purchase(t, "lifetime");
+  await t.run(async ctx => {
+    for (let i = 0; i < 120; i++) {
+      await ctx.db.insert("withdrawals", { userId, customerId: "customer-a", orderId: `old-${i}`, model: "monthly",
+        purchasedAt, receivedAt: purchasedAt, refundOrderIds: [], status: "refunded", attempts: 0 });
+    }
+  });
+  await as(t, "alice").mutation(api.withdrawals.request, { orderId: "order-a" });
+  expect((await as(t, "alice").query(api.withdrawals.purchases, {}))[0].withdrawal).toMatchObject({ status: "pending" });
+});

@@ -52,11 +52,11 @@ export const purchases = query({
     if (!user || !account) {
       return [];
     }
-    const withdrawals = await ctx.db.query("withdrawals")
-      .withIndex("by_userId", (q) => q.eq("userId", user._id))
-      .take(100);
-    return (await ownedPurchases(ctx, account.customerId)).flatMap((purchase) => {
-      const withdrawal = withdrawals.find((w) => w.orderId === purchase.orderId);
+    const listed = await Promise.all((await ownedPurchases(ctx, account.customerId)).map(async (purchase) => {
+      const found = await withdrawalForOrder(ctx, purchase.orderId);
+      return { purchase, withdrawal: found?.userId === user._id ? found : null };
+    }));
+    return listed.flatMap(({ purchase, withdrawal }) => {
       if (!withdrawal && purchase.refundOrderIds.length === 0) {
         return [];
       }
