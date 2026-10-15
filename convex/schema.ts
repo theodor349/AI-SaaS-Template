@@ -118,7 +118,16 @@ export default defineSchema(
       productId: v.string(), name: v.string(), amount: v.number(), currency: v.string(),
       taxBehavior: v.string(), syncedAt: v.number(),
     }).index("by_model", ["model"]),
-
+    // Per-deployment state for flags declared in lib/featureFlags.ts. A flag
+    // without a row uses its default; rows for removed flags are ignored.
+    featureFlags: defineTable({
+      key: v.string(),
+      // On or off for everyone, ahead of the allowlist.
+      override: v.optional(v.boolean()),
+      // Users who get the flag without an override: the maintainer and a few
+      // selected users, not a rollout.
+      allowlist: v.optional(v.array(v.id("users"))),
+    }).index("by_key", ["key"]),
   },
   { schemaValidation: true }
 );
