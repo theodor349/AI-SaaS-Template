@@ -2,7 +2,7 @@
 title: Terms of Service
 description: The terms for using and buying {{APP_NAME}}, provided by {{COMPANY_NAME}}.
 version: 1
-effective: 2026-10-14
+effective: 2026-10-15
 ---
 
 These terms are the agreement between you and {{COMPANY_NAME}} (CVR {{COMPANY_CVR}}), {{COMPANY_ADDRESS}}, for using {{APP_NAME}} at {{APP_URL}}. You accept them when you start using {{APP_NAME}}. The [Privacy Policy](/privacy) and [Cookie Policy](/cookies) explain how we handle your data.
@@ -61,7 +61,7 @@ If we change these terms in a way that matters to you, we publish a new version 
 
 ## 12. Law and disputes
 
-Danish law applies, and Danish courts decide disputes. If you're a consumer, you keep the mandatory protection of the law of the country you live in and can also take a case to the courts there.
+Danish law applies, and the courts of Denmark have exclusive jurisdiction over disputes. If you're a consumer, you keep the mandatory protection of the law of the country you live in. If you're a consumer living in the EU, EEA, Switzerland, or the UK, you can also take a case to the courts where you live, and we can only take a case against you there.
 
 If you have a complaint, contact us first. If we can't agree, you can complain to Nævnenes Hus (Mæglingsteamet for Forbrugerklager), Toldboden 2, 8800 Viborg, [naevneneshus.dk](https://naevneneshus.dk). If you live in another EU country, Forbrugereuropa, the European Consumer Centre Denmark, can help: [forbrugereuropa.dk](https://www.forbrugereuropa.dk).
 
