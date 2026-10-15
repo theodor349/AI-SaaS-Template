@@ -24,7 +24,7 @@ test("Clerk identity reaches paid local Convex and persists across reloads", asy
     const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
     client.setAuth(token!);
     expect(await client.query(api.billing.application, {})).toEqual({ name: user.name });
-    await page.getByRole("link", { name: "Dashboard" }).click();
+    await page.getByRole("link", { name: "Dashboard", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Your application" })).toBeVisible();
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();
     await page.reload();
@@ -160,13 +160,13 @@ test("separate users and account switching never keep the previous protected ide
     await clerk.signOut({ page });
     await expect(page.getByText(`Welcome ${alice.name}!`, { exact: true })).toHaveCount(0);
     await clerk.signIn({ page, emailAddress: bob.email });
-    await page.getByRole("link", { name: "Dashboard" }).click();
+    await page.getByRole("link", { name: "Dashboard", exact: true }).click();
     await expect(page.getByText(`Welcome ${bob.name}!`, { exact: true })).toBeVisible();
     await expect(page.getByText(`Welcome ${alice.name}!`, { exact: true })).toHaveCount(0);
     expect(await page.evaluate(() => window.Clerk.session?.id)).not.toBe(firstSession);
     await clerk.signOut({ page });
     await clerk.signIn({ page, emailAddress: alice.email });
-    await page.getByRole("link", { name: "Dashboard" }).click();
+    await page.getByRole("link", { name: "Dashboard", exact: true }).click();
     await expect(page.getByText(`Welcome ${alice.name}!`, { exact: true })).toBeVisible();
     await expect(page.getByText(`Welcome ${bob.name}!`, { exact: true })).toHaveCount(0);
     await expect(page.locator("html")).toHaveAttribute("data-account-switch", "same-document");
@@ -207,13 +207,13 @@ test("slow Clerk token acquisition shows loading and sends no protected query", 
     // The landing page's signed-in pricing waits for Convex instead of showing guest plans.
     await expect(page.getByRole("status").filter({ hasText: "Loading paid plans…" })).toHaveText("Loading paid plans…");
     await expect(page.getByRole("button", { name: "Sign in", exact: true })).toHaveCount(0);
-    await expect(page.getByRole("link", { name: "Dashboard" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Dashboard", exact: true })).toHaveCount(0);
     expect(sync.hasSubscribed("billing:status")).toBe(false);
     expect(sync.hasSubscribed("billing:application")).toBe(false);
     await page.evaluate(() => window.dispatchEvent(new Event("release-auth-test")));
     await expect(page.getByText("You have lifetime access.")).toBeVisible();
     expect(sync.hasSubscribed("billing:status")).toBe(true);
-    await page.getByRole("link", { name: "Dashboard" }).click();
+    await page.getByRole("link", { name: "Dashboard", exact: true }).click();
     await expect(page).toHaveURL(`${local.config.env.APP_URL}${authenticatedDestination}`);
     await expect(page.getByRole("heading", { name: "Your application" })).toBeVisible();
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();

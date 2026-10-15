@@ -41,6 +41,17 @@ for (const width of [1280, 390]) {
       await page.getByRole("menuitem", { name: "Billing", exact: true }).click();
       await expect(page).toHaveURL(/\/billing$/);
       await expect(page.getByRole("heading", { name: "Billing", exact: true })).toBeVisible();
+      // The menu's history entry gives way to the page it opened.
+      await page.goBack();
+      await expect(page).toHaveURL(/\/account$/);
+      await trigger.click();
+      await expect(menu).toBeVisible();
+      await page.goBack();
+      await expect(menu).toHaveCount(0);
+      await expect(page).toHaveURL(/\/account$/);
+      await page.getByRole("link", { name: "Back to Dashboard" }).click();
+      await expect(page).toHaveURL(/\/app$/);
+      await page.goto("/billing");
       await trigger.click();
       await page.getByRole("menuitem", { name: "Cookie Preferences" }).click();
       const dialog = page.getByRole("dialog", { name: "Cookie Preferences" });
@@ -96,8 +107,8 @@ test("failed Convex authentication keeps Dashboard reachable without exposing pr
     await clerk.signIn({ page, emailAddress: user.email });
     const recovery = page.getByRole("alert").filter({ hasText: "We couldn’t load your account" });
     await expect(recovery).toBeVisible();
-    await expect(page.getByRole("link", { name: "Dashboard" })).toBeVisible();
-    await page.getByRole("link", { name: "Dashboard" }).click();
+    await expect(page.getByRole("link", { name: "Dashboard", exact: true })).toBeVisible();
+    await page.getByRole("link", { name: "Dashboard", exact: true }).click();
     await expect(page).toHaveURL(/\/app$/);
     await expect(recovery).toBeVisible();
     await expect(page.getByRole("heading", { name: "Your application" })).toHaveCount(0);

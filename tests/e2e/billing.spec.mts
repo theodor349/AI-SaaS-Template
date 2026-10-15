@@ -54,7 +54,7 @@ test("selected plan opens checkout once after authentication; success URL alone 
     await expect(page.getByRole("heading", { name: "Monthly", exact: true })).toHaveCount(0);
     await page.goto("/");
     await expect(page.getByText("You have lifetime access.")).toBeVisible();
-    await page.getByRole("link", { name: "Dashboard" }).click();
+    await page.getByRole("link", { name: "Dashboard", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Your application" })).toBeVisible();
   } finally { await user.cleanup(); }
 });
@@ -289,12 +289,9 @@ for (const model of ["monthly", "yearly"] as const) {
       await expect(page.getByRole("alertdialog")).toHaveCount(0);
       const explanation = `Renew your subscription to switch to ${target}`;
       const trigger = page.getByRole("button", { name: `Switch to ${target}` });
-      await trigger.hover();
-      await expect(page.getByRole("tooltip")).toHaveText(explanation);
-      await captureEvidence(page, `canceled-${model}-tooltip`);
-      await page.mouse.move(0, 0);
-      await trigger.focus();
-      await expect(page.getByRole("tooltip")).toHaveText(explanation);
+      await expect(trigger).toHaveAccessibleDescription(explanation);
+      await expect(page.getByText(explanation, { exact: true })).toBeVisible();
+      await captureEvidence(page, `canceled-${model}-explanation`);
       await trigger.click({ force: true });
       await trigger.press("Enter");
       await trigger.press("Space");

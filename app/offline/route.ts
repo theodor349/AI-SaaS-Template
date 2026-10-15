@@ -46,6 +46,7 @@ h1 { margin: 0; font-size: 36px; font-weight: 600; letter-spacing: -0.025em; lin
 .muted { margin: 0; color: var(--muted-foreground); font-size: 14px; text-wrap: pretty; }
 .muted a { color: var(--foreground); font-weight: 500; text-underline-offset: 4px; }
 button { height: 36px; padding: 0 12px; border: 1px solid var(--primary); background: var(--primary); color: var(--primary-foreground); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; }
+@media (pointer: coarse) { button { height: 48px; } }
 button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 </style>
 </head>
