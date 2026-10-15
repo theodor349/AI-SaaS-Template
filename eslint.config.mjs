@@ -73,5 +73,10 @@ export default defineConfig([
     files: ["lib/convex.ts"],
     rules: { "no-restricted-imports": "off" },
   },
+  {
+    // ImageResponse renders with Satori, which reads inline styles, not classes.
+    files: ["app/**/{opengraph-image,twitter-image,icon,apple-icon}.tsx"],
+    rules: { "shadcn/no-inline-styles": "off" },
+  },
   globalIgnores(["convex/_generated/**", "components/ui/**"]),
 ]);

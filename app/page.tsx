@@ -6,15 +6,18 @@ import { appConfig } from "@/app.config";
 import { LandingFeatures } from "./_components/landing-features";
 import { LandingPricing } from "./_components/landing-pricing";
 import { GettingStarted } from "./_components/getting-started";
+import { OrganizationJsonLd } from "./_components/organization-json-ld";
 
 export const metadata: Metadata = {
   title: { absolute: `${appConfig.appName} — ${appConfig.tagline}` },
-  description: "A foundation for your next AI product, with Next.js, realtime data, account management, and paid access. Choose monthly, yearly, or lifetime Pro access.",
+  description: appConfig.description,
+  alternates: { canonical: "/" },
 };
 
 export default function Home() {
   return (
     <div className="flex flex-col gap-20 sm:gap-28">
+      <OrganizationJsonLd />
       <section aria-labelledby="hero-heading" className="grid items-center gap-12 py-8 sm:py-16 lg:grid-cols-2 lg:gap-20">
         <div className="flex flex-col items-start gap-7">
           <p className="flex items-center gap-2 text-xs font-medium tracking-widest uppercase text-muted-foreground">

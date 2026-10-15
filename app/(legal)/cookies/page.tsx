@@ -1,5 +1,13 @@
+import type { Metadata } from "next";
+import { appConfig } from "@/app.config";
 import { PolicyTemplate } from "../_components/policy-template";
 import { CookiePreferencesButton } from "../_components/cookie-preferences-button";
+
+export const metadata: Metadata = {
+  title: "Cookie Policy",
+  description: `The cookies ${appConfig.appName} uses and how to change your cookie preferences.`,
+  alternates: { canonical: "/cookies" },
+};
 
 export default function CookiesPage() {
   return (
