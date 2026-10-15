@@ -154,6 +154,8 @@ plan the new Clerk user identities and billing associations rather than assuming
 development data transfers. Clerk development accounts remain test accounts.
 Set `ALLOW_SEARCH_INDEXING=true` only on that public production deployment, with
 `NEXT_PUBLIC_APP_URL` as its public origin; both are read at build time.
+That build also fails until `companyCvr` and `companyAddress` in `app.config.ts`
+replace the template's example company details, which the legal pages publish.
 
 Provider references: [Convex on Vercel](https://docs.convex.dev/production/hosting/vercel),
 [Vercel Git configuration](https://vercel.com/docs/project-configuration/git-configuration),

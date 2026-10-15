@@ -40,3 +40,12 @@ test("the cookie policy lists every registered consent service, including those 
     if (service.storage.length === 0) expect(markdown).toContain(`| None | ${service.name} |`);
   }
 });
+
+test("the public production build refuses the example company details", () => {
+  expect(() => loadLegalDocument("terms", { appUrl, publicProduction: true, config: { ...appConfig, companyCvr: "00000000" } }))
+    .toThrow("Replace the example companyCvr and companyAddress");
+  expect(() => loadLegalDocument("terms", { appUrl, publicProduction: false, config: { ...appConfig, companyCvr: "00000000" } }))
+    .not.toThrow();
+  const real = { ...appConfig, companyCvr: "12345678" as const, companyAddress: "Real Street 2, 1000 Copenhagen" };
+  expect(loadLegalDocument("terms", { appUrl, publicProduction: true, config: real }).markdown).toContain("CVR 12345678");
+});
