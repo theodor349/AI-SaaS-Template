@@ -5,7 +5,9 @@ import type { ConsentService, ConsentStorage } from "./service";
 // clearing the storage they listed. Create one per page lifetime; it remembers what
 // it loaded, so calling sync again with the same consent does nothing.
 export function createConsentRunner(services: readonly ConsentService[], clear: (storage: readonly ConsentStorage[]) => void) {
-  const loaded = new Set<string>();
+  // Each grant records its own attempt, so a failed load forgets only itself and a
+  // later sync retries it, while a newer grant's record survives.
+  const loaded = new Map<string, object>();
   // Each service's transitions run in order, so a withdrawal waits for its pending load.
   const queues = new Map<string, Promise<void>>();
 
@@ -24,8 +26,16 @@ export function createConsentRunner(services: readonly ConsentService[], clear: 
       if (service.category === "essential") continue;
       if (consent?.choices[service.category] === true) {
         if (loaded.has(service.id)) continue;
-        loaded.add(service.id);
-        transitions.push(enqueue(service, () => service.load?.()));
+        const attempt = {};
+        loaded.set(service.id, attempt);
+        transitions.push(enqueue(service, async () => {
+          try {
+            await service.load?.();
+          } catch (error) {
+            if (loaded.get(service.id) === attempt) loaded.delete(service.id);
+            throw error;
+          }
+        }));
         continue;
       }
       // Not granted: also clears what an earlier visit may have left behind.
