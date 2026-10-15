@@ -73,7 +73,7 @@ test("a chosen theme applies at once, persists without a flash, and System follo
     await context.addCookies([{ name: E2E_CRASH_COOKIE, value: "layout", url: local.config.env.APP_URL }]);
     await page.goto("/");
     await expect(page.getByRole("heading", { name: "Something broke. Just a little." })).toBeVisible();
-    await expect(page.locator("html")).toHaveClass("dark");
+    await expectTheme(page, "dark");
     await context.clearCookies({ name: E2E_CRASH_COOKIE });
 
     await page.goto("/account");

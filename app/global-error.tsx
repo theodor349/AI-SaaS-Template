@@ -4,6 +4,7 @@ import { useEffect, useTransition } from "react";
 import { appConfig } from "@/app.config";
 import { reportError } from "@/lib/report-error";
 import { useResolvedTheme } from "@/components/theme/use-theme";
+import { themeColors } from "@/lib/theme";
 import { MisplacedSquare } from "./_components/misplaced-square";
 import styles from "./global-error.module.css";
 
@@ -25,6 +26,7 @@ export default function GlobalError({ error, retry }: {
       <body className={styles.body}>
         <title>{`Something went wrong — ${appConfig.appName}`}</title>
         <meta name="robots" content="noindex" />
+        <meta name="theme-color" content={themeColors[theme ?? "light"]} />
         <main className={styles.page}>
           <MisplacedSquare variant="popped" snapped={retrying} />
           <div className={styles.text}>
