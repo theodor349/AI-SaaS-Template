@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import { appConfig } from "../../app.config";
 import { legalVersions } from "../../convex/lib/legal";
 import { consentServices } from "../consent/services";
-import { loadLegalDocument, legalSlugs } from "./documents";
+import { effectiveDate, loadLegalDocument, legalSlugs } from "./documents";
 
 const appUrl = "https://app.example.com/ignored-path";
 
@@ -48,4 +48,11 @@ test("the public production build refuses the example company details", () => {
     .not.toThrow();
   const real = { ...appConfig, companyCvr: "12345678" as const, companyAddress: "Real Street 2, 1000 Copenhagen" };
   expect(loadLegalDocument("terms", { appUrl, publicProduction: true, config: real }).markdown).toContain("CVR 12345678");
+});
+
+test("effective dates must be real calendar dates", () => {
+  expect(effectiveDate("2026-10-14")).toBe("14 October 2026");
+  for (const value of ["2026-02-30", "2026-13-01", "14-10-2026", undefined]) {
+    expect(() => effectiveDate(value)).toThrow("effective date");
+  }
 });
