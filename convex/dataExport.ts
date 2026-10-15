@@ -29,6 +29,10 @@ const maxExportBytes = 12 * 1024 * 1024;
 
 type PartPage = { items: Value[]; isDone: boolean; continueCursor: string };
 
+function jsonBytes(value: unknown) {
+  return new TextEncoder().encode(JSON.stringify(value)).length;
+}
+
 function findPart(section: string, part: string) {
   const exporter = Object.hasOwn(exporters, section) ? exporters[section] : undefined;
   const found = exporter && Object.hasOwn(exporter, part) ? exporter[part] : undefined;
@@ -67,6 +71,8 @@ export const download = action({
   handler: async (ctx) => {
     const ownerId: Id<"users"> = await ctx.runQuery(internal.dataExport.owner, {});
     ctx.log.setUser(ownerId);
+    // A running total stops an oversized export before it exhausts action memory.
+    let collected = 0;
     const sections: Record<string, Record<string, Value>> = {};
     for (const [section, exporter] of Object.entries(exporters)) {
       sections[section] = {};
@@ -79,6 +85,11 @@ export const download = action({
             section, part: name, paginationOpts: { ...pageOptions, cursor },
           });
           items.push(...page.items);
+          collected += jsonBytes(page.items);
+          if (collected > maxExportBytes) {
+            ctx.log.set("bytes", collected);
+            throw appError("EXPORT_TOO_LARGE");
+          }
           cursor = page.continueCursor;
           done = page.isDone;
         }

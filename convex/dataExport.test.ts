@@ -137,6 +137,25 @@ test("a user without billing exports an empty billing section", async () => {
   expect((await download(t, "alice")).sections.billing).toEqual({ plan: null, subscriptions: [], orders: [] });
 });
 
+test("an export over the size limit stops early with a typed error", async () => {
+  const t = convexTest(schema, modules);
+  await seed(t, "alice");
+  // Twenty orders near the 1 MiB document limit pass the 12 MiB export limit.
+  await t.run(async (ctx) => {
+    for (let i = 0; i < 20; i++) {
+      await ctx.db.insert("billingOrders", {
+        customerId: "alice-customer", orderId: `large-${i}`, productId: "x".repeat(700_000),
+        paid: true, fullyRefunded: false, createdAt: at, modifiedAt: at,
+      });
+    }
+  });
+  await expect(download(t, "alice")).rejects.toThrow("EXPORT_TOO_LARGE");
+  const event = vi.mocked(console.error).mock.calls.map(([line]) => JSON.parse(String(line)) as { attributes: Record<string, unknown> })
+    .find((candidate) => "bytes" in candidate.attributes);
+  expect(event?.attributes.bytes).toBeGreaterThan(12 * 1024 * 1024);
+  expect(event?.attributes).not.toHaveProperty("accountLifecycle.requests");
+});
+
 test("anonymous and unprovisioned callers cannot export", async () => {
   const t = convexTest(schema, modules);
   await expect(t.action(api.dataExport.download, {})).rejects.toThrow("UNAUTHENTICATED");
