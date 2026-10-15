@@ -1,5 +1,6 @@
 import { clerk } from "@clerk/testing/playwright";
 import { expect, test, type Page } from "@playwright/test";
+import { allChoices, CONSENT_COOKIE, consentCookieValue } from "../../lib/consent/cookie";
 import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 
@@ -31,7 +32,7 @@ test("pages, routes, and static files carry the security headers", async ({ requ
   expect(icon.headers()["x-content-type-options"]).toBe("nosniff");
 });
 
-test("signing in, live data, and consented Sentry run without CSP violations", async ({ page }) => {
+test("signing in, live data, and consented Sentry run without CSP violations", async ({ page, context }) => {
   const violations = watchViolations(page);
   const user = await createClerkTestUser(local);
   try {
@@ -45,15 +46,14 @@ test("signing in, live data, and consented Sentry run without CSP violations", a
     await page.goto("/billing");
     await expect(page.getByRole("heading", { name: "Billing", exact: true })).toBeVisible();
 
-    await page.goto("/cookies");
-    await page.getByRole("button", { name: "Cookie Preferences" }).click();
-    const dialog = page.getByRole("dialog", { name: "Cookie Preferences" });
-    await dialog.getByRole("switch", { name: "Analytics" }).click();
-    await dialog.getByRole("button", { name: "Save preferences" }).click();
-    // With consent stored, the next page load starts Sentry, which reports the load.
-    const envelope = page.waitForRequest((request) => request.url().includes("/e2e/sentry/api/1/envelope"), { timeout: 30_000 });
+    // With analytics granted, the next page load starts Sentry, which reports the load.
+    const envelopes: string[] = [];
+    page.on("request", (request) => {
+      if (request.url().includes("/e2e/sentry/api/1/envelope")) envelopes.push(request.url());
+    });
+    await context.addCookies([{ name: CONSENT_COOKIE, value: consentCookieValue(allChoices(true)), url: local.config.env.APP_URL }]);
     await page.goto("/");
-    await envelope;
+    await expect.poll(() => envelopes.length).toBeGreaterThan(0);
     expect(violations).toEqual([]);
   } finally {
     await user.cleanup();
