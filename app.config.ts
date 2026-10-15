@@ -2,9 +2,12 @@
 // it as `@/app.config` and Convex as a relative path, so keep it free of
 // imports, secrets, and per-environment values; those belong in environment
 // variables. The brand icon lives in app/icon.svg.
-type AppConfig = {
+export type AppConfig = {
   appName: string;
   companyName: string;
+  // Shown on every legal page, as the Danish E-Commerce Act requires.
+  companyCvr: `${number}`;
+  companyAddress: string;
   supportEmail: `${string}@${string}.${string}`;
   // The default page and link preview description; search results show about 155 characters.
   description: string;
@@ -21,6 +24,8 @@ type AppConfig = {
 export const appConfig = {
   appName: "AI SaaS Template",
   companyName: "Just Enough Solutions ApS",
+  companyCvr: "00000000",
+  companyAddress: "Example Street 1, 8000 Aarhus C, Denmark",
   supportEmail: "support@justenoughsolutions.com",
   description: "A foundation for your next AI product, with Next.js, realtime data, account management, and paid access. Choose monthly, yearly, or lifetime Pro access.",
   tagline: "Your next idea starts here",

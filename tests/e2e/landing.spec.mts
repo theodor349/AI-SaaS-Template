@@ -10,6 +10,7 @@ import { billingTestAdmin, seedPaidTestUser } from "../../scripts/billing-test-f
 import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 import { interceptConvexSync } from "./convex-sync.mjs";
+import { acceptTerms } from "./legal.mjs";
 import { captureEvidence } from "./evidence.mjs";
 
 const { createClerkClient } = createRequire(import.meta.url)("@clerk/nextjs/server");
@@ -58,6 +59,9 @@ test("checkout shows progress after sign-in and for signed-in users, with explic
     await page.getByRole("link", { name: "Sign in", exact: true }).click();
     await expect(page).toHaveURL(/\/sign-in\?/);
     await clerk.signIn({ page, emailAddress: user.email });
+    await expect(page.getByRole("heading", { name: "Accept the terms to continue." })).toBeVisible();
+    expect(checkoutModels).toEqual([]);
+    await acceptTerms(page);
     await expect(page.getByRole("heading", { name: "Redirecting to the payment page…" })).toBeVisible();
     await expect.poll(() => checkoutModels.length).toBe(1);
     await expect(page).toHaveURL(`${local.config.env.APP_URL}/checkout`);
@@ -126,6 +130,7 @@ test("a new visitor creates an account and reaches Polar sandbox checkout for th
     expect((await verificationPrepared).ok()).toBe(true);
     await expect(page.getByRole("heading", { name: "Verify your email" })).toBeVisible();
     await page.getByRole("textbox", { name: "Enter verification code" }).fill("424242");
+    await acceptTerms(page);
     await expect(page.getByRole("heading", { name: "Redirecting to the payment page…" })).toBeVisible();
     await expect.poll(() => checkoutModels.length).toBe(1);
     await expect(page).toHaveURL(`${local.config.env.APP_URL}/checkout`);
@@ -206,6 +211,7 @@ for (const transition of ["paid", "deleting", "manual"] as const) {
       await clerk.signIn({ page, emailAddress: user.email });
       await page.goto("/");
       await page.getByRole("link", { name: "Choose monthly" }).click();
+      await acceptTerms(page);
       await expect(page.getByRole("heading", { name: "Redirecting to the payment page…" })).toBeVisible();
       await expect.poll(() => Boolean(completeCheckout)).toBe(true);
 

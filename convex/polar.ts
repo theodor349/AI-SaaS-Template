@@ -195,6 +195,7 @@ export const checkout = action({
   handler: (ctx, { model, returnUrl }) => userFacing(ctx, async () => {
     ctx.log.set("model", model);
     const destination = billingReturnUrl(returnUrl);
+    await ctx.runQuery(internal.legal.requireAccepted, {});
     const { p, customer } = await ownedCustomer(ctx);
     const lease = await ctx.runMutation(internal.billingState.beginOperation, {});
     try {
