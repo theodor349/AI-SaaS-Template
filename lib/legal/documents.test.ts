@@ -10,6 +10,7 @@ const appUrl = "https://app.example.com/ignored-path";
 test.each(legalSlugs)("%s renders with every placeholder filled in", (slug) => {
   const document = loadLegalDocument(slug, { appUrl });
   expect(document.markdown).not.toMatch(/\{\{|\}\}/);
+  expect(document.description).not.toMatch(/\{\{|\}\}/);
   expect(document.markdown).not.toMatch(/^# /m);
   expect(document.effectiveDate).toMatch(/^\d{1,2} [A-Z][a-z]+ \d{4}$/);
 });
