@@ -2,10 +2,15 @@ import type { ConsentStorage } from "./service";
 
 // Removes a withdrawn service's first-party cookies and web storage. Cookies on the
 // provider's own domain are out of reach; withdrawal stops the service from using them.
+// Browsers that block storage throw; each entry is cleared independently.
 export function clearConsentStorage(storage: readonly ConsentStorage[]) {
   for (const item of storage) {
-    if (item.type === "cookie") expireCookie(item.name);
-    else window[item.type].removeItem(item.name);
+    try {
+      if (item.type === "cookie") expireCookie(item.name);
+      else window[item.type].removeItem(item.name);
+    } catch {
+      // Blocked storage holds nothing this service could have written.
+    }
   }
 }
 

@@ -8,10 +8,11 @@ test("removes emails and credentials from text", () => {
   expect(scrubText("token eyJhbGciOi.eyJzdWIiOi.c2lnbmF0dXJl here")).toBe("token [token] here");
   expect(scrubText("key sk_test_abc123 and whsec_c2VjcmV0")).toBe("key [secret] and [secret]");
   expect(scrubText("/sign-in?__clerk_db_jwt=dvb_123&redirect_url=%2Fapp")).toBe("/sign-in?__clerk_db_jwt=[redacted]&redirect_url=%2Fapp");
+  expect(scrubText("/invite?email=ada%2Btest%40example.com&plan=pro")).toBe("/invite?email=[email]&plan=pro");
 });
 
 test("keeps package versions, trace IDs, and paths intact", () => {
-  const text = "at node_modules/.pnpm/@sentry+nextjs@11.7.0_next@16.3.8/x.js trace 0123456789abcdef0123456789abcdef";
+  const text = "at node_modules/.pnpm/@sentry+nextjs@11.7.0_next@16.3.8/x.js and /_next/static/chunks/1n82_%40sentry_core_build_esm_0x388d2._.js and 0jwt_@scope_pkg._.js trace 0123456789abcdef0123456789abcdef";
   expect(scrubText(text)).toBe(text);
 });
 

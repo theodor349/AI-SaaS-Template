@@ -1,7 +1,9 @@
 import type { Breadcrumb, Event } from "@sentry/nextjs";
 
 const replacements: [RegExp, string][] = [
-  [/[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}\b/gi, "[email]"],
+  // Also percent-encoded in URLs. Hostname labels have no underscores, which keeps
+  // file names like `_%40sentry_core._.js` intact.
+  [/[\w.+%-]+(?:@|%40)(?:[a-z0-9-]+\.)+[a-z]{2,}\b/gi, "[email]"],
   [/\beyJ[\w-]+\.[\w-]+\.[\w-]+/g, "[token]"],
   [/\bBearer\s+[\w.~+/=-]+/gi, "Bearer [token]"],
   [/\b(?:sk|rk)_(?:test|live)_\w+|\bwhsec_[\w+/=]+|\bpolar_\w+_\w+/g, "[secret]"],
