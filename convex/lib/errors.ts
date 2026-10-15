@@ -23,7 +23,9 @@ export type ErrorCode =
   | "SUBSCRIPTION_REACTIVATION_REQUIRED"
   | "SUBSCRIPTION_UNAVAILABLE"
   | "UNAUTHENTICATED"
-  | "USE_SUBSCRIPTION_MANAGEMENT";
+  | "USE_SUBSCRIPTION_MANAGEMENT"
+  | "WITHDRAWAL_PERIOD_ENDED"
+  | "WITHDRAWAL_UNAVAILABLE";
 
 export function appError(code: ErrorCode) {
   return new ConvexError({ code });

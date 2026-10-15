@@ -118,6 +118,30 @@ export default defineSchema(
       productId: v.string(), name: v.string(), amount: v.number(), currency: v.string(),
       taxBehavior: v.string(), syncedAt: v.number(),
     }).index("by_model", ["model"]),
+    // Withdrawals under the 14-day right of withdrawal, one per purchase. The
+    // refund job retries until Polar confirms every order is refunded.
+    withdrawals: defineTable({
+      userId: v.id("users"),
+      customerId: v.string(),
+      // The purchase's first paid order, which identifies it.
+      orderId: v.string(),
+      subscriptionId: v.optional(v.string()),
+      model: billingModel,
+      purchasedAt: v.number(),
+      receivedAt: v.number(),
+      // Every paid order the withdrawal refunds, fixed when it is received.
+      refundOrderIds: v.array(v.string()),
+      status: v.union(v.literal("pending"), v.literal("refunded")),
+      refundedAt: v.optional(v.number()),
+      // The receipt in the Resend component; absent when email isn't configured.
+      receiptEmailId: v.optional(v.string()),
+      nextAttemptAt: v.optional(v.number()),
+      leaseUntil: v.optional(v.number()),
+      attempts: v.number(),
+      failureCode: v.optional(v.string()),
+    }).index("by_userId", ["userId"])
+      .index("by_orderId", ["orderId"])
+      .index("by_status_and_nextAttemptAt", ["status", "nextAttemptAt"]),
     // Per-deployment state for flags declared in lib/featureFlags.ts. A flag
     // without a row uses its default; rows for removed flags are ignored.
     featureFlags: defineTable({

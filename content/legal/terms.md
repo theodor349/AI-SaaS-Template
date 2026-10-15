@@ -29,7 +29,9 @@ You can cancel a subscription at any time on the Billing page. You keep access u
 
 As a consumer, you can withdraw from a purchase within 14 days of the day you buy it, without giving a reason. Checkout doesn't ask you to give up this right, so you get a full refund if you withdraw within the 14 days, even if you have already used the plan. This applies to monthly, yearly, and lifetime plans.
 
-To withdraw, send us a clear statement, for example by email to [{{SUPPORT_EMAIL}}](mailto:{{SUPPORT_EMAIL}}), with the email address of your account. Refunds are issued through Polar to your original payment method no later than 14 days after we receive your withdrawal, and your paid access ends when the refund is made.
+To withdraw, use **Withdraw from contract** on the [Billing page](/billing). It's there for each purchase until its 14 days end. Confirm the withdrawal, and we email you a receipt with what you withdrew and when we received it. You can also send us a clear statement, for example by email to [{{SUPPORT_EMAIL}}](mailto:{{SUPPORT_EMAIL}}), with the email address of your account.
+
+Refunds are issued through Polar to your original payment method no later than 14 days after we receive your withdrawal, and your paid access ends when the refund is made. Withdrawing from a subscription also ends it, so it doesn't renew.
 
 ## 5. Other refunds
 

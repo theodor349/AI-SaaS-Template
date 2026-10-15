@@ -47,6 +47,14 @@ export const subprocessors: Subprocessor[] = [
     privacyUrl: "https://vercel.com/legal/privacy-policy",
   },
   {
+    name: "Resend",
+    entity: "Resend, Inc.",
+    purpose: "Sending receipts and other account emails",
+    location: "United States",
+    safeguard: dataPrivacyFramework,
+    privacyUrl: "https://resend.com/legal/privacy-policy",
+  },
+  {
     name: "Sentry",
     entity: "Functional Software, Inc.",
     purpose: "Error monitoring",

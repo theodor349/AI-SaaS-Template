@@ -2,7 +2,7 @@
 title: Privacy Policy
 description: How {{COMPANY_NAME}} collects, uses, and protects personal data in {{APP_NAME}}.
 version: 1
-effective: 2026-10-14
+effective: 2026-10-15
 ---
 
 This policy explains how we process personal data when you use {{APP_NAME}} at {{APP_URL}}. We follow the EU General Data Protection Regulation (GDPR) and the Danish Data Protection Act (databeskyttelsesloven).
@@ -15,9 +15,9 @@ This policy explains how we process personal data when you use {{APP_NAME}} at {
 
 | Data | Why we use it | Legal basis |
 | --- | --- | --- |
-| Your email address, name, sign-in method, and sessions | To create your account and keep you signed in | Contract (GDPR art. 6(1)(b)) |
+| Your email address, name, sign-in method, and sessions | To create your account, keep you signed in, and email you receipts, such as for a withdrawal | Contract (GDPR art. 6(1)(b)) |
 | What you create in {{APP_NAME}}, your display name, and your plan | To provide the service | Contract (art. 6(1)(b)) |
-| Your orders and subscription status | To give you the plan you paid for and handle billing questions | Contract (art. 6(1)(b)) and our bookkeeping duties (art. 6(1)(c)) |
+| Your orders, subscription status, and withdrawals | To give you the plan you paid for, handle withdrawals and refunds, and answer billing questions | Contract (art. 6(1)(b)) and our bookkeeping duties (art. 6(1)(c)) |
 | Your IP address, browser details, request logs, and server error reports | To keep the service secure and working and to fix errors | Our legitimate interest in a secure, reliable service (art. 6(1)(f)) |
 | When you accepted these documents, and which versions | To show what you agreed to | Contract (art. 6(1)(b)) |
 {{#if ANALYTICS}}

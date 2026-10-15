@@ -21,3 +21,9 @@ export function isBillingModel(value: unknown): value is BillingModel {
 export function isRecurringModel(value: unknown): value is RecurringModel {
   return recurringModels.some((model) => model === value);
 }
+
+export const planLabels: Record<BillingModel, string> = {
+  monthly: "Monthly Pro",
+  yearly: "Yearly Pro",
+  lifetime: "Lifetime Pro",
+};

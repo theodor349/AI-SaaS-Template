@@ -50,6 +50,11 @@ async function seed(t: ReturnType<typeof convexTest>, name: string,
       customerId, orderId: `${name}-order`, productId: "monthly", subscriptionId: `${name}-sub`,
       paid: true, fullyRefunded: false, createdAt: at, modifiedAt: at,
     });
+    await ctx.db.insert("withdrawals", {
+      userId, customerId, orderId: `${name}-order`, subscriptionId: `${name}-sub`, model: "monthly", purchasedAt: at,
+      receivedAt: at, refundOrderIds: [`${name}-order`], status: "pending", receiptEmailId: `${name}-receipt`,
+      nextAttemptAt: at, leaseUntil: at, attempts: 2, failureCode: `${name}-failure`,
+    });
     return userId;
   });
 }
@@ -86,10 +91,13 @@ test("an export holds only the caller's data, in the documented shape", async ()
       },
       accountLifecycle: { requests: [{ source: "user", status: "pending", requestedAt: iso, deleteAfter: iso }] },
       legal: { acceptance: { termsVersion: 1, privacyVersion: 1, acceptedAt: iso } },
+      withdrawals: {
+        requests: [{ orderId: "alice-order", model: "monthly", purchasedAt: iso, receivedAt: iso, status: "pending", refundedAt: null }],
+      },
     },
   });
   const text = JSON.stringify(exported);
-  for (const excluded of ["bob", "clerk", "customer", "delivery", "failure", "checkout", "wt-test"]) {
+  for (const excluded of ["bob", "clerk", "customer", "delivery", "failure", "checkout", "wt-test", "receipt"]) {
     expect(text).not.toContain(excluded);
   }
 });

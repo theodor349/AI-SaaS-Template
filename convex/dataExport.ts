@@ -12,6 +12,7 @@ import { action, internalQuery } from "./lib/functions";
 import { requireOwner } from "./lib/users";
 import { legalExport } from "./legal";
 import { profileExport } from "./profile";
+import { withdrawalsExport } from "./withdrawals";
 
 // Every section of the user's data export, one per feature. Registering a
 // feature's exporter here adds it to the download; see docs/internals/data-export.md.
@@ -20,6 +21,7 @@ const exporters: Record<string, Exporter> = {
   billing: billingExport,
   accountLifecycle: accountLifecycleExport,
   legal: legalExport,
+  withdrawals: withdrawalsExport,
 };
 
 // Bump when an exported shape changes incompatibly.

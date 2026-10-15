@@ -41,7 +41,8 @@ export async function publishBillingSnapshot(snapshot, client = billingTestAdmin
 }
 
 // Paid users have accepted the current terms unless `acceptTerms` is false.
-export async function seedPaidTestUser(user, model = "lifetime", paid = true, { periodMs = 60 * 60_000, acceptTerms = true } = {}) {
+// `purchasedAt` backdates the order, which starts the withdrawal period.
+export async function seedPaidTestUser(user, model = "lifetime", paid = true, { periodMs = 60 * 60_000, acceptTerms = true, purchasedAt = Date.now() } = {}) {
   const { local, client } = billingTestAdmin();
   await client.mutation(internal.users.syncProfile, { profile: { clerkId: user.id, email: user.email,
     firstName: user.name, updatedAt: Date.now() }, eventAt: Date.now() });
@@ -58,7 +59,7 @@ export async function seedPaidTestUser(user, model = "lifetime", paid = true, { 
     subscriptions: model === "lifetime" ? [] : [{ id: subscriptionId, productId, status: "active",
       start: now - 1000, end: now + periodMs, modifiedAt: now, cancelAtPeriodEnd: false }],
     orders: [{ id: `fixture-order-${user.id}-${model}`, productId, ...(model === "lifetime" ? {} : { subscriptionId }),
-      paid, fullyRefunded: false, createdAt: now, modifiedAt: now }],
+      paid, fullyRefunded: false, createdAt: purchasedAt, modifiedAt: now }],
   }, client);
   // Provider lookups for synthetic IDs cannot alter live sandbox resources;
   // paid expiry continues through its scheduled mutation.
