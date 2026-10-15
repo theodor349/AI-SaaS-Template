@@ -16,4 +16,4 @@ Bump `CONSENT_POLICY_VERSION` when users must agree again, for example on adding
 
 Browser Sentry is the analytics example. While it runs, [`activeBrowserSentry`](../../lib/sentry/active.ts) exposes it to error boundaries, router-transition tracking, and logging flows; code elsewhere must go through it rather than importing `@sentry/nextjs`, which would bundle and run the SDK for every visitor. After withdrawal the closed client keeps its global handlers but drops events. [Shared options](../../lib/sentry/options.ts) carry the privacy settings, including scrubbing of emails and credentials.
 
-Bootstrap's local stack points the DSN at a fake same-origin ingest route ([next.config.js](../../next.config.js)), so E2E tests observe envelopes without a Sentry project and worktrees never report to a real one.
+Bootstrap's local stack points the DSN at a fake same-origin ingest route ([next.config.js](../../next.config.js)), which also receives server Sentry's events, so E2E tests observe envelopes without a Sentry project and worktrees never report to a real one.
