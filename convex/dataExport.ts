@@ -10,6 +10,7 @@ import type { Exporter } from "./lib/dataExport";
 import { appError } from "./lib/errors";
 import { action, internalQuery } from "./lib/functions";
 import { requireOwner } from "./lib/users";
+import { legalExport } from "./legal";
 import { profileExport } from "./profile";
 
 // Every section of the user's data export, one per feature. Registering a
@@ -18,6 +19,7 @@ const exporters: Record<string, Exporter> = {
   profile: profileExport,
   billing: billingExport,
   accountLifecycle: accountLifecycleExport,
+  legal: legalExport,
 };
 
 // Bump when an exported shape changes incompatibly.

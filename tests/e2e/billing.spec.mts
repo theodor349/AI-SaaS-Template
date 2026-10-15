@@ -9,6 +9,7 @@ import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 import { adminQuery, adminMutation } from "../../scripts/billing-test-admin";
 import { testExternalCustomerId } from "../../scripts/test-identity.mjs";
 import { interceptConvexSync } from "./convex-sync.mjs";
+import { acceptTerms, acceptTermsAsUser } from "./legal.mjs";
 import { captureEvidence } from "./evidence.mjs";
 
 const local = resolveLocalTestConfig();
@@ -25,6 +26,7 @@ test("selected plan opens checkout once after authentication; success URL alone 
     await page.goto("/checkout?plan=yearly");
     await expect(page).toHaveURL(/\/sign-in\?/);
     await clerk.signIn({ page, emailAddress: user.email });
+    await acceptTerms(page);
     await expect(page.getByText("We couldn’t open the payment page")).toBeVisible();
     await expect(page).toHaveURL(`${local.config.env.APP_URL}/checkout`);
     expect(checkoutModels).toEqual(["yearly"]);
@@ -112,7 +114,9 @@ for (const action of ["checkout", "portal"] as const) {
         // then reproduce the browser's cached-page lifecycle event below.
         call.succeed(`${local.config.env.APP_URL}/billing#navigation-${requests}`);
       });
-      await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email }); await page.goto("/billing");
+      await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email });
+      await acceptTermsAsUser(page);
+      await page.goto("/billing");
       const label = action === "checkout" ? "Choose monthly" : "Customer portal";
       const progress = action === "checkout" ? "Opening checkout…" : "Opening portal…";
       await page.getByRole("button", { name: label, exact: true }).click();
@@ -175,6 +179,9 @@ test("sandbox checkout and recovery work when another customer uses the sign-in 
     collisionCustomerId = collision.id;
     await page.goto("/billing"); await clerk.signIn({ page, emailAddress: user.email });
     await page.getByRole("button", { name: "Choose monthly" }).click();
+    await expect(page.getByRole("dialog", { name: "Accept the terms to continue" })).toBeVisible();
+    await captureEvidence(page, "billing-acceptance-dialog");
+    await acceptTerms(page);
     await expect(page).toHaveURL(/https:\/\/sandbox\.polar\.sh\/checkout\//);
     // Don't record provider pages, tokens, or payment details in PR artifacts.
     await page.goto(`${local.config.env.APP_URL}/billing`);

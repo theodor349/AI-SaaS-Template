@@ -28,7 +28,7 @@ Set these environment variables for **Production only**:
 | `CONVEX_DEPLOY_KEY` | Production deployment key generated in Convex; grant `deployment:deploy`. |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Existing Clerk development publishable key (`pk_test_...`). |
 | `CLERK_SECRET_KEY` | Matching Clerk development secret key (`sk_test_...`). |
-| `NEXT_PUBLIC_APP_URL` | The Vercel project's stable application URL. |
+| `NEXT_PUBLIC_APP_URL` | The Vercel project's stable application URL. The build needs it to render the legal pages. |
 | `NEXT_PUBLIC_AUTHENTICATED_DESTINATION` | `/app`, or the intended authenticated landing route. |
 | `NEXT_PUBLIC_SENTRY_DSN` | Optional. The Sentry project's DSN. Without it, browser Sentry never loads. |
 | `WORKTREE_ID` | `cloud-dev`, matching Convex below; becomes the Sentry `environment`. |
@@ -154,6 +154,8 @@ plan the new Clerk user identities and billing associations rather than assuming
 development data transfers. Clerk development accounts remain test accounts.
 Set `ALLOW_SEARCH_INDEXING=true` only on that public production deployment, with
 `NEXT_PUBLIC_APP_URL` as its public origin; both are read at build time.
+That build also fails until `companyCvr` and `companyAddress` in `app.config.ts`
+replace the template's example company details, which the legal pages publish.
 
 Provider references: [Convex on Vercel](https://docs.convex.dev/production/hosting/vercel),
 [Vercel Git configuration](https://vercel.com/docs/project-configuration/git-configuration),

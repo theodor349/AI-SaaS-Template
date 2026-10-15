@@ -5,6 +5,7 @@ import { seedPaidTestUser } from "../../scripts/billing-test-fixtures.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 import { interceptConvexSync } from "./convex-sync.mjs";
 import { captureEvidence } from "./evidence.mjs";
+import { acceptTermsAsUser } from "./legal.mjs";
 
 const local = resolveLocalTestConfig();
 const catalog = (["monthly", "yearly", "lifetime"] as const).map((model) => ({
@@ -100,6 +101,7 @@ test("checkout disables duplicate attempts until the request fails, then permits
   try {
     await page.goto("/");
     await clerk.signIn({ page, emailAddress: user.email });
+    await acceptTermsAsUser(page);
     await page.goto("/billing");
     const checkout = page.getByRole("button", { name: "Choose monthly" });
     await expect(checkout).toBeEnabled();
