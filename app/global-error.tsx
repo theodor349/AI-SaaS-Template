@@ -9,8 +9,9 @@ import styles from "./global-error.module.css";
 
 // Errors in the root layout itself. This replaces the whole document, so it must not
 // use Clerk, Convex, the navigation, or the global stylesheet: any of them may be what
-// crashed. The home link is a full page load so the root layout starts over. Without the
-// layout's theme script, a dark theme applies only once this page hydrates.
+// crashed. The home link is a full page load so the root layout starts over. Next serves
+// an empty shell for root layout errors and renders this page in the browser, so it
+// applies the theme as it renders; an inline theme script here would never be sent.
 export default function GlobalError({ error, retry }: {
   error: Error & { digest?: string };
   retry: () => void;
