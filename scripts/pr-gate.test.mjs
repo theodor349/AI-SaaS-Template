@@ -125,6 +125,9 @@ test("a review of an earlier commit covers the head unless a later merge was com
   assert.match(conflicted.detail, /merge 39964d3 after the review of 9e320af was not a clean merge/);
   const rewritten = evaluateCodeRabbit({ ...input, carryOver: { [older]: { ancestor: false } } });
   assert.equal(rewritten.gate, "wait");
+  const shallow = evaluateCodeRabbit({ ...input, statuses: [], comments: [], carryOver: { unavailable: "this checkout is shallow" } });
+  assert.equal(shallow.gate, "action");
+  assert.match(shallow.detail, /last reviewed 9e320af, but this checkout is shallow/);
   assert.equal(evaluateCodeRabbit({ ...input, statuses: [], comments: [] }).gate, "action");
 });
 
@@ -167,6 +170,13 @@ test("only conflicted or edited merges after a reviewed commit count as complica
   assert.deepEqual(result[reviewed], { ancestor: true, complicatedMerges: [conflicted, edited] });
   assert.deepEqual(result[conflicted], { ancestor: true, complicatedMerges: [edited] });
   assert.equal(result["0000000000000000000000000000000000000000"].ancestor, false);
+
+  // Git failures other than "not an ancestor" surface instead of looking like rewritten history.
+  await assert.rejects(reviewCarryOver("1111111111111111111111111111111111111111", [reviewed], { cwd: repo }), /merge-base/);
+  const shallowClone = mkdtempSync(join(tmpdir(), "pr gate shallow "));
+  t.after(() => rmSync(shallowClone, { recursive: true, force: true }));
+  execFileSync("git", ["clone", "-q", "--depth", "1", `file://${repo}`, shallowClone]);
+  assert.deepEqual(Object.keys(await reviewCarryOver(edited, [reviewed], { cwd: shallowClone })), ["unavailable"]);
 });
 
 test("CodeRabbit gate reports rate limits, unknown activity, and maintainer-confirmed disablement", () => {

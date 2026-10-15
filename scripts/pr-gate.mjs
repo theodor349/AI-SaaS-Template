@@ -159,7 +159,7 @@ export function evaluateCodeRabbit({ head, pushedAt, now = Date.now(), disabled 
   // A completed review of an earlier commit in the head's history still covers the
   // head unless a later merge was complicated: conflicted, or edited beyond what a
   // clean automatic merge produces. Those merges need a fresh review.
-  const earlier = [...new Set(coverage.map((item) => item.commit))].filter((commit) => commit && !sameSha(commit, head))
+  const earlier = carryOver.unavailable ? [] : [...new Set(coverage.map((item) => item.commit))].filter((commit) => commit && !sameSha(commit, head))
     .map((commit) => ({ commit, ...carryOver[commit] })).filter((item) => item.ancestor);
   const carried = earlier.find((item) => !item.complicatedMerges?.length);
   const complicated = earlier.find((item) => item.complicatedMerges?.length);
@@ -185,9 +185,9 @@ export function evaluateCodeRabbit({ head, pushedAt, now = Date.now(), disabled 
   if (skipped) return { ...base, state: "skipped", gate: "action", detail: `review skipped or paused for this head (${status?.description ?? "see CodeRabbit comment"})` };
   if (failed) return { ...base, state: "failed", gate: "action", detail: `CodeRabbit status ${status.state}: ${status.description ?? ""}` };
   const sincePush = now - time(pushedAt);
-  const stale = complicated
-    ? `merge ${short(complicated.complicatedMerges.at(-1))} after the review of ${short(complicated.commit)} was not a clean merge`
-    : lastReviewedCommit ? `last reviewed ${short(lastReviewedCommit)}` : "no completed review yet";
+  const stale = carryOver.unavailable && lastReviewedCommit ? `last reviewed ${short(lastReviewedCommit)}, but ${carryOver.unavailable}`
+    : complicated ? `merge ${short(complicated.complicatedMerges.at(-1))} after the review of ${short(complicated.commit)} was not a clean merge`
+      : lastReviewedCommit ? `last reviewed ${short(lastReviewedCommit)}` : "no completed review yet";
   if (!(sincePush > REVIEW_START_GRACE_MS)) return { ...base, state: "not_started", gate: "wait", detail: `no review for head ${short(head)} yet (${stale})` };
   return { ...base, state: "not_started", gate: "action", detail: `no review started for head ${short(head)} ${Math.round(sincePush / 60_000)} min after push (${stale}); request one with @coderabbitai review` };
 }
@@ -423,13 +423,22 @@ async function gitState(pr) {
 
 // For each earlier reviewed commit, records whether it is in the head's history and
 // which later merges were complicated: conflicted, or with a result that differs from
-// the tree a clean automatic merge of the same parents produces.
+// the tree a clean automatic merge of the same parents produces. A shallow clone can
+// hide merges, so it carries nothing over.
 export async function reviewCarryOver(head, commits, { cwd } = {}) {
   const repoGit = (args) => command("git", args, { cwd }).then((out) => out.trim());
+  if (await repoGit(["rev-parse", "--is-shallow-repository"]) === "true") {
+    return { unavailable: "this checkout is shallow; run git fetch --unshallow so earlier reviews can carry over" };
+  }
   const result = {};
   for (const commit of new Set(commits)) {
     if (!commit || sameSha(commit, head)) continue;
-    const ancestor = await repoGit(["merge-base", "--is-ancestor", commit, head]).then(() => true, () => false);
+    // A reviewed commit missing locally, e.g. after a force push, is not in the head's history.
+    const known = await repoGit(["cat-file", "-e", `${commit}^{commit}`]).then(() => true, () => false);
+    const ancestor = known && await repoGit(["merge-base", "--is-ancestor", commit, head]).then(() => true, (error) => {
+      if (error.exitCode === 1) return false;
+      throw error;
+    });
     if (!ancestor) { result[commit] = { ancestor }; continue; }
     const merges = (await repoGit(["rev-list", "--merges", "--parents", "--reverse", `${commit}..${head}`])).split("\n").filter(Boolean).map((line) => line.split(" "));
     const complicatedMerges = [];
