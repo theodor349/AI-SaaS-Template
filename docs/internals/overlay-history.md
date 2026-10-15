@@ -8,6 +8,6 @@ Browsers behave the same way, so desktop back also closes the top overlay first.
 
 - **Next.js treats every `popstate` as a back navigation** and discards any navigation in progress. When an overlay closes in the page, the module steps back over its entry itself, and its capture listener hides that `popstate` from Next.js. Without this, choosing a link in a menu could leave the user on the old page.
 - **History writes wait for that step to land.** A `history.back()` lands asynchronously, and a `pushState` in the meantime can strand the overlay's entry above the new page. The module wraps `pushState` and `replaceState` and queues writes until its own step lands, which is also how a dialog opened from a menu takes over the menu's entry.
-- **A navigation while an overlay is still open replaces the overlay's entries** and closes the overlay, so back from the new page returns to the old one in a single step.
+- **A navigation while an overlay is still open replaces the overlay's entries** and closes the overlay, so back from the new page returns to the old one in a single step. A same-URL `replaceState`, such as the router's refresh, keeps the overlay's marker in the state it writes.
 
 Forward after closing an overlay with back lands on that overlay's old entry, which shows the same page. That entry can't be removed without adding another, so it is left in place.

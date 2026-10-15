@@ -121,6 +121,31 @@ describe("overlay history", () => {
     expect(page.router).toHaveBeenCalledOnce();
   });
 
+  it("keeps an overlay's entry when the page rewrites its state", async () => {
+    const page = browser();
+    const release = page.overlays.open(vi.fn());
+    await settle();
+    page.history.replaceState({ __NA: true }, "", "/account");
+    release();
+    await settle();
+
+    expect(page.index).toBe(0);
+    expect(page.router).not.toHaveBeenCalled();
+  });
+
+  it("replaces the page's entry when the page replaces its URL while an overlay is open", async () => {
+    const page = browser([{ url: "https://app.test/", state: null }, { url: "https://app.test/checkout", state: { __NA: true } }]);
+    const close = vi.fn();
+    page.overlays.open(close);
+    await settle();
+    page.history.replaceState({ __NA: true }, "", "/billing");
+    await settle();
+
+    expect(close).toHaveBeenCalledOnce();
+    expect(page.urls).toEqual(["/", "/billing", "/checkout"]);
+    expect(page.index).toBe(1);
+  });
+
   it("steps past an overlay entry left by a reload", async () => {
     const url = "https://app.test/account";
     const page = browser([{ url, state: { __NA: true } }, { url, state: { __NA: true, __overlay: "earlier:1" } }]);

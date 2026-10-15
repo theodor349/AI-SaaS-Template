@@ -43,10 +43,17 @@ export function createOverlayHistory(win: HistoryWindow) {
     if (currentId() === top.id) stepBack(steps);
   }
 
-  history.pushState = (data, unused, url) => write(() => {
-    const navigates = url != null && new URL(url, location.href).href !== location.href;
-    if (!navigates || !overlays.length || currentId() !== overlays[overlays.length - 1].id) {
-      push(data, unused, url);
+  // Wraps a history write so it accounts for overlay entries that are current.
+  const writer = (apply: typeof push, kind: "push" | "replace"): typeof push => (data, unused, url) => write(() => {
+    const top = overlays[overlays.length - 1];
+    if (!top || currentId() !== top.id) {
+      apply(data, unused, url);
+      return;
+    }
+    if (url == null || new URL(url, location.href).href === location.href) {
+      // Rewriting the state of the overlay's entry, as the router does on a refresh,
+      // keeps it the overlay's.
+      apply(kind === "replace" ? { ...(data as object | null), [KEY]: top.id } : data, unused, url);
       return;
     }
     // A page navigation takes the place of the overlays' entries and closes them.
@@ -54,10 +61,11 @@ export function createOverlayHistory(win: HistoryWindow) {
     const open = overlays.filter((overlay) => !overlay.closed);
     stepBack(overlays.length);
     overlays = [];
-    waiting.unshift(() => push(data, unused, url));
+    waiting.unshift(() => apply(data, unused, url));
     queueMicrotask(() => open.reverse().forEach((overlay) => overlay.close()));
   });
-  history.replaceState = (data, unused, url) => write(() => replace(data, unused, url));
+  history.pushState = writer(push, "push");
+  history.replaceState = writer(replace, "replace");
 
   // Capture runs this before Next.js's own listener.
   win.addEventListener("popstate", (event) => {
