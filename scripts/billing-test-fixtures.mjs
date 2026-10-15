@@ -40,10 +40,12 @@ export async function publishBillingSnapshot(snapshot, client = billingTestAdmin
   await client.mutation(internal.billingState.finish, { customerId: snapshot.customerId, version: lease.version, failed: false });
 }
 
-export async function seedPaidTestUser(user, model = "lifetime", paid = true, { periodMs = 60 * 60_000 } = {}) {
+// Paid users have accepted the current terms unless `acceptTerms` is false.
+export async function seedPaidTestUser(user, model = "lifetime", paid = true, { periodMs = 60 * 60_000, acceptTerms = true } = {}) {
   const { local, client } = billingTestAdmin();
   await client.mutation(internal.users.syncProfile, { profile: { clerkId: user.id, email: user.email,
     firstName: user.name, updatedAt: Date.now() }, eventAt: Date.now() });
+  if (acceptTerms) await client.mutation(internal.legal.acceptForClerkUser, { clerkId: user.id });
   const customerId = `fixture-${local.config.id}-${user.id}`;
   const externalId = testExternalCustomerId(local, user.id);
   await client.mutation(internal.billingState.enqueue, { customerId, externalId });

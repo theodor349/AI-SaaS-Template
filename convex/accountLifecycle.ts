@@ -185,7 +185,7 @@ export const erase = internalMutation({
       }
       await ctx.db.delete("billingAccounts", account._id);
     }
-    await ctx.db.patch("users", user._id, { lifecycle: "deleted", email: undefined, displayName: undefined, firstName: undefined, lastName: undefined, profileEdited: undefined, profileUpdatedAt: 0, profileEventAt: 0 });
+    await ctx.db.patch("users", user._id, { lifecycle: "deleted", email: undefined, displayName: undefined, firstName: undefined, lastName: undefined, profileEdited: undefined, legalAcceptance: undefined, profileUpdatedAt: 0, profileEventAt: 0 });
     await ctx.db.patch("accountLifecycleRequests", requestId, { status: "completed", sourceDeliveryId: undefined, nextAttemptAt: undefined, leaseUntil: undefined, failureCode: undefined, attempts: undefined });
     ctx.log.decision("erase", { result: "completed" });
     return true;

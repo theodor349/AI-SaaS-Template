@@ -1,11 +1,12 @@
-import { PolicyTemplate } from "../_components/policy-template";
+import { LegalDocument, legalMetadata } from "../_components/legal-document";
 import { CookiePreferencesButton } from "../_components/cookie-preferences-button";
+
+export const metadata = legalMetadata("cookies");
 
 export default function CookiesPage() {
   return (
-    <div className="flex flex-col gap-6">
-      <PolicyTemplate title="Cookie Policy" description="Replace this template with a cookie policy describing the cookies used by your application before publishing." />
+    <LegalDocument slug="cookies">
       <div><CookiePreferencesButton /></div>
-    </div>
+    </LegalDocument>
   );
 }

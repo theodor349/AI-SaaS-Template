@@ -7,6 +7,7 @@ import { AuthBoundary, AuthPending } from "@/components/auth/auth-boundary";
 import { Pricing, PricingSkeleton } from "@/components/billing/pricing";
 import { useBillingAccount } from "@/components/billing/use-billing-account";
 import { isRecurringModel, type RecurringModel } from "@/convex/lib/billingModel";
+import { LegalAcceptanceDialog, useLegalAcceptance } from "../../_components/legal-acceptance";
 import type { CheckoutPlan } from "../../_components/use-checkout";
 import { useBillingRequests } from "./billing-actions-provider";
 import { PlanSwitchConfirmation } from "./plan-switch-confirmation";
@@ -37,6 +38,9 @@ function BillingPlansContent() {
   const selected = params.get("plan");
   const selectedPlan = isRecurringModel(selected) ? selected : null;
   const [switchPlan, setSwitchPlan] = useState<RecurringModel | null>(null);
+  // A purchase waiting for the user to accept the current terms.
+  const [acceptancePlan, setAcceptancePlan] = useState<CheckoutPlan | null>(null);
+  const legal = useLegalAcceptance();
   const recurring = status?.state === "active";
   const disabled = actions.isBusy || actions.changePending || checkout.isPending;
 
@@ -72,8 +76,19 @@ function BillingPlansContent() {
       setSwitchPlan(model);
       return;
     }
+    if (legal.required) {
+      setAcceptancePlan(model);
+      return;
+    }
     toast.dismiss("billing-request-error");
     void checkout.start(model);
+  }
+
+  function continueAfterAcceptance() {
+    if (!acceptancePlan) return;
+    setAcceptancePlan(null);
+    toast.dismiss("billing-request-error");
+    void checkout.start(acceptancePlan);
   }
 
   function dismissConfirmation() {
@@ -95,6 +110,11 @@ function BillingPlansContent() {
         disabled={disabled}
         onCancel={dismissConfirmation}
         onConfirm={confirmSwitch}
+      />
+      <LegalAcceptanceDialog
+        open={acceptancePlan !== null}
+        onOpenChange={(open) => { if (!open) setAcceptancePlan(null); }}
+        onAccepted={continueAfterAcceptance}
       />
     </div>
   );

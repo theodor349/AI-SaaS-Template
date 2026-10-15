@@ -11,7 +11,7 @@ export type CheckoutPlan = FunctionArgs<typeof api.polar.checkout>["model"];
 // until the browser leaves, so callers can keep its control disabled. A cached
 // page restored with Back, cancel(), or unmounting allows another attempt and
 // stops a late response from navigating away from where the user went.
-export function useCheckout({ onError }: { onError?: () => void } = {}) {
+export function useCheckout({ onError }: { onError?: (error: unknown) => void } = {}) {
   const checkout = useAction(api.polar.checkout);
   const mounted = useRef(false);
   const attempt = useRef(0);
@@ -50,10 +50,10 @@ export function useCheckout({ onError }: { onError?: () => void } = {}) {
     try {
       const url = await checkout({ model: plan, returnUrl: `${window.location.origin}/billing` });
       if (mounted.current && attempt.current === current) window.location.assign(url);
-    } catch {
+    } catch (error) {
       if (!mounted.current || attempt.current !== current) return;
       cancel();
-      latestOnError.current?.();
+      latestOnError.current?.(error);
     }
   }, [checkout, cancel]);
 

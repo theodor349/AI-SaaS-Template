@@ -1,0 +1,9 @@
+# Legal documents and acceptance
+
+The privacy, terms, and cookie documents are shared Markdown in [content/legal](../../content/legal), filled in from the app config, `NEXT_PUBLIC_APP_URL`, and two registries: [browser services](../../lib/consent/services.ts) for the cookie table and [subprocessors](../../lib/legal/subprocessors.ts) for the privacy policy. The [template syntax](../../lib/legal/template.ts) throws on any unknown name, and the pages render while prerendering, so a typo or a missing `NEXT_PUBLIC_APP_URL` fails the build. When a service starts storing anything in the browser, or a new provider processes personal data, register it there; the documents follow.
+
+Users accept the terms and privacy notice where they're needed: on `/app`, on `/checkout`, and in a dialog when they choose a plan on the billing page. `users.legalAcceptance` records the versions and time. Each accepted document's front matter `version` must equal [legalVersions](../../convex/lib/legal.ts), the versions Convex records and checks; a unit test fails when they differ. Bump both only for a material change, because it asks every user to accept again. Corrections only change `effective`.
+
+Until a user accepts the current versions, [requirePro](../../convex/lib/billing.ts) rejects paid product functions and `polar.checkout` refuses to start a purchase. Account, billing management, export, and deletion must stay available, so don't put those behind `requirePro`. The terms promise this and offer a refund of prepaid time to users who decline.
+
+Section 4 of the terms states that checkout doesn't ask buyers to waive the 14-day withdrawal right, so withdrawal always gives a full refund. If checkout ever adds an express request to start the service immediately, rewrite that section to match: Danish consumer law then allows a proportionate charge, and the buyer needs a confirmation on a durable medium.

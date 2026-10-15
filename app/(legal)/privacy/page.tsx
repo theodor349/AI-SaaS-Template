@@ -1,5 +1,7 @@
-import { PolicyTemplate } from "../_components/policy-template";
+import { LegalDocument, legalMetadata } from "../_components/legal-document";
+
+export const metadata = legalMetadata("privacy");
 
 export default function PrivacyPage() {
-  return <PolicyTemplate title="Privacy Policy" description="Replace this template with your application’s privacy policy before publishing." />;
+  return <LegalDocument slug="privacy" />;
 }

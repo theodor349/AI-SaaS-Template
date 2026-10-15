@@ -63,7 +63,7 @@ for (const width of [1280, 390]) {
       for (const [path, heading] of [["/privacy", "Privacy Policy"], ["/terms", "Terms of Service"], ["/cookies", "Cookie Policy"]]) {
         await page.goto(path);
         await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
-        await expect(page.getByRole("heading", { name: "This page is a placeholder" })).toBeVisible();
+        await expect(page.getByText(/^Effective \d{1,2} \w+ \d{4} · Version \d+$/)).toBeVisible();
       }
       const cookieButton = page.getByRole("button", { name: "Cookie Preferences" });
       await cookieButton.click();

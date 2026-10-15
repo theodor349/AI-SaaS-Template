@@ -1,5 +1,7 @@
-import { PolicyTemplate } from "../_components/policy-template";
+import { LegalDocument, legalMetadata } from "../_components/legal-document";
+
+export const metadata = legalMetadata("terms");
 
 export default function TermsPage() {
-  return <PolicyTemplate title="Terms of Service" description="Replace this template with your application’s terms of service before publishing." />;
+  return <LegalDocument slug="terms" />;
 }
