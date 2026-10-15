@@ -35,7 +35,7 @@ Set these environment variables for **Production only**:
 | `NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE` | Optional share of page loads and navigations traced, between 0 and 1; defaults to 1. |
 | `SENTRY_AUTH_TOKEN` | Optional. A Sentry organization auth token, for uploading source maps. |
 | `SENTRY_ORG`, `SENTRY_PROJECT` | The organization and project slugs the source maps belong to. Needed with `SENTRY_AUTH_TOKEN`. |
-| `CSP_REPORT_ONLY` | Optional. `1` reports Content Security Policy violations to Sentry without blocking them; see [security headers](internals/security-headers.md). |
+| `CSP_REPORT_ONLY` | Optional. `1` sends the Content Security Policy as report-only, so violations are reported (to Sentry, with a DSN) but not blocked; see [security headers](internals/security-headers.md). |
 
 Next.js reports errors from server components, route handlers, Server Functions,
 and `proxy.ts` through [`instrumentation.ts`](../instrumentation.ts). It reports errors
