@@ -1,7 +1,8 @@
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { accountForUser, requirePro, scheduledRetries, syncForCustomer } from "./lib/billing";
-import { billingModel } from "./lib/billingModel";
+import { billingModel, recurringModel } from "./lib/billingModel";
+import { exportMany, exportOne, exportTime, noRows } from "./lib/dataExport";
 import { internalMutation, internalQuery, query, type QueryCtx } from "./lib/functions";
 import { getDisplayName } from "./lib/profile";
 import { getCurrentUser, readiness } from "./lib/users";
@@ -146,3 +147,83 @@ export const recoveryIssues = internalQuery({
     return rows.flat();
   },
 });
+
+const exportedPlanChange = v.union(v.null(), v.object({ model: recurringModel, at: v.string() }));
+
+function exportPlanChange(change: Doc<"billingAccounts">["scheduledChange"]) {
+  return change ? { model: change.model, at: exportTime(change.at) } : null;
+}
+
+// Data export section, from the local billing tables only. Provider customer
+// links, leases, and reconciliation bookkeeping stay internal.
+export const billingExport = {
+  plan: exportOne(
+    v.object({
+      status: v.union(v.literal("awaiting_payment"), v.literal("active"), v.literal("ended")),
+      model: v.union(billingModel, v.null()),
+      paidThrough: v.union(v.string(), v.null()),
+      cancelAtPeriodEnd: v.boolean(),
+      scheduledChange: exportedPlanChange,
+      subscriptionId: v.union(v.string(), v.null()),
+      lifetimeOrderId: v.union(v.string(), v.null()),
+    }),
+    async (ctx, owner) => {
+      const account = await accountForUser(ctx, owner._id);
+      return account && {
+        status: account.status,
+        model: account.model ?? null,
+        paidThrough: exportTime(account.paidThrough),
+        cancelAtPeriodEnd: account.cancelAtPeriodEnd,
+        scheduledChange: exportPlanChange(account.scheduledChange),
+        subscriptionId: account.subscriptionId ?? null,
+        lifetimeOrderId: account.lifetimeOrderId ?? null,
+      };
+    },
+  ),
+  subscriptions: exportMany(
+    v.object({
+      subscriptionId: v.string(), productId: v.string(), status: v.string(),
+      periodStart: v.string(), paidThrough: v.string(), cancelAtPeriodEnd: v.boolean(),
+      scheduledChange: exportedPlanChange, modifiedAt: v.string(),
+    }),
+    async (ctx, owner, paginationOpts) => {
+      const account = await accountForUser(ctx, owner._id);
+      if (!account) return noRows;
+      const result = await ctx.db.query("billingSubscriptions")
+        .withIndex("by_customerId", (q) => q.eq("customerId", account.customerId))
+        .paginate(paginationOpts);
+      return { ...result, page: result.page.map((row) => ({
+        subscriptionId: row.subscriptionId,
+        productId: row.productId,
+        status: row.status,
+        periodStart: exportTime(row.periodStart),
+        paidThrough: exportTime(row.paidThrough),
+        cancelAtPeriodEnd: row.cancelAtPeriodEnd,
+        scheduledChange: exportPlanChange(row.scheduledChange),
+        modifiedAt: exportTime(row.modifiedAt),
+      })) };
+    },
+  ),
+  orders: exportMany(
+    v.object({
+      orderId: v.string(), productId: v.string(), subscriptionId: v.union(v.string(), v.null()),
+      paid: v.boolean(), fullyRefunded: v.boolean(), createdAt: v.string(), modifiedAt: v.string(),
+    }),
+    async (ctx, owner, paginationOpts) => {
+      const account = await accountForUser(ctx, owner._id);
+      if (!account) return noRows;
+      const result = await ctx.db.query("billingOrders")
+        .withIndex("by_customerId", (q) => q.eq("customerId", account.customerId))
+        .paginate(paginationOpts);
+      return { ...result, page: result.page.map((row) => ({
+        orderId: row.orderId,
+        productId: row.productId,
+        subscriptionId: row.subscriptionId ?? null,
+        paid: row.paid,
+        fullyRefunded: row.fullyRefunded,
+        createdAt: exportTime(row.createdAt),
+        modifiedAt: exportTime(row.modifiedAt),
+      })) };
+    },
+  ),
+};

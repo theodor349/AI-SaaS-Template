@@ -45,9 +45,9 @@ for (const width of [1280, 390]) {
       await page.getByRole("menuitem", { name: "Cookie Preferences" }).click();
       const dialog = page.getByRole("dialog", { name: "Cookie Preferences" });
       await expect(dialog).toBeVisible();
-      await expect(dialog.getByRole("switch", { name: "Essential cookies" })).toBeChecked();
-      await expect(dialog.getByRole("switch", { name: "Essential cookies" })).toBeDisabled();
-      await dialog.getByRole("button", { name: "Done", exact: true }).click();
+      await expect(dialog.getByRole("switch", { name: "Essential" })).toBeChecked();
+      await expect(dialog.getByRole("switch", { name: "Essential" })).toBeDisabled();
+      await dialog.getByRole("button", { name: "Save preferences", exact: true }).click();
       await expect(dialog).toHaveCount(0);
       await expect(trigger).toBeFocused();
 
@@ -68,7 +68,7 @@ for (const width of [1280, 390]) {
       const cookieButton = page.getByRole("button", { name: "Cookie Preferences" });
       await cookieButton.click();
       await expect(dialog).toBeVisible();
-      await dialog.getByRole("button", { name: "Done", exact: true }).click();
+      await dialog.getByRole("button", { name: "Save preferences", exact: true }).click();
       await expect(cookieButton).toBeFocused();
     } finally {
       await user.cleanup();
