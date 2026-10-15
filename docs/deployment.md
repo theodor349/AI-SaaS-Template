@@ -7,7 +7,9 @@ development keys, and Polar sandbox payments.
 This repository's instance: Vercel project `ai-saas-template`
 (`https://ai-saas-template-hazel.vercel.app`), Convex deployment
 `kindhearted-bandicoot-875` (reference `cloud-dev`) in the `jes` team's
-`ai-saas-template` project. Downstream projects replace these values.
+`ai-saas-template` project, and a Sentry project in Sentry's EU region
+(`ingest.de.sentry.io`) whose DSN is set in Vercel. Downstream projects replace
+these values.
 
 ## Vercel
 
@@ -26,9 +28,18 @@ Set these environment variables for **Production only**:
 | `CONVEX_DEPLOY_KEY` | Production deployment key generated in Convex; grant `deployment:deploy`. |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Existing Clerk development publishable key (`pk_test_...`). |
 | `CLERK_SECRET_KEY` | Matching Clerk development secret key (`sk_test_...`). |
-| `NEXT_PUBLIC_APP_URL` | The Vercel project's stable application URL. |
+| `NEXT_PUBLIC_APP_URL` | The Vercel project's stable application URL. The build needs it to render the legal pages. |
 | `NEXT_PUBLIC_AUTHENTICATED_DESTINATION` | `/app`, or the intended authenticated landing route. |
+| `NEXT_PUBLIC_SENTRY_DSN` | Optional. The Sentry project's DSN. Without it, browser Sentry never loads. |
+| `WORKTREE_ID` | `cloud-dev`, matching Convex below; becomes the Sentry `environment`. |
+| `NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE` | Optional share of page loads and navigations traced, between 0 and 1; defaults to 1. |
 
+Browser Sentry starts only after a visitor grants analytics consent; see
+[consent](internals/consent.md). Its `release` is the Vercel Git SHA, which
+Vercel exposes to the build automatically.
+
+Leave `ALLOW_SEARCH_INDEXING` unset. Without it, `robots.txt` disallows every
+page, so search engines skip this shared development deployment and worktrees.
 Do not set `CONVEX_DEPLOYMENT` or copy a worktree's `.env.local` into Vercel.
 `convex deploy` supplies `NEXT_PUBLIC_CONVEX_URL` to the Next.js build. Backend
 secrets belong on Convex, not in browser variables or GitHub Actions; only the
@@ -141,6 +152,10 @@ Use test accounts and test cards. Before accepting real users/payments, configur
 Clerk production and Polar production credentials, products, and webhook secrets;
 plan the new Clerk user identities and billing associations rather than assuming
 development data transfers. Clerk development accounts remain test accounts.
+Set `ALLOW_SEARCH_INDEXING=true` only on that public production deployment, with
+`NEXT_PUBLIC_APP_URL` as its public origin; both are read at build time.
+That build also fails until `companyCvr` and `companyAddress` in `app.config.ts`
+replace the template's example company details, which the legal pages publish.
 
 Provider references: [Convex on Vercel](https://docs.convex.dev/production/hosting/vercel),
 [Vercel Git configuration](https://vercel.com/docs/project-configuration/git-configuration),

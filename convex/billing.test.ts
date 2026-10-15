@@ -6,6 +6,7 @@ import { PolarClientError, PolarNetworkError } from "@polar-sh/sdk";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { billingReturnUrl, externalCustomerId, externalIdTokenIdentifier } from "./lib/billing";
+import { legalVersions } from "./lib/legal";
 
 const provider = vi.hoisted(() => ({
   customers: { get: vi.fn(), getExternal: vi.fn(), create: vi.fn() },
@@ -45,7 +46,8 @@ function decisions(log: { mock: { calls: unknown[][] } }) {
 }
 async function provision(t: ReturnType<typeof setup>, identity = tokenIdentifier) {
   return t.run(ctx => ctx.db.insert("users", { tokenIdentifier: identity, clerkId: identity.split("|")[1],
-    email: "alice@example.com", displayName: "Alice", lifecycle: "active", profileUpdatedAt: 1, profileEventAt: 1 }));
+    email: "alice@example.com", displayName: "Alice", lifecycle: "active", profileUpdatedAt: 1, profileEventAt: 1,
+    legalAcceptance: { ...legalVersions, acceptedAt: 1 } }));
 }
 function alice(t: ReturnType<typeof setup>) { return t.withIdentity({ tokenIdentifier, subject: "alice", name: "Alice" }); }
 async function reconcile(t: ReturnType<typeof setup>) {

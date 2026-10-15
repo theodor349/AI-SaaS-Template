@@ -31,7 +31,9 @@
   },
   "dependencies": {
     "@clerk/nextjs": "^7.9.15",
+    "@clerk/ui": "^1.40.1",
     "@polar-sh/sdk": "^1.0.2",
+    "@sentry/nextjs": "^11.7.0",
     "class-variance-authority": "^0.7.0",
     "cn": "^0.4.0",
     "convex": "^1.44.0",
@@ -41,6 +43,8 @@
     "radix-ui": "^1.6.7",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "shadcn": "^4.21.1",
     "sonner": "^2.0.8",
     "svix": "^2.8.0",

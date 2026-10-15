@@ -45,9 +45,9 @@ for (const width of [1280, 390]) {
       await page.getByRole("menuitem", { name: "Cookie Preferences" }).click();
       const dialog = page.getByRole("dialog", { name: "Cookie Preferences" });
       await expect(dialog).toBeVisible();
-      await expect(dialog.getByRole("switch", { name: "Essential cookies" })).toBeChecked();
-      await expect(dialog.getByRole("switch", { name: "Essential cookies" })).toBeDisabled();
-      await dialog.getByRole("button", { name: "Done", exact: true }).click();
+      await expect(dialog.getByRole("switch", { name: "Essential" })).toBeChecked();
+      await expect(dialog.getByRole("switch", { name: "Essential" })).toBeDisabled();
+      await dialog.getByRole("button", { name: "Save preferences", exact: true }).click();
       await expect(dialog).toHaveCount(0);
       await expect(trigger).toBeFocused();
 
@@ -63,12 +63,12 @@ for (const width of [1280, 390]) {
       for (const [path, heading] of [["/privacy", "Privacy Policy"], ["/terms", "Terms of Service"], ["/cookies", "Cookie Policy"]]) {
         await page.goto(path);
         await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
-        await expect(page.getByRole("heading", { name: "This page is a placeholder" })).toBeVisible();
+        await expect(page.getByText(/^Effective \d{1,2} \w+ \d{4} · Version \d+$/)).toBeVisible();
       }
       const cookieButton = page.getByRole("button", { name: "Cookie Preferences" });
       await cookieButton.click();
       await expect(dialog).toBeVisible();
-      await dialog.getByRole("button", { name: "Done", exact: true }).click();
+      await dialog.getByRole("button", { name: "Save preferences", exact: true }).click();
       await expect(cookieButton).toBeFocused();
     } finally {
       await user.cleanup();

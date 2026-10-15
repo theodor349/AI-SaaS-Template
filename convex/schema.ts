@@ -21,6 +21,8 @@ export default defineSchema(
       profileUpdatedAt: v.number(),
       profileEventAt: v.number(),
       lifecycle: v.union(v.literal("active"), v.literal("deletion_requested"), v.literal("deleted")),
+      // The terms and privacy notice versions the user last accepted, and when.
+      legalAcceptance: v.optional(v.object({ terms: v.number(), privacy: v.number(), acceptedAt: v.number() })),
     }).index("by_tokenIdentifier", ["tokenIdentifier"])
       .index("by_clerkId", ["clerkId"]),
     accountLifecycleRequests: defineTable({

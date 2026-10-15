@@ -3,23 +3,30 @@
 import { useEffect, useTransition } from "react";
 import { appConfig } from "@/app.config";
 import { reportError } from "@/lib/report-error";
+import { useResolvedTheme } from "@/components/theme/use-theme";
+import { themeColors } from "@/lib/theme";
 import { MisplacedSquare } from "./_components/misplaced-square";
 import styles from "./global-error.module.css";
 
 // Errors in the root layout itself. This replaces the whole document, so it must not
 // use Clerk, Convex, the navigation, or the global stylesheet: any of them may be what
-// crashed. The home link is a full page load so the root layout starts over.
+// crashed. The home link is a full page load so the root layout starts over. Next serves
+// an empty shell for root layout errors and renders this page in the browser, so it
+// applies the theme as it renders; an inline theme script here would never be sent.
 export default function GlobalError({ error, retry }: {
   error: Error & { digest?: string };
   retry: () => void;
 }) {
   const [retrying, startRetry] = useTransition();
+  const theme = useResolvedTheme();
   useEffect(() => reportError(error), [error]);
 
   return (
-    <html lang="en">
+    <html lang="en" className={theme}>
       <body className={styles.body}>
         <title>{`Something went wrong — ${appConfig.appName}`}</title>
+        <meta name="robots" content="noindex" />
+        <meta name="theme-color" content={themeColors[theme ?? "light"]} />
         <main className={styles.page}>
           <MisplacedSquare variant="popped" snapped={retrying} />
           <div className={styles.text}>

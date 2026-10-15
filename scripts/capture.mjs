@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { appLocation, checkoutRoots, deferInterrupts, isInside, parsePlan, shellQuote } from "./agent-cli.mjs";
 
-const usage = "Usage: pnpm capture <path...> [--label before|after|<name>] [--plan monthly|yearly|lifetime] [--signed-out] [--out <dir>] [--wait-for <text>] [--video <seconds>]";
+const usage = "Usage: pnpm capture <path...> [--label before|after|<name>] [--plan monthly|yearly|lifetime] [--signed-out] [--out <dir>] [--wait-for <text>] [--video <seconds>] [--color-scheme light|dark]";
 
 export const VIEWPORTS = {
   desktop: { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 },
@@ -15,7 +15,8 @@ export const VIEWPORTS = {
 export function captureOptions(argv) {
   const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, strict: true, options: {
     label: { type: "string", default: "capture" }, plan: { type: "string" }, "signed-out": { type: "boolean", default: false },
-    out: { type: "string" }, "wait-for": { type: "string" }, video: { type: "string" }, help: { type: "boolean" },
+    out: { type: "string" }, "wait-for": { type: "string" }, video: { type: "string" }, "color-scheme": { type: "string", default: "light" },
+    help: { type: "boolean" },
   } });
   if (values.help) return { help: true };
   if (!positionals.length) throw new Error(usage);
@@ -28,8 +29,10 @@ export function captureOptions(argv) {
     if (!Number.isFinite(videoSeconds) || videoSeconds <= 0 || videoSeconds > 60) throw new Error("--video must be a number of seconds between 0 and 60.");
   }
   if (values["wait-for"] === "") throw new Error("--wait-for needs visible text.");
+  const colorScheme = values["color-scheme"];
+  if (colorScheme !== "light" && colorScheme !== "dark") throw new Error("--color-scheme must be light or dark.");
   return { paths: positionals, label: values.label, plan, signedOut: values["signed-out"], out: values.out ?? null,
-    waitFor: values["wait-for"] ?? null, videoSeconds };
+    waitFor: values["wait-for"] ?? null, videoSeconds, colorScheme };
 }
 
 // PR evidence must never land in a checkout where it could be committed.
@@ -82,7 +85,7 @@ async function screenshotWholePage(page, viewport, file) {
 async function main() {
   const options = captureOptions(process.argv.slice(2));
   if (options.help) {
-    console.log(`${usage}\n\nCaptures full-page desktop (1440x900) and mobile (390x844 @2x) screenshots for PR evidence.\nSigns in a temporary Clerk test user unless --signed-out, and removes it afterwards.\n--label     Output folder name (default capture).\n--plan      Seed deterministic paid access before capturing.\n--out       Output directory outside the checkout (default <tmp>/pr-evidence/<worktree>/<label>).\n--wait-for  Text that must be visible before each capture.\n--video     Also record a desktop video of each path for this many seconds.`);
+    console.log(`${usage}\n\nCaptures full-page desktop (1440x900) and mobile (390x844 @2x) screenshots for PR evidence.\nSigns in a temporary Clerk test user unless --signed-out, and removes it afterwards.\n--label     Output folder name (default capture).\n--plan      Seed deterministic paid access before capturing.\n--out       Output directory outside the checkout (default <tmp>/pr-evidence/<worktree>/<label>).\n--wait-for  Text that must be visible before each capture.\n--video     Also record a desktop video of each path for this many seconds.\n--color-scheme  The OS theme to emulate, which the app's default System theme follows (default light).`);
     return;
   }
   const [{ chromium }, { clerk, clerkSetup, setupClerkTestingToken }, { createClerkTestUser }, { resolveLocalTestConfig }] = await Promise.all([
@@ -139,7 +142,7 @@ async function main() {
       await context.close();
     }
     const newContext = async (contextOptions) => {
-      const context = await browser.newContext({ ...contextOptions, storageState });
+      const context = await browser.newContext({ ...contextOptions, storageState, colorScheme: options.colorScheme });
       if (user) await setupClerkTestingToken({ context });
       return context;
     };

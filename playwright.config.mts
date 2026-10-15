@@ -1,9 +1,19 @@
 import { defineConfig, devices } from "@playwright/test";
 import { resolveLocalTestConfig } from "./scripts/local-test-config.mjs";
+import { allChoices, CONSENT_COOKIE, CONSENT_MAX_AGE_SECONDS, consentCookieValue } from "./lib/consent/cookie";
 
 const { config, env } = resolveLocalTestConfig();
 process.env.CLERK_SECRET_KEY = env.CLERK_SECRET_KEY;
 process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+
+// Tests start with optional cookies rejected so the consent banner stays out of their
+// way; tests/e2e/consent.spec.mts starts without a choice.
+const appUrl = new URL(config.env.APP_URL);
+const consentRejected = {
+  name: CONSENT_COOKIE, value: consentCookieValue(allChoices(false)), domain: appUrl.hostname, path: "/",
+  expires: Math.floor(Date.now() / 1000) + CONSENT_MAX_AGE_SECONDS, httpOnly: false,
+  secure: appUrl.protocol === "https:", sameSite: "Lax" as const,
+};
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -17,6 +27,7 @@ export default defineConfig({
   use: {
     ...devices["Desktop Chrome"],
     baseURL: config.env.APP_URL,
+    storageState: { cookies: [consentRejected], origins: [] },
     // Clerk testing/session tokens must not end up in recorded network artifacts.
     trace: "off",
     screenshot: "off",

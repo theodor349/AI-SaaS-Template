@@ -8,7 +8,7 @@ import { DropdownMenu as MenuPrimitive } from "radix-ui";
 import { Cookie, CreditCard, FileText, LogOut, Settings, Shield, SlidersHorizontal, UserRound } from "lucide-react";
 import { DropdownMenu, DropdownMenuPortal, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { CookiePreferences } from "./cookie-preferences";
+import { CookiePreferences } from "@/components/consent/cookie-preferences";
 import { api } from "@/convex/_generated/api";
 import styles from "./site-navigation.module.css";
 

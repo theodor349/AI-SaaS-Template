@@ -10,6 +10,7 @@ import { AuthBoundary, AuthPending } from "@/components/auth/auth-boundary";
 import { useBillingAccount } from "@/components/billing/use-billing-account";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { LegalAcceptanceCard, useLegalAcceptance } from "../../_components/legal-acceptance";
 import { useCheckout, type CheckoutPlan } from "../../_components/use-checkout";
 
 export function PaymentRedirect({ plan }: { plan: CheckoutPlan }) {
@@ -30,7 +31,11 @@ function exitDestination(status: FunctionReturnType<typeof api.billing.status>, 
 }
 
 function PaymentRedirectContent({ plan }: { plan: CheckoutPlan }) {
-  const { status, isLoading, isDeleting } = useBillingAccount();
+  const { status, isLoading: billingLoading, isDeleting } = useBillingAccount();
+  const legal = useLegalAcceptance();
+  const isLoading = billingLoading || legal.isLoading;
+  // Checkout starts once the current terms are accepted.
+  const awaitingAcceptance = legal.required;
   const router = useRouter();
   const started = useRef(false);
   const [attempted, setAttempted] = useState(false);
@@ -52,18 +57,19 @@ function PaymentRedirectContent({ plan }: { plan: CheckoutPlan }) {
       router.replace(destination);
       return;
     }
-    if (started.current) return;
+    if (started.current || awaitingAcceptance) return;
 
     started.current = true;
     // Consume the selection without leaving this page. Reloading or going Back
     // must not automatically start another checkout after a failed attempt.
     window.history.replaceState(null, "", "/checkout");
     openPayment();
-  }, [isLoading, destination, router, cancel, openPayment]);
+  }, [isLoading, destination, awaitingAcceptance, router, cancel, openPayment]);
 
   if (isLoading) return <AuthPending fallback={<PaymentPending />} />;
   if (destination === "/account") return <PaymentPending heading="Opening your account settings…" message="We’re taking you to your account settings." />;
   if (destination) return <PaymentPending heading="Opening your billing settings…" message="We’re taking you to your billing settings." />;
+  if (awaitingAcceptance) return <AcceptanceRequired />;
   if (checkout.isPending || !attempted) return <PaymentPending />;
 
   return (
@@ -77,6 +83,18 @@ function PaymentRedirectContent({ plan }: { plan: CheckoutPlan }) {
       )}
       <div className="flex flex-wrap gap-3">
         <Button onClick={openPayment}>{failed ? "Retry checkout" : "Continue to checkout"}</Button>
+        <Button asChild variant="outline"><Link href="/#pricing">Back to plans</Link></Button>
+      </div>
+    </div>
+  );
+}
+
+function AcceptanceRequired() {
+  return (
+    <div className="flex flex-col gap-6">
+      <h1 className="text-3xl font-semibold tracking-tight">Accept the terms to continue.</h1>
+      <LegalAcceptanceCard />
+      <div>
         <Button asChild variant="outline"><Link href="/#pricing">Back to plans</Link></Button>
       </div>
     </div>
