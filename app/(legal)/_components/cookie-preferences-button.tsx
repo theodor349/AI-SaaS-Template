@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { CookiePreferences } from "@/components/layout/cookie-preferences";
+import { CookiePreferences } from "@/components/consent/cookie-preferences";
 
 export function CookiePreferencesButton() {
   const [open, setOpen] = useState(false);
