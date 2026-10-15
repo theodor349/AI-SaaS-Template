@@ -21,6 +21,7 @@ export default function PageError({ error, retry }: {
   return (
     <>
       <title>{`Something went wrong — ${appConfig.appName}`}</title>
+      <meta name="robots" content="noindex" />
       <StatusMessage
         illustration={<MisplacedSquare variant="popped" snapped={retrying} />}
         status="Something went wrong"

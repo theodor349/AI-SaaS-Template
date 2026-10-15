@@ -29,6 +29,8 @@ Set these environment variables for **Production only**:
 | `NEXT_PUBLIC_APP_URL` | The Vercel project's stable application URL. |
 | `NEXT_PUBLIC_AUTHENTICATED_DESTINATION` | `/app`, or the intended authenticated landing route. |
 
+Leave `ALLOW_SEARCH_INDEXING` unset. Without it, `robots.txt` disallows every
+page, so search engines skip this shared development deployment and worktrees.
 Do not set `CONVEX_DEPLOYMENT` or copy a worktree's `.env.local` into Vercel.
 `convex deploy` supplies `NEXT_PUBLIC_CONVEX_URL` to the Next.js build. Backend
 secrets belong on Convex, not in browser variables or GitHub Actions; only the
@@ -141,6 +143,8 @@ Use test accounts and test cards. Before accepting real users/payments, configur
 Clerk production and Polar production credentials, products, and webhook secrets;
 plan the new Clerk user identities and billing associations rather than assuming
 development data transfers. Clerk development accounts remain test accounts.
+Set `ALLOW_SEARCH_INDEXING=true` only on that public production deployment, with
+`NEXT_PUBLIC_APP_URL` as its public origin; both are read at build time.
 
 Provider references: [Convex on Vercel](https://docs.convex.dev/production/hosting/vercel),
 [Vercel Git configuration](https://vercel.com/docs/project-configuration/git-configuration),

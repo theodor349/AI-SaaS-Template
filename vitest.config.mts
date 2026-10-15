@@ -1,6 +1,7 @@
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  resolve: { tsconfigPaths: true },
   test: {
     passWithNoTests: true,
     environment: "edge-runtime",
