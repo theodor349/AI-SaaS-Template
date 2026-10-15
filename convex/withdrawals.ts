@@ -190,7 +190,8 @@ export const claim = internalMutation({
 });
 
 // Records one refund attempt. "waiting" means Polar is still processing a
-// refund; it is checked again without counting as a failure.
+// refund; it is checked again without counting as a failure. The sweep starts
+// the next attempt once `nextAttemptAt` passes.
 export const finish = internalMutation({
   args: {
     withdrawalId: v.id("withdrawals"),
@@ -224,7 +225,6 @@ export const finish = internalMutation({
     if (attempts > scheduledRetries) {
       ctx.log.adminAction("A withdrawal refund keeps failing and is owed within 14 days; see withdrawals:recoveryIssues");
     }
-    await ctx.scheduler.runAt(nextAttemptAt, internal.polar.withdraw, { withdrawalId });
     return null;
   },
 });
