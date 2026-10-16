@@ -77,13 +77,15 @@ On the Convex project's **production deployment**, set:
 | `CLERK_SECRET_KEY` | Matching Clerk development secret key. |
 | `CLERK_WEBHOOK_SIGNING_SECRET` | Signing secret of the dedicated hosted Clerk webhook below. |
 | `POLAR_ENVIRONMENT` | `sandbox`. |
-| `POLAR_ACCESS_TOKEN` | A token for the existing Polar sandbox organization. |
+| `POLAR_ACCESS_TOKEN` | A token for the existing Polar sandbox organization, including the `refunds:read` and `refunds:write` scopes for withdrawals. |
 | `POLAR_ORGANIZATION_ID` | That sandbox organization's ID. |
 | `POLAR_PRODUCT_MONTHLY` | Monthly fixed-price sandbox product ID. |
 | `POLAR_PRODUCT_YEARLY` | Yearly fixed-price sandbox product ID. |
 | `POLAR_PRODUCT_LIFETIME` | One-time fixed-price sandbox product ID. |
 | `POLAR_WEBHOOK_SECRET` | Signing secret of the dedicated hosted Polar webhook below. |
 | `LOG_SAMPLE_RATE_QUERY`, `LOG_SAMPLE_RATE_MUTATION`, `LOG_SAMPLE_RATE_ACTION` | Optional success-event sampling, between 0 and 1; see [logging](internals/logging.md#sampling-and-attention). |
+| `RESEND_API_KEY` | A Resend API key with sending access. Required by law for withdrawal receipts; see [legal documents](internals/legal-documents.md#withdrawal-function). |
+| `EMAIL_FROM` | The sender, e.g. `AI SaaS Template <receipts@example.com>`, on a domain verified in Resend. |
 
 The three products must be distinct, unarchived, and have positive fixed prices;
 the recurring products must use a single-month and single-year interval. Reuse
@@ -152,7 +154,7 @@ GitHub Actions repository secrets, using the same values as a local
 | --- | --- |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Clerk development publishable key (`pk_test_...`). |
 | `CLERK_SECRET_KEY` | Matching Clerk development secret key (`sk_test_...`). |
-| `POLAR_ACCESS_TOKEN` | Sandbox organization access token. |
+| `POLAR_ACCESS_TOKEN` | Sandbox organization access token, including the `refunds:read` and `refunds:write` scopes. |
 | `POLAR_ORGANIZATION_ID` | Optional; needed when the token can access several organizations. |
 | `POLAR_PRODUCT_MONTHLY`, `POLAR_PRODUCT_YEARLY`, `POLAR_PRODUCT_LIFETIME` | The sandbox product IDs. |
 

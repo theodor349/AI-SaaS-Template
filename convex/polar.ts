@@ -2,6 +2,7 @@ import { createPolar, type models as PolarModels } from "@polar-sh/sdk/2026-10";
 import { PolarClientError, PolarError, PolarNetworkError, PolarRateLimitError, PolarServerError } from "@polar-sh/sdk";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
+import type { Doc } from "./_generated/dataModel";
 import { env } from "./_generated/server";
 import {
   billingReturnUrl,
@@ -329,6 +330,81 @@ export const revoke = internalAction({
     }
     await ctx.runMutation(internal.billingState.requestRevocation, { userId, subscriptionId });
     await reconcile(ctx, account.customerId);
+    return null;
+  },
+});
+
+// Refunds every order of a withdrawn purchase in full, then stops its
+// subscription. A refund Polar is still processing returns "waiting" rather
+// than creating a second one, so a lost response never refunds twice.
+async function refundWithdrawal(ctx: ActionCtx, withdrawal: Doc<"withdrawals">) {
+  const p = client();
+  let waiting = false;
+  for (const orderId of withdrawal.refundOrderIds) {
+    const order = await retry(() => p.orders.get(orderId));
+    if (order.customer_id !== withdrawal.customerId) {
+      throw new Error("Order ownership conflict");
+    }
+    if (order.refundable_amount <= 0) {
+      continue;
+    }
+    const refunds = await retry(() => p.refunds.list({ order_id: orderId, limit: 100 }));
+    if (refunds.items.some((refund) => refund.status === "pending")) {
+      waiting = true;
+      continue;
+    }
+    const refund = await p.refunds.create({
+      order_id: orderId,
+      amount: order.refundable_amount,
+      reason: "customer_request",
+      comment: "Withdrawal within the 14-day withdrawal period",
+      metadata: { withdrawal_id: withdrawal._id, worktree_id: env.WORKTREE_ID },
+    });
+    ctx.log.decision("refund", { status: refund.status });
+    if (refund.status === "failed" || refund.status === "canceled") {
+      throw new Error("Refund not completed");
+    }
+    waiting ||= refund.status === "pending";
+  }
+  if (waiting) {
+    return "waiting";
+  }
+  // Paid access ends with the refund, so renewal must not continue either.
+  const subscriptionId = withdrawal.subscriptionId;
+  if (subscriptionId) {
+    ctx.log.setSubscription(subscriptionId);
+    const sub = await retry(() => p.subscriptions.get(subscriptionId));
+    if (sub.customer_id !== withdrawal.customerId) {
+      throw new Error("Subscription ownership conflict");
+    }
+    if (sub.status !== "canceled") {
+      await retry(() => p.subscriptions.revoke(subscriptionId));
+    }
+  }
+  return "refunded";
+}
+
+export const withdraw = internalAction({
+  args: { withdrawalId: v.id("withdrawals") },
+  returns: v.null(),
+  handler: async (ctx, { withdrawalId }) => {
+    const claimed = await ctx.runMutation(internal.withdrawals.claim, { withdrawalId });
+    ctx.log.set("withdrawalId", withdrawalId);
+    if (!claimed) {
+      return null;
+    }
+    const { withdrawal, lease } = claimed;
+    ctx.log.setUser(withdrawal.userId);
+    ctx.log.setCustomer(withdrawal.customerId);
+    let outcome: "refunded" | "waiting" | "failed";
+    try {
+      outcome = await refundWithdrawal(ctx, withdrawal);
+    } catch (error) {
+      outcome = "failed";
+      ctx.log.decision("refund", { result: "failed", code: "REFUND_FAILED", ...providerFailure(error) });
+      ctx.log.markAsError();
+    }
+    await ctx.runMutation(internal.withdrawals.finish, { withdrawalId, lease, outcome });
     return null;
   },
 });

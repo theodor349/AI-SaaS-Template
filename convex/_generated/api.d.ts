@@ -24,6 +24,7 @@ import type * as lib_billingModel from "../lib/billingModel.js";
 import type * as lib_clerk from "../lib/clerk.js";
 import type * as lib_clerkApi from "../lib/clerkApi.js";
 import type * as lib_dataExport from "../lib/dataExport.js";
+import type * as lib_email from "../lib/email.js";
 import type * as lib_entitlement from "../lib/entitlement.js";
 import type * as lib_errors from "../lib/errors.js";
 import type * as lib_featureFlags from "../lib/featureFlags.js";
@@ -34,10 +35,12 @@ import type * as lib_polarWebhook from "../lib/polarWebhook.js";
 import type * as lib_profile from "../lib/profile.js";
 import type * as lib_retry from "../lib/retry.js";
 import type * as lib_users from "../lib/users.js";
+import type * as lib_withdrawal from "../lib/withdrawal.js";
 import type * as polar from "../polar.js";
 import type * as profile from "../profile.js";
 import type * as users from "../users.js";
 import type * as webhooks from "../webhooks.js";
+import type * as withdrawals from "../withdrawals.js";
 
 import type {
   ApiFromModules,
@@ -62,6 +65,7 @@ declare const fullApi: ApiFromModules<{
   "lib/clerk": typeof lib_clerk;
   "lib/clerkApi": typeof lib_clerkApi;
   "lib/dataExport": typeof lib_dataExport;
+  "lib/email": typeof lib_email;
   "lib/entitlement": typeof lib_entitlement;
   "lib/errors": typeof lib_errors;
   "lib/featureFlags": typeof lib_featureFlags;
@@ -72,10 +76,12 @@ declare const fullApi: ApiFromModules<{
   "lib/profile": typeof lib_profile;
   "lib/retry": typeof lib_retry;
   "lib/users": typeof lib_users;
+  "lib/withdrawal": typeof lib_withdrawal;
   polar: typeof polar;
   profile: typeof profile;
   users: typeof users;
   webhooks: typeof webhooks;
+  withdrawals: typeof withdrawals;
 }>;
 
 /**
@@ -104,4 +110,6 @@ export declare const internal: FilterApi<
   FunctionReference<any, "internal">
 >;
 
-export declare const components: {};
+export declare const components: {
+  resend: import("@convex-dev/resend/_generated/component.js").ComponentApi<"resend">;
+};

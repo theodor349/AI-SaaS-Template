@@ -195,6 +195,21 @@ async function clerkChecks(credentials) {
   return [pair, convexTemplateCheck(Array.isArray(templates) ? templates : templates.data ?? [])];
 }
 
+// Withdrawals refund through Polar. A refund for an order that doesn't exist
+// is rejected for a missing scope (403) before the order is looked up.
+async function polarRefundsCheck(polar) {
+  const name = "Polar refunds";
+  const fix = "Create the organization access token with the refunds:read and refunds:write scopes.";
+  try {
+    await polar.refunds.list({ limit: 1 });
+    await polar.refunds.create({ order_id: "00000000-0000-0000-0000-000000000000", amount: 1, reason: "customer_request" });
+  } catch (error) {
+    if (error.statusCode === 403) return warn(name, "the token can't create refunds, so withdrawals can't be refunded", fix);
+    if (![404, 422].includes(error.statusCode)) return warn(name, `request failed (${error.statusCode ?? error.message})`, fix);
+  }
+  return ok(name, "the token can create refunds");
+}
+
 async function polarChecks(credentials) {
   if (!credentials?.POLAR_ACCESS_TOKEN) return [skip("Polar API", "no POLAR_ACCESS_TOKEN")];
   const { createPolar } = await import("@polar-sh/sdk/2026-10");
@@ -215,7 +230,7 @@ async function polarChecks(credentials) {
     const fix = configured || !organizations.length ? tokenFix : "Set POLAR_ORGANIZATION_ID in .env.bootstrap.local.";
     return [fail("Polar organization", detail, fix)];
   }
-  const results = [ok("Polar organization", `token accepted for "${organization.name}"`)];
+  const results = [ok("Polar organization", `token accepted for "${organization.name}"`), await polarRefundsCheck(polar)];
   await Promise.all(Object.entries(productModels).map(async ([key, model]) => {
     if (!credentials[key]) return;
     const name = `Polar ${model} product`;

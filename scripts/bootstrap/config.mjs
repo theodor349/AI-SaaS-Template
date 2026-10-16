@@ -15,6 +15,8 @@ export const backendEnvKeys = [
   "WORKTREE_ID", "APP_URL", "CLERK_JWT_ISSUER_DOMAIN", "CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET",
   "POLAR_ACCESS_TOKEN", "POLAR_ENVIRONMENT", "POLAR_WEBHOOK_SECRET", "POLAR_ORGANIZATION_ID", ...polarProductKeys,
   "LOG_SAMPLE_RATE_QUERY", "LOG_SAMPLE_RATE_MUTATION", "LOG_SAMPLE_RATE_ACTION",
+  // Never read from credentials, so local stacks send no email.
+  "RESEND_API_KEY", "EMAIL_FROM",
 ];
 const localBlocks = 12000;
 const tailscaleBlocks = 5000;

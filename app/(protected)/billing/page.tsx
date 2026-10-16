@@ -4,6 +4,7 @@ import { AUTHENTICATED_DESTINATION } from "@/lib/auth";
 import { BillingControls, BillingControlsSkeleton } from "./_components/billing-controls";
 import { BillingPlans, BillingPlansSkeleton } from "./_components/billing-plans";
 import { BillingActionsProvider } from "./_components/billing-actions-provider";
+import { PurchaseWithdrawal } from "./_components/purchase-withdrawal";
 
 export default function BillingPage() {
   return (
@@ -16,6 +17,7 @@ export default function BillingPage() {
         <Suspense fallback={<BillingControlsSkeleton />}>
           <BillingControls />
         </Suspense>
+        <PurchaseWithdrawal />
         <Suspense fallback={<BillingPlansSkeleton />}>
           <BillingPlans />
         </Suspense>

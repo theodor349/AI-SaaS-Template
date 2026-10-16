@@ -186,6 +186,14 @@ export const erase = internalMutation({
       }
       await ctx.db.delete("billingAccounts", account._id);
     }
+    // A pending withdrawal's refund is still owed; its row goes once the refund is made.
+    const withdrawals = await ctx.db.query("withdrawals").withIndex("by_userId", q => q.eq("userId", user._id)).take(100);
+    const settled = withdrawals.filter(w => w.status !== "pending");
+    for (const withdrawal of settled) await ctx.db.delete("withdrawals", withdrawal._id);
+    if (withdrawals.length === 100 && settled.length) {
+      ctx.log.decision("erase", { result: "batch", table: "withdrawals" });
+      return false;
+    }
     await ctx.db.patch("users", user._id, { lifecycle: "deleted", email: undefined, displayName: undefined, firstName: undefined, lastName: undefined, profileEdited: undefined, legalAcceptance: undefined, profileUpdatedAt: 0, profileEventAt: 0 });
     await ctx.db.patch("accountLifecycleRequests", requestId, { status: "completed", sourceDeliveryId: undefined, nextAttemptAt: undefined, leaseUntil: undefined, failureCode: undefined, attempts: undefined });
     ctx.log.decision("erase", { result: "completed" });

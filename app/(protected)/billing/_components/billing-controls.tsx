@@ -11,14 +11,10 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
+import { planLabels } from "@/convex/lib/billingModel";
 import { useBillingAccount } from "@/components/billing/use-billing-account";
 import { useBillingRequests } from "./billing-actions-provider";
 
-const planLabels = {
-  monthly: "Monthly Pro",
-  yearly: "Yearly Pro",
-  lifetime: "Lifetime Pro",
-};
 const unpaidDescription = "Choose a plan to get Pro access.";
 
 export function BillingControls() {

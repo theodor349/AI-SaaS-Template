@@ -34,6 +34,7 @@ type Env = {
   readonly CLERK_JWT_ISSUER_DOMAIN: string;
   readonly CLERK_SECRET_KEY: string | undefined;
   readonly CLERK_WEBHOOK_SIGNING_SECRET: string | undefined;
+  readonly EMAIL_FROM: string | undefined;
   readonly LOG_SAMPLE_RATE_ACTION: string | undefined;
   readonly LOG_SAMPLE_RATE_MUTATION: string | undefined;
   readonly LOG_SAMPLE_RATE_QUERY: string | undefined;
@@ -44,6 +45,7 @@ type Env = {
   readonly POLAR_PRODUCT_MONTHLY: string | undefined;
   readonly POLAR_PRODUCT_YEARLY: string | undefined;
   readonly POLAR_WEBHOOK_SECRET: string | undefined;
+  readonly RESEND_API_KEY: string | undefined;
   readonly WORKTREE_ID: string;
 };
 
