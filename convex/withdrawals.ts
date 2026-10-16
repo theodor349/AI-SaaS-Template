@@ -100,7 +100,8 @@ function receipt(email: string, purchase: Purchase, receivedAt: number) {
       `Withdrawal received: ${danishDate(receivedAt, true)}`,
       "",
       "We'll refund the full amount through Polar, our reseller, to your original payment method no later than " +
-        `14 days after we received your withdrawal. Your ${appName} Pro access ends when the refund is made.`,
+        `14 days after we received your withdrawal. Your ${appName} Pro access ends when the refund is made. ` +
+        "You'll get a separate email from Polar when the refund is made.",
       "",
       `Keep this email as your receipt. If you have questions, reply to it or write to ${supportEmail}.`,
       "",
