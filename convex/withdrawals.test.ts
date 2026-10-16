@@ -200,6 +200,21 @@ test("the receipt is emailed with the withdrawal's content and time received", a
   expect(email?.text).toContain("Withdrawal received: 15 October 2026 at 14:01:00 CEST");
 });
 
+test("the owner is emailed once the refund is made", async () => {
+  vi.stubEnv("RESEND_API_KEY", "re_test"); vi.stubEnv("EMAIL_FROM", "App <receipts@example.com>");
+  const t = setup();
+  const userId = await purchase(t, "lifetime");
+  await as(t, "alice").mutation(api.withdrawals.request, { orderId: "order-a" });
+  const [received] = await withdrawalsOf(t, userId);
+  expect(received.refundEmailId).toBeUndefined();
+  await t.action(internal.polar.withdraw, { withdrawalId: received._id });
+  const [{ refundEmailId }] = await withdrawalsOf(t, userId);
+  const email = await t.run(ctx => ctx.runQuery(components.resend.lib.get, { emailId: refundEmailId! }));
+  expect(email).toMatchObject({ to: ["alice@example.com"] });
+  expect(email?.text).toContain("Purchase: Lifetime Pro");
+  expect(email?.text).toContain("We refunded your");
+});
+
 test("without email configured, the withdrawal is still received", async () => {
   const t = setup();
   const userId = await purchase(t, "monthly");

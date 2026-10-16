@@ -109,6 +109,31 @@ function receipt(email: string, purchase: Purchase, receivedAt: number) {
   };
 }
 
+// Polar sends no refund email of its own, so this tells the owner the
+// withdrawal is complete.
+function refundNotice(email: string, withdrawal: Doc<"withdrawals">, refundedAt: number) {
+  const { appName, companyName, companyCvr, companyAddress, supportEmail } = appConfig;
+  return {
+    to: email,
+    subject: `${appName}: your refund has been made`,
+    replyTo: [supportEmail],
+    text: [
+      `We refunded your ${appName} purchase in full on ${danishDate(refundedAt, true)}, completing your withdrawal.`,
+      "",
+      `Purchase: ${planLabels[withdrawal.model]}`,
+      `Order: ${withdrawal.orderId}`,
+      `Withdrawal received: ${danishDate(withdrawal.receivedAt, true)}`,
+      "",
+      "The refund goes to your original payment method and can take a few business days to appear on your statement. " +
+        `Your ${appName} Pro access has ended.`,
+      "",
+      `If you have questions, reply to this email or write to ${supportEmail}.`,
+      "",
+      `${companyName}, CVR ${companyCvr}, ${companyAddress}`,
+    ].join("\n"),
+  };
+}
+
 // Withdraws the owner's purchase, identified by its first order, within the
 // period. Repeating a received withdrawal does nothing.
 export const request = mutation({
@@ -237,8 +262,13 @@ async function completeRefund(ctx: MutationCtx, withdrawal: Doc<"withdrawals">, 
     await ctx.db.delete("withdrawals", withdrawal._id);
     return;
   }
+  const refundEmailId = owner?.email
+    ? await sendEmail(ctx, { ...refundNotice(owner.email, withdrawal, now), idempotencyKey: `withdrawal-refunded:${withdrawal._id}` })
+    : null;
+  ctx.log.set("refundEmail", !!refundEmailId);
   await ctx.db.patch("withdrawals", withdrawal._id, {
     status: "refunded", refundedAt: now, leaseUntil: undefined, nextAttemptAt: undefined, attempts: 0, failureCode: undefined,
+    refundEmailId: refundEmailId ?? undefined,
   });
   // Reconciliation publishes the refunded orders, which ends paid access.
   if (await accountForCustomer(ctx, withdrawal.customerId)) {

@@ -135,6 +135,8 @@ export default defineSchema(
       refundedAt: v.optional(v.number()),
       // The receipt in the Resend component; absent when email isn't configured.
       receiptEmailId: v.optional(v.string()),
+      // The refund-made email in the Resend component; absent likewise.
+      refundEmailId: v.optional(v.string()),
       nextAttemptAt: v.optional(v.number()),
       leaseUntil: v.optional(v.number()),
       attempts: v.number(),
