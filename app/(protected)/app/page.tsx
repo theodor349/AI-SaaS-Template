@@ -14,7 +14,7 @@ export default function ApplicationPage() {
         <h1 className="text-3xl font-bold">Your application</h1>
       </div>
       <p>Welcome {identity.name ?? "to your account"}!</p>
-      <Link href="/billing">Manage billing</Link>
+      <Link href="/billing" className="inline-flex items-center self-start pointer-coarse:min-h-12">Manage billing</Link>
     </div>
   );
 }

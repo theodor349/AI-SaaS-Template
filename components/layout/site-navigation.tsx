@@ -41,7 +41,7 @@ export function SiteNavigation() {
             }
             const active = pathname === href.split(/[?#]/)[0];
             return (
-              <Link key={href} href={href} prefetch={false} aria-label={label} title={label}
+              <Link key={href} href={href} prefetch={false} aria-label={label}
                 aria-current={active ? "page" : undefined} className={styles.pageLink}>
                 <Icon aria-hidden="true" size={20} />
                 <span className={styles.pageLabel}>{label}</span>
@@ -63,12 +63,12 @@ function GuestControls() {
   return (
     <>
       <SignInButton mode="modal">
-        <button className={styles.pageLink} aria-label="Sign in" title="Sign in">
+        <button className={styles.pageLink} aria-label="Sign in">
           <LogIn aria-hidden="true" size={20} /><span className={styles.pageLabel}>Sign in</span>
         </button>
       </SignInButton>
       <SignUpButton mode="modal">
-        <button className={styles.pageLink} aria-label="Sign up" title="Sign up">
+        <button className={styles.pageLink} aria-label="Sign up">
           <UserPlus aria-hidden="true" size={20} /><span className={styles.pageLabel}>Sign up</span>
         </button>
       </SignUpButton>

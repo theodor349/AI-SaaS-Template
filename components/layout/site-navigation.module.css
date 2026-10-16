@@ -19,6 +19,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  min-height: 48px;
   font-size: 16px;
   font-weight: 600;
   letter-spacing: -0.025em;
@@ -31,8 +32,8 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-width: 44px;
-  min-height: 44px;
+  min-width: 48px;
+  min-height: 48px;
   padding: 8px 14px;
   border-radius: 12px;
   color: var(--muted-foreground);
@@ -91,6 +92,9 @@
 .signOut { margin: 6px; color: var(--destructive); }
 .signOut[data-highlighted] { background: color-mix(in oklch, var(--destructive) 10%, transparent); }
 .signOut[data-disabled] { opacity: 0.6; cursor: wait; }
+@media (pointer: coarse) {
+  .menuItem, .signOut { min-height: 48px; }
+}
 .error { padding: 0 24px 16px; color: var(--destructive); font-size: 13px; }
 .content { padding-bottom: 32px; }
 
@@ -106,9 +110,10 @@
     padding-bottom: env(safe-area-inset-bottom);
   }
   .navigation { max-width: 384px; height: 72px; padding: 0 16px; }
-  .brand, .pageLink .pageLabel { display: none; }
+  .brand { display: none; }
   .destinations { gap: 8px; }
-  .pageLink { width: 48px; height: 48px; padding: 12px; }
+  /* Touch has no tooltips, so the bar labels its icons. */
+  .pageLink { flex-direction: column; gap: 2px; min-width: 64px; height: 56px; padding: 6px 12px; font-size: 12px; }
   .profileButton, .avatarPending { margin-left: 0; }
   .content { padding-bottom: calc(104px + env(safe-area-inset-bottom)); }
 }

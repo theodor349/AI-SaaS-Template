@@ -1,6 +1,7 @@
 "use client";
 
 import NextLink from "next/link";
+import { useId } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useConvexAuth, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
@@ -11,7 +12,6 @@ import { ContentSkeleton } from "@/components/loading/content-skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 import { Button, ButtonLabel } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SIGN_UP_PATH } from "@/lib/auth";
 
 const labels = { monthly: "Monthly", yearly: "Yearly", lifetime: "Lifetime" };
@@ -154,6 +154,7 @@ function PlanAction({ model, signUp, currentPlan, scheduledPlan, renewalOff, dis
   pending: boolean;
   onSelect?: PricingActions["onSelect"];
 }) {
+  const explanationId = useId();
   if (model === currentPlan && !renewalOff) return <Button disabled variant="outline">Current</Button>;
   if (model === scheduledPlan) return <Button disabled variant="outline">Scheduled</Button>;
   let label = `Choose ${labels[model].toLowerCase()}`;
@@ -165,15 +166,14 @@ function PlanAction({ model, signUp, currentPlan, scheduledPlan, renewalOff, dis
   else if (model === currentPlan) loadingText = "Confirming renewal…";
   if (renewalOff && model !== currentPlan && model !== "lifetime") {
     const explanation = `Renew your subscription to switch to ${labels[model].toLowerCase()}`;
+    // Shown beside the button rather than in a tooltip, which touch can't reach.
     return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button type="button" aria-disabled="true" onClick={event => event.preventDefault()}>
-            {label}
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>{explanation}</TooltipContent>
-      </Tooltip>
+      <div className="flex flex-col items-start gap-2">
+        <Button type="button" aria-disabled="true" aria-describedby={explanationId} onClick={event => event.preventDefault()}>
+          {label}
+        </Button>
+        <p id={explanationId} className="text-xs text-muted-foreground">{explanation}</p>
+      </div>
     );
   }
   if (onSelect || disabled) {
