@@ -63,7 +63,7 @@ This template provides shared architecture, UI patterns, and an agent-friendly d
 - Upload PR evidence to GitHub. Never commit PR-only screenshots or assets such as `.github/pr-assets/`.
 - One request is one PR. Split it only when the maintainer asks.
 - Put unfinished features behind a [feature flag](docs/internals/feature-flags.md) so they can merge turned off.
-- When babysitting: poll `pnpm pr:gate` for checks and comments newer than the last push, verify each bot finding against the source, fix real ones, dismiss false positives with a written reason. Stay quiet when nothing is new. Stop when checks are green on the latest commit, no review thread is unresolved, and `pr:gate` reports CodeRabbit coverage. A CodeRabbit review of an earlier commit carries over unless a later merge from `main` was conflicted or edited.
+- When babysitting: poll `pnpm pr:gate` for checks and comments newer than the last push, verify each bot finding against the source, fix real ones, dismiss false positives with a written reason. Stay quiet when nothing is new. When a review bot such as CodeRabbit is active on the PR, wait for its first round of feedback; do not wait for or request another round unless the later changes need one. Stop when checks are green on the latest commit, no review thread is unresolved, and any active bot's first round is handled.
 
 ## Documentation
 

@@ -131,7 +131,7 @@ export function parseCodeRabbitReview(body = "") {
 }
 
 export function evaluateCodeRabbit({ head, pushedAt, now = Date.now(), disabled = false, statuses = [], checkRuns = [], reviews = [], comments = [], repoActivity, configFile, carryOver = {} }) {
-  if (disabled) return { state: "disabled", gate: "pass", detail: "maintainer confirmed CodeRabbit is disabled", evidence: [] };
+  if (disabled) return { state: "disabled", gate: "pass", detail: "skipped with --coderabbit-disabled", evidence: [] };
   const status = statuses.find((item) => /coderabbit/i.test(item.context));
   const runs = checkRuns.filter((item) => item.app?.slug === "coderabbitai");
   const ownReviews = reviews.filter((item) => isCodeRabbit(item.user?.login));
