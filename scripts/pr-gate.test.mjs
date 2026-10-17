@@ -40,6 +40,45 @@ const rateLimitedComment = `<!-- This is an auto-generated comment: rate limited
 > [!WARNING]
 > ## Rate limit exceeded
 > Please wait **12 minutes and 5 seconds** before requesting another review.`;
+// The newer limit notice from PR #75: it carries the summary marker and quotes the range it would review.
+const reviewLimitNotice = `<!-- This is an auto-generated comment: summarize by coderabbit.ai -->
+<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->
+
+> [!WARNING]
+> ## Review limit reached
+>
+> Enable **[usage-based reviews](https://app.coderabbit.ai/settings/billing?tab=usage)** in Billing to review now. Otherwise, wait until the next included review is available.
+> You're only billed for reviews past your plan's rate limits ($0.25/file).
+>
+> **Next included review available in 38 minutes.**
+>
+> <details>
+> <summary><strong>View limit details</strong></summary>
+> <dl>
+> <dd>
+>
+> **Review configuration:**
+>
+> <details>
+> <summary><strong>📥 Commits</strong></summary>
+> <dl>
+> <dd>
+>
+> Reviewing files that changed from the base of the PR and between ${base} and ${head}.
+>
+> </dd>
+> </dl>
+> </details>
+>
+> </dd>
+> </dl>
+> </details>
+
+<!-- end of auto-generated comment: rate limited by coderabbit.ai -->
+
+<!-- tips_start -->
+<sub>Comment \`@coderabbitai help\` to get the list of available commands.</sub>
+<!-- tips_end -->`;
 
 const comment = (body, updatedAt = "2026-10-13T14:28:39Z", user = rabbit) => ({
   id: 1, user, body, created_at: updatedAt, updated_at: updatedAt, html_url: "https://github.com/o/r/pull/1#issuecomment-1",
@@ -71,6 +110,27 @@ test("an in-progress summary does not count its target range as reviewed", () =>
   const limited = parseCodeRabbitComment(rateLimitedComment);
   assert.equal(limited.rateLimited, true);
   assert.equal(limited.retryAfter, "12 minutes and 5 seconds");
+});
+
+test("a rate-limit notice never counts its quoted range as reviewed", () => {
+  const limited = parseCodeRabbitComment(reviewLimitNotice);
+  assert.deepEqual(limited.reviewedCommits, []);
+  assert.equal(limited.rateLimited, true);
+  assert.equal(limited.retryAfter, "38 minutes");
+  // Without its block delimiters the notice still covers nothing.
+  const unwrapped = reviewLimitNotice.replace(/<!-- (?:This is an auto-generated|end of auto-generated) comment: rate limited by coderabbit\.ai -->/g, "");
+  assert.deepEqual(parseCodeRabbitComment(unwrapped).reviewedCommits, []);
+
+  const gate = evaluateCodeRabbit({ head, pushedAt, now: minutesAfterPush(3), statuses: [status("success", "Review rate limited")], comments: [comment(reviewLimitNotice)] });
+  assert.equal(gate.state, "rate_limited");
+  assert.equal(gate.gate, "action");
+  assert.match(gate.detail, /retry 38 minutes after 2026-10-13T14:28:39Z/);
+
+  // A completed review of an earlier commit in the same summary still carries over.
+  const earlierReview = completedSummary(older).replace("<!-- recent_review_end -->", `<!-- recent_review_end -->\n${reviewLimitNotice.split("\n").slice(1).join("\n")}`);
+  assert.deepEqual([...new Set(parseCodeRabbitComment(earlierReview).reviewedCommits)], [older]);
+  const carried = evaluateCodeRabbit({ head, pushedAt, comments: [comment(earlierReview)], carryOver: { [older]: { ancestor: true, complicatedMerges: [] } } });
+  assert.equal(carried.state, "carried_over");
 });
 
 test("review bodies report actionable, nitpick, and outside-diff counts", () => {
