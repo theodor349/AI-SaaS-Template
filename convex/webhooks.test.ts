@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
 import { defineSchema, defineTable, makeFunctionReference, type FunctionReference } from "convex/server";
 import { v } from "convex/values";
@@ -22,7 +23,11 @@ const extendedSchema = defineSchema({
     applicationPreference: v.optional(v.string()),
   })).index("by_tokenIdentifier", ["tokenIdentifier"]).index("by_clerkId", ["clerkId"]),
 });
-const setup = () => convexTest(extendedSchema, modules);
+function setup() {
+  const t = convexTest(extendedSchema, modules);
+  rateLimiterTest.register(t);
+  return t;
+}
 
 function profile(id = "user_a", updatedAt = 100) {
   return { id, updated_at: updatedAt, primary_email_address_id: "email_primary",

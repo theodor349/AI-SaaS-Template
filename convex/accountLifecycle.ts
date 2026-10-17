@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { accountForUser, syncForCustomer } from "./lib/billing";
+import { accountForUser, operationForUser, syncForCustomer } from "./lib/billing";
 import { clerkTokenIdentifier } from "./lib/clerk";
 import { exportMany, exportTime } from "./lib/dataExport";
 import { deleteClerkUser } from "./lib/clerkApi";
@@ -32,9 +32,8 @@ export const requestDeletion = mutation({
       return null;
     }
     const account = await accountForUser(ctx, user._id);
-    const sync = account ? await syncForCustomer(ctx, account.customerId) : null;
     if (account) ctx.log.setCustomer(account.customerId);
-    if (isLeased(sync?.operationLeaseUntil)) {
+    if (isLeased((await operationForUser(ctx, user._id))?.leaseUntil)) {
       throw appError("BILLING_OPERATION_PENDING");
     }
     const now = Date.now();
@@ -186,6 +185,8 @@ export const erase = internalMutation({
       }
       await ctx.db.delete("billingAccounts", account._id);
     }
+    const operation = await operationForUser(ctx, user._id);
+    if (operation) await ctx.db.delete("billingOperations", operation._id);
     // A pending withdrawal's refund is still owed; its row goes once the refund is made.
     const withdrawals = await ctx.db.query("withdrawals").withIndex("by_userId", q => q.eq("userId", user._id)).take(100);
     const settled = withdrawals.filter(w => w.status !== "pending");

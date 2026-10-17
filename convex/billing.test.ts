@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
 import { Webhook } from "svix";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -6,6 +7,7 @@ import { PolarClientError, PolarNetworkError } from "@polar-sh/sdk";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { billingReturnUrl, externalCustomerId, externalIdTokenIdentifier } from "./lib/billing";
+import { retryAfter } from "./lib/errors";
 import { legalVersions } from "./lib/legal";
 
 const provider = vi.hoisted(() => ({
@@ -40,7 +42,11 @@ function order(product = "monthly", id = "order-a", subscription: string | null 
     created_at: new Date(start + 10).toISOString(), modified_at: new Date().toISOString(), billing_reason: "subscription_create" };
 }
 async function* iterate<T>(items: T[]) { yield* items; }
-function setup() { return convexTest(schema, modules); }
+function setup() {
+  const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
+  return t;
+}
 function decisions(log: { mock: { calls: unknown[][] } }) {
   return log.mock.calls.flatMap(([line]) => (JSON.parse(String(line)) as { path: object[] }).path);
 }
@@ -258,6 +264,8 @@ test("first payment, repeated plan switches, renewal, cancel and uncancel use co
   expect(await state(t)).toMatchObject({ status: "active", model: "monthly", subscriptionId: "sub-a" });
   expect(await alice(t).query(api.billing.application, {})).toEqual({ name: "Alice" });
   for (const operation of ["yearly", "monthly", "yearly", "cancel", "reactivate", "cancel", "reactivate"] as const) {
+    // Space the changes out as a person would, within the per-user limit.
+    vi.setSystemTime(Date.now() + 10 * 60_000);
     await alice(t).action(api.polar.changeSubscription, { operation });
     if (subscriptions[0].pending_update) {
       // Apply the provider's scheduled product before exercising another cycle.
@@ -848,4 +856,54 @@ test("external customer IDs resolve to an owner only within this worktree", () =
   expect(externalIdTokenIdentifier(`wt-other:${tokenIdentifier}`)).toBeNull();
   expect(externalIdTokenIdentifier(`wt-test-2:${tokenIdentifier}`)).toBeNull();
   expect(externalIdTokenIdentifier(undefined)).toBeNull();
+});
+
+const providerCalls = () => Object.values(provider).flatMap(Object.values)
+  .reduce((total, mock: { mock: { calls: unknown[] } }) => total + mock.mock.calls.length, 0);
+
+test("a user calling recover in a loop is rejected after a small burst, without provider requests", async () => {
+  const t = setup(); await provision(t); await link(t); await reconcile(t);
+  for (let call = 0; call < 5; call++) await alice(t).action(api.polar.recover, {});
+  vi.clearAllMocks();
+
+  const rejected = await alice(t).action(api.polar.recover, {}).catch((error: unknown) => error);
+
+  expect(retryAfter(rejected)).toBeGreaterThan(0);
+  expect(providerCalls()).toBe(0);
+  vi.setSystemTime(Date.now() + retryAfter(rejected)!);
+  await alice(t).action(api.polar.recover, {});
+  expect(provider.customers.get).toHaveBeenCalled();
+});
+
+test.each([
+  ["checkout", (t: ReturnType<typeof setup>) => alice(t).action(api.polar.checkout, { model: "monthly", returnUrl: "/billing" })],
+  ["changeSubscription", (t: ReturnType<typeof setup>) => alice(t).action(api.polar.changeSubscription, { operation: "cancel" })],
+] as const)("%s takes the operation lease before any provider request", async (name, call) => {
+  const t = setup(); await provision(t);
+  if (name === "changeSubscription") { await link(t); await reconcile(t); }
+  await alice(t).mutation(internal.billingState.beginOperation, {});
+  vi.clearAllMocks();
+
+  await expect(call(t)).rejects.toThrow("BILLING_OPERATION_PENDING");
+  expect(providerCalls()).toBe(0);
+});
+
+test("user actions leave half of the Polar budget to reconciliation and refunds", async () => {
+  const t = setup(); await provision(t); await link(t);
+  // Sandbox allows 80 requests a minute. Internal work leaves 41, under the 2
+  // a recovery needs plus the 40 kept for internal work.
+  await reconcile(t);
+  await t.mutation(internal.rateLimits.spendPolar, { requests: 35 });
+  vi.clearAllMocks();
+
+  const rejected = await alice(t).action(api.polar.recover, {}).catch((error: unknown) => error);
+  expect(retryAfter(rejected)).toBeGreaterThan(0);
+  expect(providerCalls()).toBe(0);
+
+  // Internal work is counted but never refused.
+  await link(t); await reconcile(t);
+  expect(provider.customers.get).toHaveBeenCalled();
+
+  vi.setSystemTime(Date.now() + 60_000);
+  await alice(t).action(api.polar.recover, {});
 });

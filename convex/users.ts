@@ -77,6 +77,7 @@ export const ensureCurrentUser = action({
     if (current.status === "ready") ctx.log.setUser(current.user.id);
     ctx.log.decision("lookup", { status: current.status, refresh: refresh ?? false });
     if (current.status === "deleting" || (current.status === "ready" && !refresh)) return current;
+    await ctx.runMutation(internal.rateLimits.admit, { action: "clerkProfile" });
     // Provider errors can carry profile data, so only the failed step is logged.
     let step = "fetch";
     try {

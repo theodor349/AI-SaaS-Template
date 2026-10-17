@@ -63,3 +63,19 @@ test("users download their data from the account page, including a pending delet
     await user.cleanup();
   }
 });
+
+test("repeated exports say when the user can export again", async ({ page }) => {
+  const user = await createClerkTestUser(local);
+  try {
+    await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email });
+    await page.goto("/account");
+    for (let attempt = 0; attempt < 3; attempt++) await exportData(page);
+
+    await page.getByRole("button", { name: "Export data" }).click();
+    const alert = page.getByRole("alert").filter({ hasText: "Couldn’t export your data" });
+    await expect(alert).toContainText(/Please wait \d+ minutes before trying again/);
+    await captureEvidence(page, "data-export-rate-limited");
+  } finally {
+    await user.cleanup();
+  }
+});

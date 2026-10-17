@@ -6,6 +6,7 @@ import {
   accountForUser,
   externalCustomerId,
   externalIdTokenIdentifier,
+  operationForUser,
   productModel,
   scheduledRetries,
   syncForCustomer,
@@ -564,18 +565,14 @@ export const confirmProviderCleanup = internalMutation({
 
 // An operation lease serializes checkout creation and subscription commands.
 // Lost checkout responses recover by listing provider sessions after the lease.
+// Take it before any provider request, so repeated calls stop here.
 export const beginOperation = internalMutation({
   args: {},
   returns: v.number(),
   handler: async (ctx) => {
     const user = await requireUser(ctx);
-    const account = await accountForUser(ctx, user._id);
-    if (!account) {
-      throw appError("CUSTOMER_NOT_FOUND");
-    }
-    ctx.log.setCustomer(account.customerId);
-    const sync = await ensureSync(ctx, account.customerId);
-    if (isLeased(sync.operationLeaseUntil)) {
+    const operation = await operationForUser(ctx, user._id);
+    if (isLeased(operation?.leaseUntil)) {
       throw appError("BILLING_OPERATION_PENDING");
     }
     const deletion = await ctx.db.query("accountLifecycleRequests")
@@ -584,9 +581,13 @@ export const beginOperation = internalMutation({
     if (deletion?.status === "pending") {
       throw appError("DELETION_PENDING");
     }
-    const lease = leaseDeadline();
-    await ctx.db.patch("billingSync", sync._id, { operationLeaseUntil: lease });
-    return lease;
+    const leaseUntil = leaseDeadline();
+    if (operation) {
+      await ctx.db.patch("billingOperations", operation._id, { leaseUntil });
+    } else {
+      await ctx.db.insert("billingOperations", { userId: user._id, leaseUntil });
+    }
+    return leaseUntil;
   },
 });
 
@@ -595,10 +596,9 @@ export const endOperation = internalMutation({
   returns: v.null(),
   handler: async (ctx, { lease }) => {
     const user = await requireUser(ctx);
-    const account = await accountForUser(ctx, user._id);
-    const sync = account ? await syncForCustomer(ctx, account.customerId) : null;
-    if (sync?.operationLeaseUntil === lease) {
-      await ctx.db.patch("billingSync", sync._id, { operationLeaseUntil: undefined });
+    const operation = await operationForUser(ctx, user._id);
+    if (operation?.leaseUntil === lease) {
+      await ctx.db.delete("billingOperations", operation._id);
     }
     return null;
   },

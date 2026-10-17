@@ -66,6 +66,12 @@ export async function syncForCustomer(ctx: Pick<QueryCtx, "db">, customerId: str
     .unique();
 }
 
+export async function operationForUser(ctx: Pick<QueryCtx, "db">, userId: Id<"users">) {
+  return ctx.db.query("billingOperations")
+    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .unique();
+}
+
 // Paid queries use materialized expiry, maintained by a durable scheduled mutation.
 // Mutations/actions also verify the deadline at execution time. The paid product
 // also requires the current terms; account, billing, and deletion functions don't.

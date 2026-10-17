@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import resendTest from "@convex-dev/resend/test";
 import { convexTest } from "convex-test";
 import { PolarServerError } from "@polar-sh/sdk";
@@ -41,6 +42,7 @@ async function* iterate<T>(items: T[]) { yield* items; }
 
 function setup() {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   resendTest.register(t);
   return t;
 }
