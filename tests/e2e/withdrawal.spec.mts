@@ -38,12 +38,18 @@ test("a purchase can be withdrawn after a confirmation step", async ({ page }) =
   } finally { await user.cleanup(); }
 });
 
-test("the withdrawal control disappears when the period ends and the server refuses a late withdrawal", async ({ page }) => {
+// Days back to a purchase whose 14th day is the coming Danish Saturday, so its
+// period runs on past the weekend and ends days, not hours, from now.
+function purchasedBeforeAWeekend() {
+  const weekday = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Copenhagen", weekday: "short" }).format(Date.now());
+  const toSaturday = (6 - ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(weekday) + 7) % 7;
+  return Date.now() - (14 - toSaturday) * day;
+}
+
+test("the withdrawal control disappears when the period ends", async ({ page }) => {
   const user = await createClerkTestUser(local);
   try {
-    // Fourteen days ago, so the period ends at the coming Danish midnight, or
-    // with the next working day when that is a weekend or holiday.
-    await seedPaidTestUser(user, "lifetime", true, { purchasedAt: Date.now() - 14 * day });
+    await seedPaidTestUser(user, "lifetime", true, { purchasedAt: purchasedBeforeAWeekend() });
     await page.clock.install();
     await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email }); await page.goto("/billing");
     const card = page.getByLabel("Withdraw from contract", { exact: true });
@@ -52,12 +58,16 @@ test("the withdrawal control disappears when the period ends and the server refu
     const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
     client.setAuth(token!);
     const [purchase] = await client.query(api.billing.withdrawals.purchases, {});
+    expect(purchase.withdrawUntil - Date.now()).toBeGreaterThan(day);
 
     await page.clock.fastForward(purchase.withdrawUntil - Date.now());
     await expect(card).toHaveCount(0);
     await expect(page.getByText("You have lifetime access.")).toBeVisible();
   } finally { await user.cleanup(); }
+});
 
+// Its own test, so the page clock fast-forwarded above cannot break this sign-in.
+test("the server refuses a late withdrawal", async ({ page }) => {
   const late = await createClerkTestUser(local);
   try {
     await seedPaidTestUser(late, "lifetime", true, { purchasedAt: Date.now() - 30 * day });
