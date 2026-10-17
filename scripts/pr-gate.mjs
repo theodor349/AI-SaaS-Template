@@ -88,25 +88,32 @@ export function classifyChecks({ checkRuns = [], statuses = [], required = { kno
 }
 
 const IN_PROGRESS_BLOCK = /<!-- This is an auto-generated comment: review in progress by coderabbit\.ai -->[\s\S]*?(?:<!-- end of auto-generated comment: review in progress by coderabbit\.ai -->|$)/gi;
+// In-progress, rate-limit, skip, and pause notices can quote the range they would review.
+const NOTICE_BLOCK = /<!-- This is an auto-generated comment: ([a-z ]*?(?:review in progress|rate limit|skip|pause)[a-z ]*?) by coderabbit\.ai -->[\s\S]*?(?:<!-- end of auto-generated comment: \1 by coderabbit\.ai -->|$)/gi;
 const RANGE = /between ([0-9a-f]{7,40}) and ([0-9a-f]{7,40})/gi;
 
 // Parses CodeRabbit's walkthrough/summary comment (edited in place) or any other comment it posts.
 export function parseCodeRabbitComment(body = "") {
   const markers = [...body.matchAll(/auto-generated comment: ([a-z ]+?) by coderabbit\.ai/gi)].map((match) => match[1].toLowerCase());
   const inProgressBlocks = body.match(IN_PROGRESS_BLOCK) ?? [];
-  const settled = body.replace(IN_PROGRESS_BLOCK, "");
-  const retry = /wait \*\*([^*]+)\*\*/i.exec(body)?.[1];
+  const settled = body.replace(NOTICE_BLOCK, "");
+  const retry = /wait \*\*([^*]+)\*\*/i.exec(body)?.[1] ?? /next included review available in ([^.*\n]+)/i.exec(body)?.[1];
+  const rateLimited = markers.some((marker) => marker.includes("rate limit")) || /rate limit exceeded|review limit reached/i.test(body);
+  const skipped = markers.some((marker) => marker.includes("skip")) || /review skipped/i.test(body);
+  const paused = /reviews? (?:are |is )?paused/i.test(body);
+  // A notice outside a delimited block leaves no way to tell its range from a review's, so it covers nothing.
+  const unwrappedNotice = /rate limit exceeded|review limit reached|review skipped|reviews? (?:are |is )?paused/i.test(settled);
   return {
     markers: [...new Set(markers)],
     inProgress: inProgressBlocks.length > 0,
     inProgressCommit: inProgressBlocks.flatMap((block) => [...block.matchAll(RANGE)].map((match) => match[2])).at(-1),
-    reviewedCommits: [
+    reviewedCommits: unwrappedNotice ? [] : [
       ...[...settled.matchAll(RANGE)].map((match) => match[2]),
       ...[...settled.matchAll(/"coveredCommitId":"([0-9a-f]{7,40})"/g)].map((match) => match[1]),
     ],
-    rateLimited: markers.some((marker) => marker.includes("rate limit")) || /rate limit exceeded/i.test(settled),
-    skipped: markers.some((marker) => marker.includes("skip")) || /review skipped/i.test(settled),
-    paused: /reviews? (?:are |is )?paused/i.test(settled),
+    rateLimited,
+    skipped,
+    paused,
     noFindings: /no actionable comments were generated/i.test(settled),
     retryAfter: retry,
   };
@@ -134,8 +141,9 @@ export function evaluateCodeRabbit({ head, pushedAt, now = Date.now(), disabled 
   const summary = ownComments.filter((item) => /summarize by coderabbit|walkthrough_start|recent_review_start/i.test(item.body ?? ""))
     .sort((a, b) => time(a.updated_at) - time(b.updated_at)).at(-1);
   const parsedSummary = summary ? parseCodeRabbitComment(summary.body) : undefined;
-  const recent = ownComments.filter((item) => item !== summary && !(time(item.updated_at) < time(pushedAt))).map((item) => parseCodeRabbitComment(item.body));
-  const notices = [parsedSummary, ...recent].filter(Boolean);
+  const recent = ownComments.filter((item) => item !== summary && !(time(item.updated_at) < time(pushedAt)))
+    .map((item) => ({ ...parseCodeRabbitComment(item.body), at: item.updated_at }));
+  const notices = [parsedSummary && { ...parsedSummary, at: summary.updated_at }, ...recent].filter(Boolean);
 
   const evidence = [];
   if (status) evidence.push(`commit status "${status.context}" on head: ${status.state} (${status.description ?? "no description"})`);
@@ -181,7 +189,7 @@ export function evaluateCodeRabbit({ head, pushedAt, now = Date.now(), disabled 
     const extra = findings ? `; ${findings.actionable} actionable, ${findings.nitpicks} nitpick, ${findings.outsideDiff} outside-diff comment(s) in the review body` : "";
     return { ...base, state: "completed", gate: "pass", detail: `completed review covers head ${short(head)} (${base.coveredBy.join(", ")})${extra}` };
   }
-  if (rateLimited) return { ...base, state: "rate_limited", gate: "action", detail: `rate limited${rateLimited.retryAfter ? `; retry after ${rateLimited.retryAfter}` : ""}; request a review once the limit clears` };
+  if (rateLimited) return { ...base, state: "rate_limited", gate: "action", detail: `rate limited${rateLimited.retryAfter ? `; retry ${rateLimited.retryAfter} after ${rateLimited.at}` : ""}; request a review once the limit clears` };
   if (skipped) return { ...base, state: "skipped", gate: "action", detail: `review skipped or paused for this head (${status?.description ?? "see CodeRabbit comment"})` };
   if (failed) return { ...base, state: "failed", gate: "action", detail: `CodeRabbit status ${status.state}: ${status.description ?? ""}` };
   const sincePush = now - time(pushedAt);
