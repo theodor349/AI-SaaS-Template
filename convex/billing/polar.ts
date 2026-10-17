@@ -14,6 +14,7 @@ import {
 } from "./lib";
 import { billingModel, billingModels, recurringModel, type BillingModel } from "./plans";
 import { appError } from "../lib/errors";
+import { getDisplayName } from "../lib/profile";
 import { action, internalAction, type ActionCtx } from "../lib/functions";
 
 type Polar = ReturnType<typeof createPolar>;
@@ -208,7 +209,7 @@ export const checkout = action({
     try {
       const { p, customer } = await ownedCustomer(ctx);
       await reconcile(ctx, customer.id);
-      const { account } = await ctx.runQuery(internal.billing.state.owned, {});
+      const { user, account } = await ctx.runQuery(internal.billing.state.owned, {});
       const recurringActive = account?.status === "active" && model !== "lifetime";
       if (account?.model === "lifetime" || recurringActive) {
         throw appError("USE_SUBSCRIPTION_MANAGEMENT");
@@ -231,11 +232,14 @@ export const checkout = action({
         products: [product.productId],
         customer_id: customer.id,
         external_customer_id: customer.external_id,
+        // Pre-fills the cardholder name.
+        customer_name: getDisplayName(user) ?? null,
         allow_trial: false,
         allow_discount_codes: false,
         metadata: { worktree_id: env.WORKTREE_ID },
         customer_metadata: { worktree_id: env.WORKTREE_ID },
-        success_url: `${new URL(destination).origin}/billing?confirmation=pending`,
+        // Billing waits for this plan's confirmation, then opens the product.
+        success_url: `${new URL(destination).origin}/billing?confirmation=${model}`,
         return_url: destination,
       });
       ctx.log.decision("checkout", { result: "created" });

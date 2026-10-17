@@ -1,6 +1,6 @@
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import schema from "../schema";
 import { legalVersions } from "./legalVersions";
 import { modules } from "../test.setup";
@@ -25,7 +25,19 @@ async function activate(t: ReturnType<typeof convexTest>, userId: Awaited<Return
   }));
 }
 
-test("a new user accepts the current versions, and accepting again keeps the original time", async () => {
+test("signing up accepts the current versions, so checkout and the product don't ask", async () => {
+  vi.useFakeTimers({ now: 1_000 });
+  const t = convexTest(schema, modules);
+  const alice = t.withIdentity({ issuer, subject: "alice" });
+  await t.mutation(internal.account.users.syncProfile, {
+    profile: { clerkId: "alice", email: "alice@example.com", updatedAt: 1 }, eventAt: 1,
+  });
+  expect(await alice.query(api.account.legal.status, {})).toEqual({ accepted: true, previouslyAccepted: true });
+  const user = await t.run(ctx => ctx.db.query("users").first());
+  expect(user?.legalAcceptance).toEqual({ ...legalVersions, acceptedAt: 1_000 });
+});
+
+test("an account without a record accepts the current versions, and accepting again keeps the original time", async () => {
   vi.useFakeTimers({ now: 1_000 });
   const { t, alice, userId } = setup();
   const id = await userId();

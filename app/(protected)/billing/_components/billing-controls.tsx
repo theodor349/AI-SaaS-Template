@@ -2,7 +2,6 @@
 
 import { useQuery } from "convex/react";
 import NextLink from "next/link";
-import { useSearchParams } from "next/navigation";
 import { AuthBoundary, AuthPending } from "@/components/auth/auth-boundary";
 import { ContentSkeleton, TextSkeleton } from "@/components/loading/content-skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -10,10 +9,12 @@ import { Button, ButtonLabel } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { appConfig } from "@/app.config";
 import { api } from "@/convex/_generated/api";
 import { planLabels } from "@/convex/billing/plans";
 import { useBillingAccount } from "@/components/billing/use-billing-account";
 import { useBillingRequests } from "./billing-actions-provider";
+import { usePaymentReturn } from "./use-payment-return";
 
 const unpaidDescription = "Choose a plan to get Pro access.";
 
@@ -47,7 +48,7 @@ function BillingControlsContent() {
   // Reconciliation problems are separate from the entitlement so bookkeeping
   // never re-runs every paid page's status subscription.
   const sync = useQuery(api.billing.account.syncStatus);
-  const params = useSearchParams();
+  const paymentReturn = usePaymentReturn(status);
 
   if (isLoading || !status) {
     return <AuthPending fallback={<BillingControlsSkeleton />} />;
@@ -80,12 +81,11 @@ function BillingControlsContent() {
   }
 
   const recurring = status.state === "active" && status.model !== "lifetime";
-  const confirmationPending = params.get("confirmation") === "pending" && status.state !== "active";
   const cancellation = status.cancelAtPeriodEnd ? "reactivate" : "cancel";
   const isBusy = actions.isBusy || checkout.isPending;
   const changeDisabled = isBusy || actions.changePending;
   const cancelPending = actions.isPending("cancel") || actions.isPending("reactivate");
-  const hasDetails = lifetime || recurring || isDeleting || confirmationPending || sync?.failure || actions.isUnconfirmed;
+  const hasDetails = lifetime || recurring || isDeleting || paymentReturn.pending || paymentReturn.confirmed || sync?.failure || actions.isUnconfirmed;
   const hasActions = status.hasCustomer || (recurring && !isDeleting);
   let dateLabel = status.cancelAtPeriodEnd ? "Access ends" : "Paid through";
   let accessDate = status.paidThrough;
@@ -155,10 +155,13 @@ function BillingControlsContent() {
                 />
               </div>
             )}
-            {confirmationPending && (
+            {paymentReturn.pending && (
               <p role="status">
-                Payment confirmation pending. We’ll update this page when paid access is confirmed.
+                Payment confirmation pending. We’ll open {appConfig.appName} when paid access is confirmed.
               </p>
+            )}
+            {paymentReturn.confirmed && (
+              <p role="status">Payment confirmed. Opening {appConfig.appName}…</p>
             )}
             {sync?.failure && (
               <Alert variant={sync.retrying ? "default" : "destructive"}>

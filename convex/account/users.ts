@@ -6,6 +6,7 @@ import { fetchClerkUser } from "./clerkApi";
 import { appError } from "../lib/errors";
 import { action, internalMutation, internalQuery, query } from "../lib/functions";
 import { getDisplayName } from "../lib/profile";
+import { legalVersions } from "./legalVersions";
 import { currentUserResult, getCurrentUser, readiness, userByClerkId, userByTokenIdentifier } from "../lib/users";
 
 export const current = query({
@@ -54,8 +55,10 @@ export const syncProfile = internalMutation({
       ctx.log.decision("profile", { result: "updated", edited: user.profileEdited ?? false });
       return readiness(await ctx.db.get("users", user._id));
     }
+    // Creating an account accepts the current terms; the sign-up page says so.
     const id = await ctx.db.insert("users", {
       ...fields, clerkId: profile.clerkId, tokenIdentifier, lifecycle: "active",
+      legalAcceptance: { ...legalVersions, acceptedAt: Date.now() },
     });
     ctx.log.setUser(id);
     ctx.log.decision("profile", { result: "created" });

@@ -423,7 +423,8 @@ test("checkout accepts unpaid owners, validates products and return URLs, and po
   }
   await expect(alice(t).action(api.billing.polar.checkout, { model: "monthly", returnUrl: "https://evil.example/billing" })).rejects.toThrow("INVALID_RETURN_URL");
   expect(await alice(t).action(api.billing.polar.checkout, { model: "monthly", returnUrl: "/billing" })).toContain("checkout");
-  expect(provider.checkouts.create).toHaveBeenCalledWith(expect.objectContaining({ products: ["monthly"], customer_id: "customer-a", allow_trial: false }));
+  expect(provider.checkouts.create).toHaveBeenCalledWith(expect.objectContaining({ products: ["monthly"], customer_id: "customer-a", allow_trial: false,
+    customer_name: "Alice", success_url: "http://127.0.0.1:3000/billing?confirmation=monthly" }));
   provider.checkouts.list.mockResolvedValue({ items: [{ status: "open", expires_at: new Date(end).toISOString(), url: "https://sandbox.polar.sh/recovered", metadata: { worktree_id: "wt-test" } }] });
   expect(await alice(t).action(api.billing.polar.checkout, { model: "monthly", returnUrl: "/billing" })).toContain("recovered");
   expect(provider.checkouts.create).toHaveBeenCalledTimes(1);
