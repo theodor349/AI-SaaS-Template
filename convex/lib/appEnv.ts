@@ -21,6 +21,8 @@ export const appEnv = {
   RESEND_API_KEY: v.optional(v.string()),
   // The sender, e.g. `App name <receipts@example.com>`, on a domain verified in Resend.
   EMAIL_FROM: v.optional(v.string()),
+  // Where operator alerts go, such as a user withdrawing more than once.
+  OPERATOR_ALERT_EMAIL: v.optional(v.string()),
   // Success sampling for wide events, between 0 and 1; see lib/log.ts.
   LOG_SAMPLE_RATE_QUERY: v.optional(v.string()),
   LOG_SAMPLE_RATE_MUTATION: v.optional(v.string()),

@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
+import { Resend } from "@convex-dev/resend";
 import resendTest from "@convex-dev/resend/test";
 import { convexTest } from "convex-test";
 import { PolarServerError } from "@polar-sh/sdk";
@@ -64,6 +65,13 @@ async function purchase(t: Test, model: "monthly" | "yearly" | "lifetime") {
   return userId;
 }
 const accountState = async (t: Test) => (await t.query(internal.billingState.get, { customerId: "customer-a" }))?.status;
+// Alice buys another lifetime purchase, published by reconciliation.
+async function purchaseAgain(t: Test, orderId: string) {
+  orders.push(providerOrder("lifetime", orderId));
+  await t.action(internal.polar.reconcileCustomer, { customerId: "customer-a" });
+}
+const adminActions = () => vi.mocked(console.error).mock.calls
+  .map(([line]) => (JSON.parse(String(line)) as { attributes: { adminAction?: string } }).attributes.adminAction);
 const withdrawalsOf = (t: Test, userId: Id<"users">) =>
   t.run(ctx => ctx.db.query("withdrawals").withIndex("by_userId", q => q.eq("userId", userId)).collect());
 
@@ -237,4 +245,50 @@ test("a purchase shows its own withdrawal however many others the owner has", as
   });
   await as(t, "alice").mutation(api.withdrawals.request, { orderId: "order-a" });
   expect((await as(t, "alice").query(api.withdrawals.purchases, {}))[0].withdrawal).toMatchObject({ status: "pending" });
+});
+
+test("a repeat withdrawal emails the operator once, identifying the user only by ID", async () => {
+  vi.stubEnv("RESEND_API_KEY", "re_test"); vi.stubEnv("EMAIL_FROM", "App <receipts@example.com>");
+  vi.stubEnv("OPERATOR_ALERT_EMAIL", "operator@example.com");
+  const t = setup();
+  const sent = vi.spyOn(Resend.prototype, "sendEmail");
+  const alerts = async () => (await Promise.all(sent.mock.results.map(({ value }) =>
+    t.run(async ctx => ctx.runQuery(components.resend.lib.get, { emailId: await value })))))
+    .filter(email => email?.to.includes("operator@example.com"));
+  const userId = await purchase(t, "lifetime");
+  await as(t, "alice").mutation(api.withdrawals.request, { orderId: "order-a" });
+  expect(await alerts()).toEqual([]);
+
+  await purchaseAgain(t, "order-b");
+  await as(t, "alice").mutation(api.withdrawals.request, { orderId: "order-b" });
+  // Repeating a received withdrawal sends no further alert.
+  await as(t, "alice").mutation(api.withdrawals.request, { orderId: "order-b" });
+  const [email, ...others] = await alerts();
+  expect(others).toEqual([]);
+  expect(email?.subject).toContain("repeat withdrawal");
+  expect(email?.text).toContain(`User ${userId} withdrew from a purchase again and has made 2 withdrawals`);
+  expect(email?.text).toContain("Order: order-a");
+  expect(email?.text).toContain("Order: order-b");
+  expect(email?.text).toContain("Purchase: Lifetime Pro");
+  expect(email?.text).toContain("Status: pending");
+  expect(email?.text).not.toContain("alice");
+  expect(adminActions()).toEqual([]);
+
+  await purchaseAgain(t, "order-c");
+  await as(t, "alice").mutation(api.withdrawals.request, { orderId: "order-c" });
+  expect(await alerts()).toHaveLength(2);
+});
+
+test("without operator alerts configured, a repeat withdrawal is still received and asks for an admin", async () => {
+  const t = setup();
+  const userId = await purchase(t, "lifetime");
+  await as(t, "alice").mutation(api.withdrawals.request, { orderId: "order-a" });
+  await purchaseAgain(t, "order-b");
+  vi.mocked(console.error).mockClear();
+  await as(t, "alice").mutation(api.withdrawals.request, { orderId: "order-b" });
+  expect((await withdrawalsOf(t, userId)).map(w => w.status)).toEqual(["pending", "pending"]);
+  // Both the unsent receipt and the unsent alert reach the event.
+  const [action] = adminActions();
+  expect(action).toContain("withdrawal receipt wasn't sent");
+  expect(action).toContain("operator alerts aren't configured");
 });

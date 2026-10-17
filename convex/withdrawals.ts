@@ -1,7 +1,8 @@
 import { v } from "convex/values";
 import { appConfig } from "../app.config";
 import { internal } from "./_generated/api";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
+import { env } from "./_generated/server";
 import { accountForCustomer, accountForUser, productModel, scheduledRetries } from "./lib/billing";
 import { billingModel, planLabels } from "./lib/billingModel";
 import { exportMany, exportTime } from "./lib/dataExport";
@@ -15,6 +16,8 @@ import schema from "./schema";
 
 // How long to wait before checking a refund Polar is still processing.
 const refundCheckDelay = 5 * 60_000;
+// The most withdrawals a repeat-withdrawal alert lists.
+const alertHistoryLimit = 100;
 
 async function ownedPurchases(ctx: Pick<QueryCtx, "db">, customerId: string) {
   // Reconciliation keeps at most 1000 orders per customer.
@@ -134,6 +137,52 @@ function refundNotice(email: string, withdrawal: Doc<"withdrawals">, refundedAt:
   };
 }
 
+// Tells the operator a user withdrew again, identifying them only by user ID.
+function repeatWithdrawalAlert(to: string, userId: Id<"users">, history: Doc<"withdrawals">[]) {
+  const count = history.length < alertHistoryLimit ? `${history.length}` : `at least ${alertHistoryLimit}`;
+  return {
+    to,
+    subject: `${appConfig.appName}: repeat withdrawal`,
+    text: [
+      `User ${userId} withdrew from a purchase again and has made ${count} withdrawals, newest first:`,
+      ...history.flatMap((w) => [
+        "",
+        `Order: ${w.orderId}`,
+        `Purchase: ${planLabels[w.model]}`,
+        `Purchased on: ${danishDate(w.purchasedAt)}`,
+        `Withdrawal received: ${danishDate(w.receivedAt, true)}`,
+        `Status: ${w.status}`,
+      ]),
+      "",
+      "The withdrawal was received as usual. Look the user up in the Convex dashboard to decide whether to act.",
+    ].join("\n"),
+  };
+}
+
+// Each purchase carries its own right of withdrawal, so buying, withdrawing,
+// and buying again can't be refused; the operator is told instead. Detection is
+// per account: a user who deletes their account and signs up again has a new
+// ID, and erasure removes their settled withdrawals, so that isn't caught.
+async function alertOnRepeatWithdrawal(ctx: MutationCtx, userId: Id<"users">, withdrawalId: Id<"withdrawals">) {
+  const history = await ctx.db.query("withdrawals")
+    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .order("desc")
+    .take(alertHistoryLimit);
+  if (history.length < 2) {
+    return;
+  }
+  const alertEmailId = env.OPERATOR_ALERT_EMAIL
+    ? await sendEmail(ctx, {
+      ...repeatWithdrawalAlert(env.OPERATOR_ALERT_EMAIL, userId, history),
+      idempotencyKey: `repeat-withdrawal-alert:${withdrawalId}`,
+    })
+    : null;
+  ctx.log.decision("repeat_withdrawal", { withdrawals: history.length, alert: !!alertEmailId });
+  if (!alertEmailId) {
+    ctx.log.adminAction("The user withdrew again, but operator alerts aren't configured; review their withdrawals");
+  }
+}
+
 // Withdraws the owner's purchase, identified by its first order, within the
 // period. Repeating a received withdrawal does nothing.
 export const request = mutation({
@@ -189,6 +238,7 @@ export const request = mutation({
       ctx.log.adminAction("Email isn't configured, so the withdrawal receipt wasn't sent; send it from support");
     }
     ctx.log.decision("request", { result: "received", model: purchase.model, receipt: !!receiptEmailId });
+    await alertOnRepeatWithdrawal(ctx, user._id, withdrawalId);
     await ctx.scheduler.runAfter(0, internal.polar.withdraw, { withdrawalId });
     return null;
   },
