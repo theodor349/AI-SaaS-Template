@@ -40,7 +40,7 @@ async function becomeInstallable(page: Page) {
 
 async function openApplication(page: Page) {
   await page.goto("/app");
-  await expect(page.getByRole("heading", { name: "Your application" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Notes", exact: true })).toBeVisible();
 }
 
 async function expectMenuOffersInstall(page: Page, offered: boolean) {
@@ -65,7 +65,7 @@ test("the install offer appears once after sign-up and the profile menu keeps of
     await expect(offer(page)).toHaveCount(0);
 
     await page.reload();
-    await expect(page.getByRole("heading", { name: "Your application" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Notes", exact: true })).toBeVisible();
     await becomeInstallable(page);
     await expectMenuOffersInstall(page, true);
     await expect(offer(page)).toHaveCount(0);

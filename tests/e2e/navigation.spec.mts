@@ -111,7 +111,7 @@ test("failed Convex authentication keeps Dashboard reachable without exposing pr
     await page.getByRole("link", { name: "Dashboard", exact: true }).click();
     await expect(page).toHaveURL(/\/app$/);
     await expect(recovery).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Your application" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Notes", exact: true })).toHaveCount(0);
   } finally {
     await user.cleanup();
   }

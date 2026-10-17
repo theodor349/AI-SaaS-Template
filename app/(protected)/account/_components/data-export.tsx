@@ -15,7 +15,7 @@ import { useAction } from "@/lib/convex";
 import { rateLimitMessage } from "@/lib/rate-limit";
 
 const exportDescription =
-  "Download a copy of your profile, billing history, and account requests as a JSON file.";
+  "Download a copy of your profile, notes, billing history, and account requests as a JSON file.";
 
 export function DataExport() {
   return (
