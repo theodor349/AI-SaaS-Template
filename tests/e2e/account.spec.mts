@@ -35,7 +35,7 @@ test("unpaid owners edit profiles, preserve drafts, request deletion and recover
     await page.keyboard.press("Escape");
     await page.getByLabel("Display name", { exact: true }).fill("Unsaved edit");
     const { client: admin } = billingTestAdmin();
-    await adminMutation(admin, internal.users.syncProfile, { profile: { clerkId: alice.id, email: alice.email, firstName: "Provider name", lastName: "Provider surname", updatedAt: Date.now() + 1000 }, eventAt: Date.now() + 1000 });
+    await adminMutation(admin, internal.account.users.syncProfile, { profile: { clerkId: alice.id, email: alice.email, firstName: "Provider name", lastName: "Provider surname", updatedAt: Date.now() + 1000 }, eventAt: Date.now() + 1000 });
     await expect(page.getByLabel("Display name", { exact: true })).toHaveValue("Unsaved edit");
     await page.reload();
     await expect(page.getByLabel("Display name", { exact: true })).toHaveValue("Local name");
@@ -46,8 +46,8 @@ test("unpaid owners edit profiles, preserve drafts, request deletion and recover
     await expect(other.getByRole("button", { name: "Undo deletion" })).toHaveCount(0);
     const token = await other.evaluate(() => window.Clerk.session!.getToken({ template: "convex" }));
     const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false }); client.setAuth(token!);
-    expect(await client.query(api.accountLifecycle.current, {})).toBeNull();
-    await expect(client.mutation(api.accountLifecycle.recover, {})).rejects.toThrow("RECOVERY_UNAVAILABLE");
+    expect(await client.query(api.account.lifecycle.current, {})).toBeNull();
+    await expect(client.mutation(api.account.lifecycle.recover, {})).rejects.toThrow("RECOVERY_UNAVAILABLE");
     // A provider operation may hold the request briefly; retry the actual UI.
     await expect(async () => {
       await page.getByRole("button", { name: "Undo deletion" }).click();
@@ -79,9 +79,9 @@ test("provider deletion supersedes an open user request and completes cleanup", 
     const { client: admin } = billingTestAdmin();
     // The local Clerk instance has no loopback delivery. Drive its trusted
     // deletion consumer after removing the actual worktree-labelled identity.
-    const requestId = await adminMutation(admin, internal.accountLifecycle.requestClerkDeletion, { clerkId: user.id, eventAt: Date.now(), deliveryId: `e2e-${user.id}` });
-    await expect.poll(async () => (await adminQuery(admin, internal.accountLifecycle.context, { requestId }))?.status).toBe("completed");
-    expect(await adminQuery(admin, internal.users.lookupCurrent, { tokenIdentifier: testTokenIdentifier(local.env, user.id) })).toEqual({ status: "deleting" });
+    const requestId = await adminMutation(admin, internal.account.lifecycle.requestClerkDeletion, { clerkId: user.id, eventAt: Date.now(), deliveryId: `e2e-${user.id}` });
+    await expect.poll(async () => (await adminQuery(admin, internal.account.lifecycle.context, { requestId }))?.status).toBe("completed");
+    expect(await adminQuery(admin, internal.account.users.lookupCurrent, { tokenIdentifier: testTokenIdentifier(local.env, user.id) })).toEqual({ status: "deleting" });
     await page.reload();
     await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Account", exact: true })).toHaveCount(0);

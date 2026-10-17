@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { AuthBoundary, AuthPending } from "@/components/auth/auth-boundary";
 import { Pricing, PricingSkeleton } from "@/components/billing/pricing";
 import { useBillingAccount } from "@/components/billing/use-billing-account";
-import { isRecurringModel, type RecurringModel } from "@/convex/lib/billingModel";
+import { isRecurringModel, type RecurringModel } from "@/convex/billing/plans";
 import { LegalAcceptanceDialog, useLegalAcceptance } from "../../_components/legal-acceptance";
 import type { CheckoutPlan } from "../../_components/use-checkout";
 import { useBillingRequests } from "./billing-actions-provider";

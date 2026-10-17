@@ -1,10 +1,10 @@
 import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
-import { exportOne, exportTime } from "./lib/dataExport";
-import { appError } from "./lib/errors";
-import { internalMutation, internalQuery, mutation, query, type MutationCtx } from "./lib/functions";
-import { hasAcceptedCurrent, legalVersions } from "./lib/legal";
-import { getCurrentUser, requireUser, userByClerkId } from "./lib/users";
+import type { Doc } from "../_generated/dataModel";
+import { exportOne, exportTime } from "../lib/dataExport";
+import { appError } from "../lib/errors";
+import { internalMutation, internalQuery, mutation, query, type MutationCtx } from "../lib/functions";
+import { hasAcceptedCurrent, legalVersions } from "./legalVersions";
+import { getCurrentUser, requireUser, userByClerkId } from "../lib/users";
 
 // Whether the caller has accepted the current terms and privacy notice. Null
 // while the account is provisioning or being deleted, when there is nothing to accept.

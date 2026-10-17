@@ -1,4 +1,4 @@
-import type { BillingModel } from "./billingModel";
+import type { BillingModel } from "./plans";
 import type { OrderRecord } from "./entitlement";
 
 // Pure rules for the 14-day right of withdrawal (forbrugeraftaleloven §20 a);

@@ -26,7 +26,7 @@ const legalPages = [
 export function ProfileMenu() {
   const { user } = useUser();
   const { isAuthenticated } = useConvexAuth();
-  const current = useQuery(api.users.current, isAuthenticated ? {} : "skip");
+  const current = useQuery(api.account.users.current, isAuthenticated ? {} : "skip");
   const { signOut } = useClerk();
   const { canInstall, install } = useInstallPrompt();
   const [open, setOpen] = useState(false);

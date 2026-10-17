@@ -16,7 +16,7 @@ const catalog = (["monthly", "yearly", "lifetime"] as const).map((model) => ({
 // prices, so loading coverage does not depend on configured sandbox products.
 async function interceptWithFixedCatalog(page: Page) {
   const sync = await interceptConvexSync(page);
-  sync.replaceQueryResult("billing:products", catalog);
+  sync.replaceQueryResult("billing/catalog:products", catalog);
   return sync;
 }
 
@@ -75,7 +75,7 @@ test("subscription controls remain usable while plan prices load independently",
     await page.goto("/");
     await clerk.signIn({ page, emailAddress: user.email });
     const backend = await interceptWithFixedCatalog(page);
-    backend.holdResponses("billing:products");
+    backend.holdResponses("billing/catalog:products");
     await page.goto("/billing");
     await expect.poll(backend.pendingResponses).toBeGreaterThan(0);
     await expect(page.getByRole("button", { name: "Customer portal" })).toBeEnabled();
@@ -94,7 +94,7 @@ test("checkout disables duplicate attempts until the request fails, then permits
   let release: (() => void) | undefined;
   let requests = 0;
   const sync = await interceptConvexSync(page);
-  sync.onAction("polar:checkout", (call) => {
+  sync.onAction("billing/polar:checkout", (call) => {
     requests++;
     release = () => call.fail("Fixture checkout failure");
   });

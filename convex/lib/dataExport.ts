@@ -4,7 +4,7 @@ import type { Doc } from "../_generated/dataModel";
 import type { QueryCtx } from "./functions";
 
 // A feature's section of the user's data export, registered in
-// convex/dataExport.ts. Each named part's `shape` is the documented export
+// convex/account/dataExport.ts. Each named part's `shape` is the documented export
 // format: undeclared fields are stripped before export, so internal sync
 // fields cannot leak by accident. Read only the owner's data.
 export type Exporter = Record<string, ExportPart>;

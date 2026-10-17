@@ -199,7 +199,7 @@ async function runServices({ root, config, credentials, polar, browserEnv, env, 
     }
     // Next starts only after the initial Convex push, so its readiness also proves functions exist.
     await waitForServer(config.env.APP_URL, controller.signal);
-    if (polar) await supervisor.run(["run", "--env-file", watchEnvFile, "polar:syncCatalog", "{}"], { command: tool("convex") });
+    if (polar) await supervisor.run(["run", "--env-file", watchEnvFile, "billing/polar:syncCatalog", "{}"], { command: tool("convex") });
     onServices(await supervisor.recordServiceGroups());
     supervisor.supervise(superviseNext(config.env.APP_URL, controller));
     // The local Convex CLI rewrites its browser URLs during initial setup.

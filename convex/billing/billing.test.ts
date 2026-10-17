@@ -1,14 +1,14 @@
-/// <reference types="vite/client" />
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
 import { Webhook } from "svix";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { PolarClientError, PolarNetworkError } from "@polar-sh/sdk";
-import { api, internal } from "./_generated/api";
-import schema from "./schema";
-import { billingReturnUrl, externalCustomerId, externalIdTokenIdentifier } from "./lib/billing";
-import { retryAfter } from "./lib/errors";
-import { legalVersions } from "./lib/legal";
+import { api, internal } from "../_generated/api";
+import schema from "../schema";
+import { billingReturnUrl, externalCustomerId, externalIdTokenIdentifier } from "./lib";
+import { retryAfter } from "../lib/errors";
+import { legalVersions } from "../account/legalVersions";
+import { modules } from "../test.setup";
 
 const provider = vi.hoisted(() => ({
   customers: { get: vi.fn(), getExternal: vi.fn(), create: vi.fn() },
@@ -21,7 +21,6 @@ const provider = vi.hoisted(() => ({
 vi.mock("@polar-sh/sdk/2026-10", async importOriginal => ({
   ...await importOriginal<typeof import("@polar-sh/sdk/2026-10")>(), createPolar: () => provider,
 }));
-const modules = import.meta.glob("./**/*.ts");
 const secret = `whsec_${btoa("Polar signed fixture signing secret")}`;
 const tokenIdentifier = "https://clerk.example|alice";
 const externalId = `wt-test:${tokenIdentifier}`;
@@ -57,7 +56,7 @@ async function provision(t: ReturnType<typeof setup>, identity = tokenIdentifier
 }
 function alice(t: ReturnType<typeof setup>) { return t.withIdentity({ tokenIdentifier, subject: "alice", name: "Alice" }); }
 async function reconcile(t: ReturnType<typeof setup>) {
-  await t.action(internal.polar.reconcileCustomer, { customerId: "customer-a" });
+  await t.action(internal.billing.polar.reconcileCustomer, { customerId: "customer-a" });
 }
 async function send(t: ReturnType<typeof setup>, type: string, data: unknown, id = `delivery-${type}`, valid = true) {
   const body = JSON.stringify({ type, timestamp: new Date().toISOString(), api_version: "2026-10-01", data });
@@ -68,10 +67,10 @@ async function send(t: ReturnType<typeof setup>, type: string, data: unknown, id
   } });
 }
 async function link(t: ReturnType<typeof setup>) {
-  await t.mutation(internal.billingState.enqueue, { customerId: "customer-a", externalId });
+  await t.mutation(internal.billing.state.enqueue, { customerId: "customer-a", externalId });
 }
-const state = (t: ReturnType<typeof setup>) => t.query(internal.billingState.get, { customerId: "customer-a" });
-const sync = (t: ReturnType<typeof setup>) => t.query(internal.billingState.getSync, { customerId: "customer-a" });
+const state = (t: ReturnType<typeof setup>) => t.query(internal.billing.state.get, { customerId: "customer-a" });
+const sync = (t: ReturnType<typeof setup>) => t.query(internal.billing.state.getSync, { customerId: "customer-a" });
 beforeEach(() => {
   vi.useFakeTimers();
   vi.stubEnv("WORKTREE_ID", "wt-test"); vi.stubEnv("APP_URL", "http://127.0.0.1:3000");
@@ -116,15 +115,15 @@ afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); vi.clearAllMocks(); vi
 
 test("anonymous and unpaid callers cannot invoke paid application queries; provisioning stays separate", async () => {
   const t = setup();
-  await expect(t.query(api.billing.status, {})).rejects.toThrow("UNAUTHENTICATED");
-  expect((await alice(t).query(api.billing.status, {})).readiness).toBe("provisioning");
+  await expect(t.query(api.billing.account.status, {})).rejects.toThrow("UNAUTHENTICATED");
+  expect((await alice(t).query(api.billing.account.status, {})).readiness).toBe("provisioning");
   await provision(t);
-  expect((await alice(t).query(api.billing.status, {})).state).toBe("awaiting_payment");
+  expect((await alice(t).query(api.billing.account.status, {})).state).toBe("awaiting_payment");
   for (const actor of [t, alice(t)]) {
-    await expect(actor.query(api.billing.application, {})).rejects.toThrow();
+    await expect(actor.query(api.billing.account.application, {})).rejects.toThrow();
   }
-  await expect(t.action(api.polar.checkout, { model: "monthly", returnUrl: "/billing" })).rejects.toThrow("UNAUTHENTICATED");
-  expect(await t.query(api.billing.products, {})).toEqual([]);
+  await expect(t.action(api.billing.polar.checkout, { model: "monthly", returnUrl: "/billing" })).rejects.toThrow("UNAUTHENTICATED");
+  expect(await t.query(api.billing.catalog.products, {})).toEqual([]);
 });
 
 test.each(["cancel", "reactivate"] as const)("repeating %s confirms provider state without issuing a rejected update", async operation => {
@@ -134,14 +133,14 @@ test.each(["cancel", "reactivate"] as const)("repeating %s confirms provider sta
   provider.subscriptions.update.mockRejectedValue(new PolarClientError(operation === "cancel" ? 403 : 409, { detail: "Already in requested state" }));
 
   await reconcile(t);
-  const before = await alice(t).query(api.billing.status, {});
+  const before = await alice(t).query(api.billing.account.status, {});
 
-  await alice(t).action(api.polar.changeSubscription, { operation });
+  await alice(t).action(api.billing.polar.changeSubscription, { operation });
 
   expect(provider.subscriptions.update).not.toHaveBeenCalled();
   expect(await state(t)).toMatchObject({ status: "active", cancelAtPeriodEnd: operation === "cancel" });
   // The client confirms a change by a newer revision matching the request.
-  const after = await alice(t).query(api.billing.status, {});
+  const after = await alice(t).query(api.billing.account.status, {});
   expect(after.revision).toBeGreaterThan(before.revision);
   expect(after.cancelAtPeriodEnd).toBe(operation === "cancel");
 });
@@ -174,7 +173,7 @@ test("the backfill gives legacy accounts sync rows without overwriting existing 
         revision: 1, failureCode: "RECONCILIATION_FAILED", attempts: 9, nextCheckAt: 0 });
     }
   });
-  await t.mutation(internal.billingState.backfillSync, { cursor: null });
+  await t.mutation(internal.billing.state.backfillSync, { cursor: null });
   await t.finishInProgressScheduledFunctions();
   vi.runAllTimers();
   await t.finishInProgressScheduledFunctions();
@@ -195,11 +194,11 @@ test("the sweep pages through every due account without a fixed ceiling", async 
     await ctx.db.insert("billingSync", { customerId: "idle", requestedVersion: 0, leaseUntil: 0, attempts: 0 });
   });
   const scheduled = () => t.run(ctx => ctx.db.system.query("_scheduled_functions").take(500));
-  await t.mutation(internal.billingState.sweep, {});
+  await t.mutation(internal.billing.state.sweep, {});
   let jobs = await scheduled();
   expect(jobs.filter(job => job.name.includes("reconcileCustomer"))).toHaveLength(100);
   expect(jobs.filter(job => job.name.includes("sweep"))).toHaveLength(1);
-  await t.mutation(internal.billingState.sweep, {});
+  await t.mutation(internal.billing.state.sweep, {});
   jobs = await scheduled();
   expect(jobs.filter(job => job.name.includes("reconcileCustomer"))).toHaveLength(150);
   expect(jobs.filter(job => job.name.includes("sweep"))).toHaveLength(1);
@@ -210,20 +209,20 @@ test("subscription changes confirm the direct provider read when the subscriptio
   const stale = { ...subscriptions[0] };
   provider.subscriptions.iterList.mockImplementation(() => iterate([stale]));
 
-  await alice(t).action(api.polar.changeSubscription, { operation: "cancel" });
+  await alice(t).action(api.billing.polar.changeSubscription, { operation: "cancel" });
   expect(await state(t)).toMatchObject({ status: "active", cancelAtPeriodEnd: true });
 
-  await alice(t).action(api.polar.changeSubscription, { operation: "reactivate" });
+  await alice(t).action(api.billing.polar.changeSubscription, { operation: "reactivate" });
   expect(await state(t)).toMatchObject({ status: "active", cancelAtPeriodEnd: false });
 
-  await alice(t).action(api.polar.changeSubscription, { operation: "yearly" });
+  await alice(t).action(api.billing.polar.changeSubscription, { operation: "yearly" });
   expect(await state(t)).toMatchObject({ status: "active", model: "yearly" });
 });
 
 test("a canceled subscription requires reactivation before switching plans", async () => {
   const t = setup(); await provision(t); await link(t); await reconcile(t);
   subscriptions[0].cancel_at_period_end = true;
-  await expect(alice(t).action(api.polar.changeSubscription, { operation: "yearly" }))
+  await expect(alice(t).action(api.billing.polar.changeSubscription, { operation: "yearly" }))
     .rejects.toThrow("SUBSCRIPTION_REACTIVATION_REQUIRED");
   expect(provider.subscriptions.update).not.toHaveBeenCalled();
 });
@@ -232,15 +231,15 @@ test("billing distinguishes automatic reconciliation retries from an exhausted f
   const t = setup(); await provision(t); await link(t); await reconcile(t);
   vi.spyOn(console, "error").mockImplementation(() => {});
   for (let attempt = 1; attempt <= 9; attempt++) {
-    const lease = (await t.mutation(internal.billingState.lease, { customerId: "customer-a" }))!;
-    await t.mutation(internal.billingState.finish, { customerId: "customer-a", version: lease.version, failed: true });
-    expect((await alice(t).query(api.billing.status, {})).state).toBe("active");
-    expect(await alice(t).query(api.billing.syncStatus, {})).toEqual({
+    const lease = (await t.mutation(internal.billing.state.lease, { customerId: "customer-a" }))!;
+    await t.mutation(internal.billing.state.finish, { customerId: "customer-a", version: lease.version, failed: true });
+    expect((await alice(t).query(api.billing.account.status, {})).state).toBe("active");
+    expect(await alice(t).query(api.billing.account.syncStatus, {})).toEqual({
       failure: "RECONCILIATION_FAILED", retrying: attempt <= 8,
     });
   }
   await reconcile(t);
-  expect(await alice(t).query(api.billing.syncStatus, {})).toEqual({ failure: null, retrying: false });
+  expect(await alice(t).query(api.billing.account.syncStatus, {})).toEqual({ failure: null, retrying: false });
 });
 
 test("reconciliation failures retain paid access and log provider status without sensitive details", async () => {
@@ -248,25 +247,25 @@ test("reconciliation failures retain paid access and log provider status without
   const logging = vi.spyOn(console, "error").mockImplementation(() => {});
   provider.subscriptions.get.mockRejectedValueOnce(new PolarClientError(404, { detail: "alice@example.com sensitive provider response" }));
   await reconcile(t);
-  expect((await alice(t).query(api.billing.status, {})).state).toBe("active");
-  expect((await alice(t).query(api.billing.syncStatus, {})).retrying).toBe(true);
+  expect((await alice(t).query(api.billing.account.status, {})).state).toBe("active");
+  expect((await alice(t).query(api.billing.account.syncStatus, {})).retrying).toBe(true);
   expect(decisions(logging)).toContainEqual({ decision: "reconciliation", result: "failed",
     code: "BILLING_RECONCILIATION_FAILED", phase: "managed_subscription", providerError: "PolarClientError", providerStatus: 404,
   });
   expect(JSON.stringify(logging.mock.calls)).not.toContain("alice@example.com");
   await reconcile(t);
-  expect(await alice(t).query(api.billing.syncStatus, {})).toEqual({ failure: null, retrying: false });
+  expect(await alice(t).query(api.billing.account.syncStatus, {})).toEqual({ failure: null, retrying: false });
 });
 
 test("first payment, repeated plan switches, renewal, cancel and uncancel use confirmed owned subscription state", async () => {
   const t = setup(); await provision(t); await link(t);
   await send(t, "subscription.active", { ...sub(), customer }); await reconcile(t);
   expect(await state(t)).toMatchObject({ status: "active", model: "monthly", subscriptionId: "sub-a" });
-  expect(await alice(t).query(api.billing.application, {})).toEqual({ name: "Alice" });
+  expect(await alice(t).query(api.billing.account.application, {})).toEqual({ name: "Alice" });
   for (const operation of ["yearly", "monthly", "yearly", "cancel", "reactivate", "cancel", "reactivate"] as const) {
     // Space the changes out as a person would, within the per-user limit.
     vi.setSystemTime(Date.now() + 10 * 60_000);
-    await alice(t).action(api.polar.changeSubscription, { operation });
+    await alice(t).action(api.billing.polar.changeSubscription, { operation });
     if (subscriptions[0].pending_update) {
       // Apply the provider's scheduled product before exercising another cycle.
       subscriptions[0].product_id = subscriptions[0].pending_update.product_id;
@@ -287,17 +286,17 @@ test("first payment, repeated plan switches, renewal, cancel and uncancel use co
 
 test("monthly upgrades invoice now; yearly downgrades preserve paid time and apply only on renewal", async () => {
   const t = setup(); await provision(t); await link(t); await reconcile(t);
-  await alice(t).action(api.polar.changeSubscription, { operation: "yearly" });
+  await alice(t).action(api.billing.polar.changeSubscription, { operation: "yearly" });
   expect(provider.subscriptions.update).toHaveBeenLastCalledWith("sub-a", { product_id: "yearly", proration_behavior: "invoice" });
   const annualEnd = Date.now() + 365 * 24 * 60 * 60_000;
   subscriptions[0].current_period_end = new Date(annualEnd).toISOString();
   subscriptions[0].modified_at = new Date(Date.now() + 100).toISOString();
   await reconcile(t);
   const paidOrders = orders.length;
-  await alice(t).action(api.polar.changeSubscription, { operation: "monthly" });
+  await alice(t).action(api.billing.polar.changeSubscription, { operation: "monthly" });
   expect(provider.subscriptions.update).toHaveBeenLastCalledWith("sub-a", { product_id: "monthly", proration_behavior: "next_period" });
   expect(orders).toHaveLength(paidOrders);
-  expect(await alice(t).query(api.billing.status, {})).toMatchObject({
+  expect(await alice(t).query(api.billing.account.status, {})).toMatchObject({
     state: "active", model: "yearly", paidThrough: annualEnd,
     scheduledChange: { model: "monthly", at: annualEnd },
   });
@@ -306,7 +305,7 @@ test("monthly upgrades invoice now; yearly downgrades preserve paid time and app
     current_period_end: new Date(annualEnd + 30 * 24 * 60 * 60_000).toISOString() };
   orders.push({ ...order("monthly", "monthly-renewal"), created_at: new Date(annualEnd + 1).toISOString() });
   await reconcile(t);
-  expect(await alice(t).query(api.billing.status, {})).toMatchObject({
+  expect(await alice(t).query(api.billing.account.status, {})).toMatchObject({
     state: "active", model: "monthly", scheduledChange: null,
   });
 });
@@ -316,7 +315,7 @@ test("a signed success/order-created payload without paid provider state cannot 
   expect((await send(t, "order.created", { ...orders[0], customer })).status).toBe(200);
   await reconcile(t);
   expect((await state(t))?.status).not.toBe("active");
-  await expect(alice(t).query(api.billing.application, {})).rejects.toThrow("PAID_ACCESS_REQUIRED");
+  await expect(alice(t).query(api.billing.account.application, {})).rejects.toThrow("PAID_ACCESS_REQUIRED");
 });
 
 test("signature validation, wire validation, duplicates, missing associations and other worktrees are isolated", async () => {
@@ -342,19 +341,19 @@ test("lifetime first purchase and upgrade protect against every old recurring ev
     const lifetime = { ...order("lifetime", "lifetime-first", null), billing_reason: "purchase" };
     orders.push(lifetime); await send(t, "order.paid", { ...lifetime, customer }); await reconcile(t);
     expect(await state(t)).toMatchObject({ status: "active", model: "lifetime", lifetimeOrderId: "lifetime-first" });
-    expect((await alice(t).query(api.billing.status, {})).lifetimePurchasedAt).toBe(Date.parse(lifetime.created_at));
+    expect((await alice(t).query(api.billing.account.status, {})).lifetimePurchasedAt).toBe(Date.parse(lifetime.created_at));
     for (const event of ["subscription.active", "subscription.canceled", "subscription.uncanceled", "subscription.revoked", "order.paid"]) {
       if (subscriptions[0]) { subscriptions[0].status = event === "subscription.revoked" ? "canceled" : "active"; subscriptions[0].product_id = "yearly"; }
       orders.push({ ...order("yearly", `old-${event}`), billing_reason: "subscription_update" });
       await send(t, event, { id: "late", customer_id: customer.id, customer }, `late-${event}`); await reconcile(t);
       expect((await state(t))?.model).toBe("lifetime");
-      expect((await alice(t).query(api.billing.status, {})).lifetimePurchasedAt).toBe(Date.parse(lifetime.created_at));
+      expect((await alice(t).query(api.billing.account.status, {})).lifetimePurchasedAt).toBe(Date.parse(lifetime.created_at));
     }
     orders.push({ ...order("lifetime", "lifetime-second", null), created_at: new Date(Date.now() + 1).toISOString() });
     lifetime.refunded_amount = lifetime.net_amount; lifetime.modified_at = new Date(Date.now() + 100).toISOString();
     await send(t, "order.refunded", { ...lifetime, customer }); await reconcile(t);
     expect((await state(t))?.lifetimeOrderId).toBe("lifetime-second");
-    expect((await alice(t).query(api.billing.status, {})).lifetimePurchasedAt).toBe(Date.parse(orders.at(-1)!.created_at));
+    expect((await alice(t).query(api.billing.account.status, {})).lifetimePurchasedAt).toBe(Date.parse(orders.at(-1)!.created_at));
   }
 });
 
@@ -366,10 +365,10 @@ test("full lifetime refund ends access, partial refund preserves it, and old sub
   lifetime.refunded_amount = 1000; lifetime.modified_at = new Date(Date.now() + 20).toISOString();
   subscriptions[0].status = "active"; await reconcile(t);
   expect(await state(t)).toMatchObject({ status: "ended", cancelAtPeriodEnd: false });
-  expect((await alice(t).query(api.billing.status, {})).lifetimePurchasedAt).toBeNull();
+  expect((await alice(t).query(api.billing.account.status, {})).lifetimePurchasedAt).toBeNull();
   expect((await state(t))?.subscriptionId).toBeUndefined();
-  await expect(alice(t).query(api.billing.application, {})).rejects.toThrow("PAID_ACCESS_REQUIRED");
-  expect(await alice(t).action(api.polar.portal, { returnUrl: "/billing" })).toContain("portal");
+  await expect(alice(t).query(api.billing.account.application, {})).rejects.toThrow("PAID_ACCESS_REQUIRED");
+  expect(await alice(t).action(api.billing.polar.portal, { returnUrl: "/billing" })).toContain("portal");
 });
 
 test("full current recurring refund revokes provider billing durably and failed cleanup stays retryable", async () => {
@@ -390,8 +389,8 @@ test("expiry works without webhooks and past-due payments do not grant indefinit
   const t = setup(); await provision(t); await link(t); await reconcile(t);
   const account = (await state(t))!;
   await t.run(ctx => ctx.db.patch("billingAccounts", account._id, { paidThrough: Date.now() - 1 }));
-  await t.mutation(internal.billingState.expire, { accountId: account._id, revision: account.revision });
-  await expect(alice(t).query(api.billing.application, {})).rejects.toThrow("PAID_ACCESS_REQUIRED");
+  await t.mutation(internal.billing.state.expire, { accountId: account._id, revision: account.revision });
+  await expect(alice(t).query(api.billing.account.application, {})).rejects.toThrow("PAID_ACCESS_REQUIRED");
   subscriptions[0].status = "past_due"; await reconcile(t);
   expect((await state(t))?.status).toBe("ended");
 });
@@ -401,20 +400,20 @@ test("customers and paid events before signup claim only stable external identit
   expect((await state(t))?.userId).toBeUndefined();
   await provision(t, "https://clerk.example|bob");
   const bob = t.withIdentity({ tokenIdentifier: "https://clerk.example|bob", subject: "bob" });
-  expect((await bob.query(api.billing.status, {})).state).toBe("awaiting_payment");
-  await expect(bob.action(api.polar.recover, {})).rejects.toThrow("CUSTOMER_IDENTITY_CONFLICT");
+  expect((await bob.query(api.billing.account.status, {})).state).toBe("awaiting_payment");
+  await expect(bob.action(api.billing.polar.recover, {})).rejects.toThrow("CUSTOMER_IDENTITY_CONFLICT");
   await provision(t); await reconcile(t);
-  expect((await alice(t).query(api.billing.status, {})).state).toBe("active");
+  expect((await alice(t).query(api.billing.account.status, {})).state).toBe("active");
 });
 
 test("missing external IDs remain unclaimed until provider association is repaired", async () => {
   const t = setup(); await provision(t); customer.external_id = null;
   await send(t, "customer.created", customer); await reconcile(t);
   expect((await state(t))?.userId).toBeUndefined();
-  expect((await alice(t).query(api.billing.status, {})).state).toBe("awaiting_payment");
+  expect((await alice(t).query(api.billing.account.status, {})).state).toBe("awaiting_payment");
   customer.external_id = externalId;
   await send(t, "customer.updated", customer); await reconcile(t);
-  expect((await alice(t).query(api.billing.status, {})).state).toBe("active");
+  expect((await alice(t).query(api.billing.account.status, {})).state).toBe("active");
 });
 
 test("checkout accepts unpaid owners, validates products and return URLs, and portal works after expiry", async () => {
@@ -422,15 +421,15 @@ test("checkout accepts unpaid owners, validates products and return URLs, and po
   for (const url of ["https://evil.example/billing", "//evil.example/billing", "/app", "\\evil", "/billing\n"]) {
     expect(() => billingReturnUrl(url)).toThrow();
   }
-  await expect(alice(t).action(api.polar.checkout, { model: "monthly", returnUrl: "https://evil.example/billing" })).rejects.toThrow("INVALID_RETURN_URL");
-  expect(await alice(t).action(api.polar.checkout, { model: "monthly", returnUrl: "/billing" })).toContain("checkout");
+  await expect(alice(t).action(api.billing.polar.checkout, { model: "monthly", returnUrl: "https://evil.example/billing" })).rejects.toThrow("INVALID_RETURN_URL");
+  expect(await alice(t).action(api.billing.polar.checkout, { model: "monthly", returnUrl: "/billing" })).toContain("checkout");
   expect(provider.checkouts.create).toHaveBeenCalledWith(expect.objectContaining({ products: ["monthly"], customer_id: "customer-a", allow_trial: false }));
   provider.checkouts.list.mockResolvedValue({ items: [{ status: "open", expires_at: new Date(end).toISOString(), url: "https://sandbox.polar.sh/recovered", metadata: { worktree_id: "wt-test" } }] });
-  expect(await alice(t).action(api.polar.checkout, { model: "monthly", returnUrl: "/billing" })).toContain("recovered");
+  expect(await alice(t).action(api.billing.polar.checkout, { model: "monthly", returnUrl: "/billing" })).toContain("recovered");
   expect(provider.checkouts.create).toHaveBeenCalledTimes(1);
   provider.products.get.mockResolvedValueOnce({ is_archived: true, prices: [] });
-  await expect(alice(t).action(api.polar.checkout, { model: "yearly", returnUrl: "/billing" })).rejects.toThrow("BILLING_CONFIGURATION_REQUIRED");
-  expect(await alice(t).action(api.polar.portal, { returnUrl: "/billing" })).toContain("portal");
+  await expect(alice(t).action(api.billing.polar.checkout, { model: "yearly", returnUrl: "/billing" })).rejects.toThrow("BILLING_CONFIGURATION_REQUIRED");
+  expect(await alice(t).action(api.billing.polar.portal, { returnUrl: "/billing" })).toContain("portal");
 });
 
 test("sandbox checkout and recovery can create isolated customers when the sign-in email is already used", async () => {
@@ -446,11 +445,11 @@ test("sandbox checkout and recovery can create isolated customers when the sign-
   for (const operation of ["checkout", "recover"] as const) {
     const t = setup(); await provision(t);
     if (operation === "checkout") {
-      expect(await alice(t).action(api.polar.checkout, { model: "monthly", returnUrl: "/billing" })).toContain("checkout");
+      expect(await alice(t).action(api.billing.polar.checkout, { model: "monthly", returnUrl: "/billing" })).toContain("checkout");
     } else {
-      await alice(t).action(api.polar.recover, {});
+      await alice(t).action(api.billing.polar.recover, {});
     }
-    expect((await alice(t).query(api.billing.status, {})).state).toBe("awaiting_payment");
+    expect((await alice(t).query(api.billing.account.status, {})).state).toBe("awaiting_payment");
     expect(provider.customers.create).toHaveBeenLastCalledWith({
       email: "alice+wt-test@example.com", external_id: externalId, metadata: { worktree_id: "wt-test" },
     });
@@ -466,7 +465,7 @@ test("separate sandbox worktrees use distinct emails for the same sign-in identi
     vi.stubEnv("WORKTREE_ID", worktree);
     customer = { id: "customer-a", external_id: `${worktree}:${tokenIdentifier}`, metadata: { worktree_id: worktree } };
     const t = setup(); await provision(t);
-    await alice(t).action(api.polar.recover, {});
+    await alice(t).action(api.billing.polar.recover, {});
     expect(provider.customers.create).toHaveBeenLastCalledWith({
       email: `alice+${worktree}@example.com`, external_id: customer.external_id, metadata: customer.metadata,
     });
@@ -479,7 +478,7 @@ test("production customer creation preserves the sign-in email", async () => {
   subscriptions = []; orders = [];
   provider.customers.getExternal.mockRejectedValue(new PolarClientError(404, { detail: "Not Found" }));
   const t = setup(); await provision(t);
-  await alice(t).action(api.polar.recover, {});
+  await alice(t).action(api.billing.polar.recover, {});
   expect(provider.customers.create).toHaveBeenCalledWith({
     email: "alice@example.com", external_id: externalId, metadata: { worktree_id: "wt-test" },
   });
@@ -492,7 +491,7 @@ test("an ambiguous customer create is recovered by external identity", async () 
     .mockResolvedValueOnce(customer);
   provider.customers.create.mockRejectedValueOnce(new PolarNetworkError("response lost"));
   const t = setup(); await provision(t);
-  await alice(t).action(api.polar.recover, {});
+  await alice(t).action(api.billing.polar.recover, {});
   expect(provider.customers.getExternal).toHaveBeenLastCalledWith(externalId);
   expect((await state(t))?.userId).toBeDefined();
 });
@@ -503,7 +502,7 @@ test("failed customer creation retains the provider failure without logging emai
   provider.customers.getExternal.mockRejectedValue(new PolarClientError(404, { detail: "Not Found" }));
   provider.customers.create.mockRejectedValueOnce(validation);
   const t = setup(); await provision(t);
-  await expect(alice(t).action(api.polar.recover, {})).rejects.toThrow("BILLING_REQUEST_FAILED");
+  await expect(alice(t).action(api.billing.polar.recover, {})).rejects.toThrow("BILLING_REQUEST_FAILED");
   expect(decisions(logging)).toContainEqual({ decision: "provider", result: "failed",
     code: "BILLING_REQUEST_FAILED", providerError: validation.name, providerStatus: 422,
   });
@@ -513,16 +512,16 @@ test("failed customer creation retains the provider failure without logging emai
 
 test("a superseded reconciliation cannot publish stale state and account deletion exposes retryable cleanup", async () => {
   const t = setup(); const userId = await provision(t); await link(t); await reconcile(t);
-  const lease = (await t.mutation(internal.billingState.lease, { customerId: "customer-a" }))!;
+  const lease = (await t.mutation(internal.billing.state.lease, { customerId: "customer-a" }))!;
   await link(t);
-  expect(await t.mutation(internal.billingState.apply, { version: lease.version,
+  expect(await t.mutation(internal.billing.state.apply, { version: lease.version,
     snapshot: { customerId: "customer-a", externalId, subscriptions: [], orders: [] } })).toEqual([]);
   expect((await state(t))?.status).toBe("active");
-  await t.mutation(internal.billingState.finish, { customerId: "customer-a", version: lease.version, failed: false });
+  await t.mutation(internal.billing.state.finish, { customerId: "customer-a", version: lease.version, failed: false });
   await t.run(ctx => ctx.db.patch("users", userId, { lifecycle: "deletion_requested" }));
-  expect(await t.action(internal.polar.cleanupAccount, { userId })).toMatchObject({ complete: false });
-  expect(await t.action(internal.polar.cleanupAccount, { userId })).toEqual({ complete: true });
-  await expect(alice(t).query(api.billing.application, {})).rejects.toThrow("ACCOUNT_UNAVAILABLE");
+  expect(await t.action(internal.billing.polar.cleanupAccount, { userId })).toMatchObject({ complete: false });
+  expect(await t.action(internal.billing.polar.cleanupAccount, { userId })).toEqual({ complete: true });
+  await expect(alice(t).query(api.billing.account.application, {})).rejects.toThrow("ACCOUNT_UNAVAILABLE");
 });
 
 test("signed cancellation, uncancellation, paid renewal and revocation reconcile current state despite delayed events", async () => {
@@ -545,18 +544,18 @@ test("signed cancellation, uncancellation, paid renewal and revocation reconcile
 
 test("pending commands serialize simultaneous checkout and subscription requests, then recover", async () => {
   const t = setup(); await provision(t); await link(t); await reconcile(t);
-  const lease = await alice(t).mutation(internal.billingState.beginOperation, {});
-  await expect(alice(t).action(api.polar.checkout, { model: "lifetime", returnUrl: "/billing" })).rejects.toThrow("BILLING_OPERATION_PENDING");
+  const lease = await alice(t).mutation(internal.billing.state.beginOperation, {});
+  await expect(alice(t).action(api.billing.polar.checkout, { model: "lifetime", returnUrl: "/billing" })).rejects.toThrow("BILLING_OPERATION_PENDING");
   expect(provider.checkouts.create).not.toHaveBeenCalled();
-  await alice(t).mutation(internal.billingState.endOperation, { lease });
-  expect(await alice(t).action(api.polar.checkout, { model: "lifetime", returnUrl: "/billing" })).toContain("checkout");
+  await alice(t).mutation(internal.billing.state.endOperation, { lease });
+  expect(await alice(t).action(api.billing.polar.checkout, { model: "lifetime", returnUrl: "/billing" })).toContain("checkout");
 });
 
 test("revocation commands keep provider failures visible and ownership is enforced before scheduling", async () => {
   const t = setup(); const userId = await provision(t); await link(t); await reconcile(t);
-  await expect(t.action(internal.polar.revoke, { userId, subscriptionId: "someone-else" })).rejects.toThrow("ownership");
+  await expect(t.action(internal.billing.polar.revoke, { userId, subscriptionId: "someone-else" })).rejects.toThrow("ownership");
   provider.subscriptions.revoke.mockRejectedValueOnce(new Error("provider outage"));
-  await t.action(internal.polar.revoke, { userId, subscriptionId: "sub-a" });
+  await t.action(internal.billing.polar.revoke, { userId, subscriptionId: "sub-a" });
   expect((await state(t))?.status).toBe("ended");
   expect((await sync(t))?.failureCode).toBe("RECONCILIATION_FAILED");
   await reconcile(t); await reconcile(t);
@@ -581,18 +580,18 @@ test("two worktrees sharing a signed provider event can only enqueue their own s
 test("account cleanup reconciles a customer even when its creation delivery or local linkage was missing", async () => {
   const t = setup(); const userId = await provision(t);
   await t.run(ctx => ctx.db.patch("users", userId, { lifecycle: "deletion_requested" }));
-  expect(await t.action(internal.polar.cleanupAccount, { userId })).toMatchObject({ complete: false });
+  expect(await t.action(internal.billing.polar.cleanupAccount, { userId })).toMatchObject({ complete: false });
   expect(provider.subscriptions.revoke).toHaveBeenCalledWith("sub-a");
-  expect(await t.action(internal.polar.cleanupAccount, { userId })).toEqual({ complete: true });
+  expect(await t.action(internal.billing.polar.cleanupAccount, { userId })).toEqual({ complete: true });
 });
 
 test("an expired reconciliation worker cannot release its replacement's lease", async () => {
   const t = setup(); await link(t);
-  const first = (await t.mutation(internal.billingState.lease, { customerId: "customer-a" }))!;
+  const first = (await t.mutation(internal.billing.state.lease, { customerId: "customer-a" }))!;
   vi.advanceTimersByTime(120_001);
   // Avoid draining scheduled jobs: acquire the next transaction directly.
-  const next = (await t.mutation(internal.billingState.lease, { customerId: "customer-a" }))!;
-  await t.mutation(internal.billingState.finish, { customerId: "customer-a", version: first.version, failed: true });
+  const next = (await t.mutation(internal.billing.state.lease, { customerId: "customer-a" }))!;
+  await t.mutation(internal.billing.state.finish, { customerId: "customer-a", version: first.version, failed: true });
   expect((await sync(t))?.leaseVersion).toBe(next.version);
   expect((await sync(t))?.leaseUntil).toBeGreaterThan(Date.now());
 });
@@ -616,7 +615,7 @@ test("an invalid unclaimed external identity can be repaired; a claimed customer
   customer.external_id = externalId;
   expect((await send(t, "customer.updated", customer, "repaired")).status).toBe(200);
   await reconcile(t);
-  expect((await alice(t).query(api.billing.status, {})).state).toBe("active");
+  expect((await alice(t).query(api.billing.account.status, {})).state).toBe("active");
   customer.external_id = "wt-test:https://clerk.example|bob";
   expect((await send(t, "customer.updated", customer, "different-owner")).status).toBe(503);
   expect((await state(t))?.externalId).toBe(externalId);
@@ -626,32 +625,32 @@ test("repeated reconciliation of abandoned checkout remains awaiting payment unt
   const t = setup(); await provision(t); await link(t);
   subscriptions = []; orders = [];
   await reconcile(t); await reconcile(t); await reconcile(t);
-  expect((await alice(t).query(api.billing.status, {})).state).toBe("awaiting_payment");
+  expect((await alice(t).query(api.billing.account.status, {})).state).toBe("awaiting_payment");
   orders = [order("lifetime", "first-paid", null)]; await reconcile(t);
-  expect((await alice(t).query(api.billing.status, {})).state).toBe("active");
+  expect((await alice(t).query(api.billing.account.status, {})).state).toBe("active");
 });
 
 async function deletionRequest(t: ReturnType<typeof setup>) {
-  const [request] = await t.query(internal.accountLifecycle.pending, {});
+  const [request] = await t.query(internal.account.lifecycle.pending, {});
   return request;
 }
 test.each(["monthly", "yearly"])("%s deletion cancels renewal without revocation, preserves paid time, and recovery does not uncancel billing", async model => {
   subscriptions = [sub(model)]; orders = [order(model)];
   const t = setup(); await provision(t); await link(t); await reconcile(t);
-  await alice(t).mutation(api.accountLifecycle.requestDeletion, {});
+  await alice(t).mutation(api.account.lifecycle.requestDeletion, {});
   const request = await deletionRequest(t);
   expect(request.deleteAfter! - request.requestedAt).toBe(7 * 24 * 60 * 60_000);
-  await t.action(internal.accountLifecycle.process, { requestId: request._id });
+  await t.action(internal.account.lifecycle.process, { requestId: request._id });
   expect(subscriptions[0].cancel_at_period_end).toBe(true);
   expect(provider.subscriptions.revoke).not.toHaveBeenCalled();
   expect(await state(t)).toMatchObject({ status: "active", cancelAtPeriodEnd: true, paidThrough: end });
-  await expect(alice(t).query(api.billing.application, {})).resolves.toBeDefined();
-  await expect(alice(t).action(api.polar.changeSubscription, { operation: "reactivate" })).rejects.toThrow("DELETION_PENDING");
-  await alice(t).mutation(api.accountLifecycle.recover, {});
+  await expect(alice(t).query(api.billing.account.application, {})).resolves.toBeDefined();
+  await expect(alice(t).action(api.billing.polar.changeSubscription, { operation: "reactivate" })).rejects.toThrow("DELETION_PENDING");
+  await alice(t).mutation(api.account.lifecycle.recover, {});
   expect(subscriptions[0].cancel_at_period_end).toBe(true);
-  await t.action(internal.accountLifecycle.process, { requestId: request._id });
+  await t.action(internal.account.lifecycle.process, { requestId: request._id });
   expect(provider.subscriptions.revoke).not.toHaveBeenCalled();
-  await alice(t).action(api.polar.changeSubscription, { operation: "reactivate" });
+  await alice(t).action(api.billing.polar.changeSubscription, { operation: "reactivate" });
   expect(subscriptions[0].cancel_at_period_end).toBe(false);
 });
 
@@ -659,23 +658,23 @@ test("seven day deadline commits deletion, confirms revocation before identity r
   const t = setup(); const userId = await provision(t); await link(t); await reconcile(t);
   vi.stubEnv("CLERK_SECRET_KEY", "test-key");
   const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 200 }));
-  await alice(t).mutation(api.accountLifecycle.requestDeletion, {});
+  await alice(t).mutation(api.account.lifecycle.requestDeletion, {});
   const request = await deletionRequest(t);
-  await t.action(internal.accountLifecycle.process, { requestId: request._id });
+  await t.action(internal.account.lifecycle.process, { requestId: request._id });
   vi.setSystemTime(request.deleteAfter!);
-  await expect(alice(t).mutation(api.accountLifecycle.recover, {})).rejects.toThrow("RECOVERY_UNAVAILABLE");
+  await expect(alice(t).mutation(api.account.lifecycle.recover, {})).rejects.toThrow("RECOVERY_UNAVAILABLE");
   // First pass revokes; a subsequent provider snapshot proves it ended.
-  await t.action(internal.accountLifecycle.process, { requestId: request._id });
+  await t.action(internal.account.lifecycle.process, { requestId: request._id });
   expect(provider.subscriptions.revoke).toHaveBeenCalledWith("sub-a");
   expect(fetchSpy).not.toHaveBeenCalled();
-  await t.action(internal.accountLifecycle.process, { requestId: request._id });
+  await t.action(internal.account.lifecycle.process, { requestId: request._id });
   expect(fetchSpy).toHaveBeenCalledWith("https://api.clerk.com/v1/users/alice", expect.objectContaining({ method: "DELETE" }));
   const user = await t.run(ctx => ctx.db.get("users", userId));
-  expect((await alice(t).query(api.billing.status, {})).readiness).toBe("deleting");
+  expect((await alice(t).query(api.billing.account.status, {})).readiness).toBe("deleting");
   expect(user?.lifecycle).toBe("deleted"); expect(user?.email).toBeUndefined(); expect(user?.displayName).toBeUndefined(); expect(user?.firstName).toBeUndefined();
-  expect((await t.query(internal.accountLifecycle.context, { requestId: request._id }))?.status).toBe("completed");
+  expect((await t.query(internal.account.lifecycle.context, { requestId: request._id }))?.status).toBe("completed");
   expect(await t.run(ctx => ctx.db.query("billingOrders").take(10))).toEqual([]);
-  await t.action(internal.accountLifecycle.process, { requestId: request._id });
+  await t.action(internal.account.lifecycle.process, { requestId: request._id });
   expect(fetchSpy).toHaveBeenCalledTimes(1);
   // Delayed paid data cannot resurrect entitlement or restore erased history.
   await link(t); await reconcile(t);
@@ -685,27 +684,27 @@ test("seven day deadline commits deletion, confirms revocation before identity r
 
 test("provider failures retry without falsely confirming cancellation or completing deletion", async () => {
   const t = setup(); await provision(t); await link(t); await reconcile(t);
-  await alice(t).mutation(api.accountLifecycle.requestDeletion, {});
+  await alice(t).mutation(api.account.lifecycle.requestDeletion, {});
   const request = await deletionRequest(t);
   provider.subscriptions.update.mockRejectedValueOnce(new Error("provider unavailable"));
-  await t.action(internal.accountLifecycle.process, { requestId: request._id });
-  expect(await alice(t).query(api.accountLifecycle.current, {})).toMatchObject({ failure: true, cancellationConfirmed: false, finalizing: false });
-  await t.action(internal.accountLifecycle.process, { requestId: request._id });
-  expect(await alice(t).query(api.accountLifecycle.current, {})).toMatchObject({ failure: false, cancellationConfirmed: true });
+  await t.action(internal.account.lifecycle.process, { requestId: request._id });
+  expect(await alice(t).query(api.account.lifecycle.current, {})).toMatchObject({ failure: true, cancellationConfirmed: false, finalizing: false });
+  await t.action(internal.account.lifecycle.process, { requestId: request._id });
+  expect(await alice(t).query(api.account.lifecycle.current, {})).toMatchObject({ failure: false, cancellationConfirmed: true });
   expect(provider.subscriptions.revoke).not.toHaveBeenCalled();
 });
 
 test("Clerk deletion supersedes the recovery window and never deletes the already-gone identity", async () => {
   const t = setup(); await provision(t); await link(t); await reconcile(t);
   const fetchSpy = vi.spyOn(globalThis, "fetch");
-  await alice(t).mutation(api.accountLifecycle.requestDeletion, {});
+  await alice(t).mutation(api.account.lifecycle.requestDeletion, {});
   const request = await deletionRequest(t);
-  expect(await t.mutation(internal.accountLifecycle.requestClerkDeletion, { clerkId: "alice", eventAt: Date.now(), deliveryId: "gone" })).toBe(request._id);
-  await expect(alice(t).mutation(api.accountLifecycle.recover, {})).rejects.toThrow("RECOVERY_UNAVAILABLE");
-  await t.action(internal.accountLifecycle.process, { requestId: request._id });
-  await t.action(internal.accountLifecycle.process, { requestId: request._id });
+  expect(await t.mutation(internal.account.lifecycle.requestClerkDeletion, { clerkId: "alice", eventAt: Date.now(), deliveryId: "gone" })).toBe(request._id);
+  await expect(alice(t).mutation(api.account.lifecycle.recover, {})).rejects.toThrow("RECOVERY_UNAVAILABLE");
+  await t.action(internal.account.lifecycle.process, { requestId: request._id });
+  await t.action(internal.account.lifecycle.process, { requestId: request._id });
   expect(fetchSpy).not.toHaveBeenCalled();
-  expect((await t.query(internal.accountLifecycle.context, { requestId: request._id }))?.status).toBe("completed");
+  expect((await t.query(internal.account.lifecycle.context, { requestId: request._id }))?.status).toBe("completed");
 });
 
 test("expired, refunded and revoked recovery never grants paid access; lifetime closes only after the window", async () => {
@@ -717,52 +716,52 @@ test("expired, refunded and revoked recovery never grants paid access; lifetime 
     if (model === "revoked") subscriptions[0].status = "canceled";
     if (model === "expired") subscriptions[0].current_period_end = new Date(Date.now() - 1).toISOString();
     await reconcile(t);
-    await alice(t).mutation(api.accountLifecycle.requestDeletion, {});
+    await alice(t).mutation(api.account.lifecycle.requestDeletion, {});
     let request = await deletionRequest(t);
-    await t.action(internal.accountLifecycle.process, { requestId: request._id });
-    await alice(t).mutation(api.accountLifecycle.recover, {});
+    await t.action(internal.account.lifecycle.process, { requestId: request._id });
+    await alice(t).mutation(api.account.lifecycle.recover, {});
     const entitled = model === "cancelled" || model === "lifetime";
     expect((await state(t))?.status === "active").toBe(entitled);
-    if (!entitled) await expect(alice(t).query(api.billing.application, {})).rejects.toThrow("PAID_ACCESS_REQUIRED");
-    await alice(t).mutation(api.accountLifecycle.requestDeletion, {});
+    if (!entitled) await expect(alice(t).query(api.billing.account.application, {})).rejects.toThrow("PAID_ACCESS_REQUIRED");
+    await alice(t).mutation(api.account.lifecycle.requestDeletion, {});
     request = await deletionRequest(t);
     vi.stubEnv("CLERK_SECRET_KEY", "key");
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 404 }));
     vi.setSystemTime(request.deleteAfter!);
-    for (let i = 0; i < 3; i++) await t.action(internal.accountLifecycle.process, { requestId: request._id });
-    expect((await t.query(internal.accountLifecycle.context, { requestId: request._id }))?.status).toBe("completed");
+    for (let i = 0; i < 3; i++) await t.action(internal.account.lifecycle.process, { requestId: request._id });
+    expect((await t.query(internal.account.lifecycle.context, { requestId: request._id }))?.status).toBe("completed");
   }
 });
 
 test("another owner cannot see, recover, or supply someone else's deletion id; leases prevent cancellation races", async () => {
   const t = setup(); await provision(t); await provision(t, "https://clerk.example|bob");
   const bob = t.withIdentity({ tokenIdentifier: "https://clerk.example|bob" });
-  await alice(t).mutation(api.accountLifecycle.requestDeletion, {});
-  expect(await bob.query(api.accountLifecycle.current, {})).toBeNull();
-  await expect(bob.mutation(api.accountLifecycle.recover, {})).rejects.toThrow("RECOVERY_UNAVAILABLE");
+  await alice(t).mutation(api.account.lifecycle.requestDeletion, {});
+  expect(await bob.query(api.account.lifecycle.current, {})).toBeNull();
+  await expect(bob.mutation(api.account.lifecycle.recover, {})).rejects.toThrow("RECOVERY_UNAVAILABLE");
   const request = await deletionRequest(t);
-  await expect(bob.mutation(api.accountLifecycle.recover, { requestId: request._id } as never)).rejects.toThrow();
-  const claim = await t.mutation(internal.accountLifecycle.claim, { requestId: request._id });
-  expect(await t.mutation(internal.accountLifecycle.claim, { requestId: request._id })).toBeNull();
-  await expect(alice(t).mutation(api.accountLifecycle.recover, {})).rejects.toThrow("ACCOUNT_OPERATION_PENDING");
-  await t.mutation(internal.accountLifecycle.finishAttempt, { requestId: request._id, lease: claim!.lease, success: true, finalizing: false });
-  await alice(t).mutation(api.accountLifecycle.recover, {});
-  expect(await t.mutation(internal.accountLifecycle.claim, { requestId: request._id })).toBeNull();
+  await expect(bob.mutation(api.account.lifecycle.recover, { requestId: request._id } as never)).rejects.toThrow();
+  const claim = await t.mutation(internal.account.lifecycle.claim, { requestId: request._id });
+  expect(await t.mutation(internal.account.lifecycle.claim, { requestId: request._id })).toBeNull();
+  await expect(alice(t).mutation(api.account.lifecycle.recover, {})).rejects.toThrow("ACCOUNT_OPERATION_PENDING");
+  await t.mutation(internal.account.lifecycle.finishAttempt, { requestId: request._id, lease: claim!.lease, success: true, finalizing: false });
+  await alice(t).mutation(api.account.lifecycle.recover, {});
+  expect(await t.mutation(internal.account.lifecycle.claim, { requestId: request._id })).toBeNull();
 });
 
 test("display names validate and survive Clerk updates while email still synchronizes", async () => {
   const t = setup(); const userId = await provision(t);
-  await alice(t).mutation(api.profile.save, { displayName: "  New name  " });
+  await alice(t).mutation(api.account.profile.save, { displayName: "  New name  " });
   expect(await t.run(ctx => ctx.db.get("users", userId))).toMatchObject({ displayName: "New name", profileEdited: true });
-  for (const invalid of ["a".repeat(101), "bad\u0000name"]) await expect(alice(t).mutation(api.profile.save, { displayName: invalid })).rejects.toThrow("INVALID_NAME");
-  await t.mutation(internal.users.syncProfile, { profile: { clerkId: "alice", email: "new@example.com", firstName: "Old Clerk name", lastName: "Surname", updatedAt: 100 }, eventAt: 100 });
+  for (const invalid of ["a".repeat(101), "bad\u0000name"]) await expect(alice(t).mutation(api.account.profile.save, { displayName: invalid })).rejects.toThrow("INVALID_NAME");
+  await t.mutation(internal.account.users.syncProfile, { profile: { clerkId: "alice", email: "new@example.com", firstName: "Old Clerk name", lastName: "Surname", updatedAt: 100 }, eventAt: 100 });
   const user = await t.run(ctx => ctx.db.get("users", userId));
   expect(user?.email).toBe("new@example.com"); expect(user?.displayName).toBe("New name");
   const bobId = await provision(t, "https://clerk.example|bob");
   expect((await t.run(ctx => ctx.db.get("users", bobId)))?.displayName).toBe("Alice");
-  await expect(t.mutation(api.profile.save, { displayName: "X" })).rejects.toThrow("UNAUTHENTICATED");
-  await alice(t).mutation(api.profile.save, { displayName: "  " });
-  await t.mutation(internal.users.syncProfile, { profile: { clerkId: "alice", email: "new@example.com", firstName: "Provider name", updatedAt: 200 }, eventAt: 200 });
+  await expect(t.mutation(api.account.profile.save, { displayName: "X" })).rejects.toThrow("UNAUTHENTICATED");
+  await alice(t).mutation(api.account.profile.save, { displayName: "  " });
+  await t.mutation(internal.account.users.syncProfile, { profile: { clerkId: "alice", email: "new@example.com", firstName: "Provider name", updatedAt: 200 }, eventAt: 200 });
   expect((await t.run(ctx => ctx.db.get("users", userId)))?.displayName).toBeUndefined();
 });
 
@@ -770,30 +769,30 @@ test("identity cleanup failure retains PII and billing links until retry succeed
   const t = setup(); const userId = await provision(t); await link(t); await reconcile(t);
   vi.stubEnv("CLERK_SECRET_KEY", "test-key");
   const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(null, { status: 503 })).mockResolvedValue(new Response(null, { status: 404 }));
-  await alice(t).mutation(api.accountLifecycle.requestDeletion, {});
+  await alice(t).mutation(api.account.lifecycle.requestDeletion, {});
   const request = await deletionRequest(t); vi.setSystemTime(request.deleteAfter!);
-  await t.action(internal.accountLifecycle.process, { requestId: request._id });
-  await t.action(internal.accountLifecycle.process, { requestId: request._id });
+  await t.action(internal.account.lifecycle.process, { requestId: request._id });
+  await t.action(internal.account.lifecycle.process, { requestId: request._id });
   expect(fetchSpy).toHaveBeenCalledTimes(1);
   expect(await t.run(ctx => ctx.db.get("users", userId))).toMatchObject({ lifecycle: "deletion_requested", email: "alice@example.com" });
   expect(await state(t)).not.toBeNull();
-  expect((await t.query(internal.accountLifecycle.context, { requestId: request._id }))?.status).toBe("pending");
-  await t.action(internal.accountLifecycle.process, { requestId: request._id });
+  expect((await t.query(internal.account.lifecycle.context, { requestId: request._id }))?.status).toBe("pending");
+  await t.action(internal.account.lifecycle.process, { requestId: request._id });
   expect(provider.subscriptions.revoke).toHaveBeenCalledTimes(1);
-  expect((await t.query(internal.accountLifecycle.context, { requestId: request._id }))?.status).toBe("completed");
+  expect((await t.query(internal.account.lifecycle.context, { requestId: request._id }))?.status).toBe("completed");
 });
 
 test("a missing local owner gets a nonrecoverable Clerk tombstone; stalled leases can be reclaimed", async () => {
   const t = setup();
   vi.stubEnv("CLERK_JWT_ISSUER_DOMAIN", "https://clerk.example");
-  const id = await t.mutation(internal.accountLifecycle.requestClerkDeletion, { clerkId: "alice", eventAt: Date.now(), deliveryId: "gone" });
-  expect(await t.query(internal.users.lookupCurrent, { tokenIdentifier })).toEqual({ status: "deleting" });
-  const first = await t.mutation(internal.accountLifecycle.claim, { requestId: id });
+  const id = await t.mutation(internal.account.lifecycle.requestClerkDeletion, { clerkId: "alice", eventAt: Date.now(), deliveryId: "gone" });
+  expect(await t.query(internal.account.users.lookupCurrent, { tokenIdentifier })).toEqual({ status: "deleting" });
+  const first = await t.mutation(internal.account.lifecycle.claim, { requestId: id });
   vi.setSystemTime(first!.lease + 1);
-  const second = await t.mutation(internal.accountLifecycle.claim, { requestId: id });
+  const second = await t.mutation(internal.account.lifecycle.claim, { requestId: id });
   expect(second?.lease).toBeGreaterThan(first!.lease);
-  await t.mutation(internal.accountLifecycle.finishAttempt, { requestId: id, lease: first!.lease, success: true, finalizing: true });
-  expect((await t.query(internal.accountLifecycle.context, { requestId: id }))?.leaseUntil).toBe(second!.lease);
+  await t.mutation(internal.account.lifecycle.finishAttempt, { requestId: id, lease: first!.lease, success: true, finalizing: true });
+  expect((await t.query(internal.account.lifecycle.context, { requestId: id }))?.leaseUntil).toBe(second!.lease);
 });
 
 test("batched erasure survives reconciliation without refilling history or repeating identity deletion", async () => {
@@ -803,21 +802,21 @@ test("batched erasure survives reconciliation without refilling history or repea
   await t.run(async ctx => {
     for (let i = 0; i < 205; i++) await ctx.db.insert("billingOrders", { customerId: "customer-a", orderId: `history-${i}`, productId: "monthly", paid: true, fullyRefunded: false, createdAt: start - 100, modifiedAt: start - 100 });
   });
-  await alice(t).mutation(api.accountLifecycle.requestDeletion, {});
+  await alice(t).mutation(api.account.lifecycle.requestDeletion, {});
   const request = await deletionRequest(t); vi.setSystemTime(request.deleteAfter!);
-  await t.action(internal.accountLifecycle.process, { requestId: request._id });
-  await t.action(internal.accountLifecycle.process, { requestId: request._id });
-  const progress = await t.query(internal.accountLifecycle.context, { requestId: request._id });
+  await t.action(internal.account.lifecycle.process, { requestId: request._id });
+  await t.action(internal.account.lifecycle.process, { requestId: request._id });
+  const progress = await t.query(internal.account.lifecycle.context, { requestId: request._id });
   expect(progress).toMatchObject({ erasing: true, attempts: 0, leaseUntil: 0, nextAttemptAt: Date.now() });
   expect(progress?.failureCode).toBeUndefined();
   const remaining = await t.run(ctx => ctx.db.query("billingOrders").take(1000));
   await reconcile(t);
   expect(await t.run(ctx => ctx.db.query("billingOrders").take(1000))).toHaveLength(remaining.length);
-  await t.action(internal.accountLifecycle.process, { requestId: request._id });
-  const next = await t.query(internal.accountLifecycle.context, { requestId: request._id });
+  await t.action(internal.account.lifecycle.process, { requestId: request._id });
+  const next = await t.query(internal.account.lifecycle.context, { requestId: request._id });
   expect(next).toMatchObject({ attempts: 0, leaseUntil: 0, nextAttemptAt: Date.now() });
   expect(next?.failureCode).toBeUndefined();
-  for (let i = 0; i < 2; i++) await t.action(internal.accountLifecycle.process, { requestId: request._id });
+  for (let i = 0; i < 2; i++) await t.action(internal.account.lifecycle.process, { requestId: request._id });
   expect(fetchSpy).toHaveBeenCalledTimes(1);
   expect((await t.run(ctx => ctx.db.get("users", userId)))?.lifecycle).toBe("deleted");
   expect(await t.run(ctx => ctx.db.query("billingOrders").take(10))).toEqual([]);
@@ -830,21 +829,21 @@ test("deletion cancels and revokes every subscription across provider pages desp
     for (const s of subscriptions) await ctx.db.insert("billingSubscriptions", { customerId: customer.id, subscriptionId: s.id,
       productId: s.product_id, superseded: false, status: s.status, paidThrough: end, cancelAtPeriodEnd: false, modifiedAt: start, periodStart: start });
   });
-  await alice(t).mutation(api.accountLifecycle.requestDeletion, {});
+  await alice(t).mutation(api.account.lifecycle.requestDeletion, {});
   const request = await deletionRequest(t);
-  for (let i = 0; i < 11; i++) await t.action(internal.accountLifecycle.process, { requestId: request._id });
+  for (let i = 0; i < 11; i++) await t.action(internal.account.lifecycle.process, { requestId: request._id });
   expect(subscriptions.every(s => s.cancel_at_period_end)).toBe(true);
   expect(provider.subscriptions.revoke).not.toHaveBeenCalled();
-  expect(await alice(t).query(api.accountLifecycle.current, {})).toMatchObject({ cancellationConfirmed: true, failure: false });
+  expect(await alice(t).query(api.account.lifecycle.current, {})).toMatchObject({ cancellationConfirmed: true, failure: false });
   expect((await state(t))?.paidThrough).toBe(end);
   vi.stubEnv("CLERK_SECRET_KEY", "key");
   const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 200 }));
   vi.setSystemTime(request.deleteAfter!);
-  for (let i = 0; i < 11; i++) await t.action(internal.accountLifecycle.process, { requestId: request._id });
+  for (let i = 0; i < 11; i++) await t.action(internal.account.lifecycle.process, { requestId: request._id });
   expect(subscriptions.every(s => s.status === "canceled")).toBe(true);
   expect(fetchSpy).not.toHaveBeenCalled();
-  expect((await t.query(internal.accountLifecycle.context, { requestId: request._id }))?.failureCode).toBeUndefined();
-  for (let i = 0; i < 3; i++) await t.action(internal.accountLifecycle.process, { requestId: request._id });
+  expect((await t.query(internal.account.lifecycle.context, { requestId: request._id }))?.failureCode).toBeUndefined();
+  for (let i = 0; i < 3; i++) await t.action(internal.account.lifecycle.process, { requestId: request._id });
   expect(fetchSpy).toHaveBeenCalledTimes(1);
   expect((await t.run(ctx => ctx.db.get("users", userId)))?.lifecycle).toBe("deleted");
   expect(await t.run(ctx => ctx.db.query("billingSubscriptions").take(200))).toEqual([]);
@@ -863,25 +862,25 @@ const providerCalls = () => Object.values(provider).flatMap(Object.values)
 
 test("a user calling recover in a loop is rejected after a small burst, without provider requests", async () => {
   const t = setup(); await provision(t); await link(t); await reconcile(t);
-  for (let call = 0; call < 5; call++) await alice(t).action(api.polar.recover, {});
+  for (let call = 0; call < 5; call++) await alice(t).action(api.billing.polar.recover, {});
   vi.clearAllMocks();
 
-  const rejected = await alice(t).action(api.polar.recover, {}).catch((error: unknown) => error);
+  const rejected = await alice(t).action(api.billing.polar.recover, {}).catch((error: unknown) => error);
 
   expect(retryAfter(rejected)).toBeGreaterThan(0);
   expect(providerCalls()).toBe(0);
   vi.setSystemTime(Date.now() + retryAfter(rejected)!);
-  await alice(t).action(api.polar.recover, {});
+  await alice(t).action(api.billing.polar.recover, {});
   expect(provider.customers.get).toHaveBeenCalled();
 });
 
 test.each([
-  ["checkout", (t: ReturnType<typeof setup>) => alice(t).action(api.polar.checkout, { model: "monthly", returnUrl: "/billing" })],
-  ["changeSubscription", (t: ReturnType<typeof setup>) => alice(t).action(api.polar.changeSubscription, { operation: "cancel" })],
+  ["checkout", (t: ReturnType<typeof setup>) => alice(t).action(api.billing.polar.checkout, { model: "monthly", returnUrl: "/billing" })],
+  ["changeSubscription", (t: ReturnType<typeof setup>) => alice(t).action(api.billing.polar.changeSubscription, { operation: "cancel" })],
 ] as const)("%s takes the operation lease before any provider request", async (name, call) => {
   const t = setup(); await provision(t);
   if (name === "changeSubscription") { await link(t); await reconcile(t); }
-  await alice(t).mutation(internal.billingState.beginOperation, {});
+  await alice(t).mutation(internal.billing.state.beginOperation, {});
   vi.clearAllMocks();
 
   await expect(call(t)).rejects.toThrow("BILLING_OPERATION_PENDING");
@@ -896,7 +895,7 @@ test("user actions leave half of the Polar budget to reconciliation and refunds"
   await t.mutation(internal.rateLimits.spendPolar, { requests: 35 });
   vi.clearAllMocks();
 
-  const rejected = await alice(t).action(api.polar.recover, {}).catch((error: unknown) => error);
+  const rejected = await alice(t).action(api.billing.polar.recover, {}).catch((error: unknown) => error);
   expect(retryAfter(rejected)).toBeGreaterThan(0);
   expect(providerCalls()).toBe(0);
 
@@ -905,5 +904,5 @@ test("user actions leave half of the Polar budget to reconciliation and refunds"
   expect(provider.customers.get).toHaveBeenCalled();
 
   vi.setSystemTime(Date.now() + 60_000);
-  await alice(t).action(api.polar.recover, {});
+  await alice(t).action(api.billing.polar.recover, {});
 });

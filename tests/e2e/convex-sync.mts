@@ -106,7 +106,7 @@ export async function interceptConvexSync(page: Page) {
   });
 
   return {
-    /** Handles every browser call to the action at `udfPath`, such as "polar:checkout". */
+    /** Handles every browser call to the action at `udfPath`, such as "billing/polar:checkout". */
     onAction: <Args = Record<string, JSONValue>,>(udfPath: string, handler: (call: ActionCall<Args>) => void | Promise<void>) => {
       actions.set(udfPath, handler);
     },

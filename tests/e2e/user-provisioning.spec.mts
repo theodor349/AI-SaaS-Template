@@ -27,8 +27,8 @@ test("a first signed-in visit provisions through Clerk without a loopback webhoo
       expect(token).toBeTruthy();
       const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
       client.setAuth(token!);
-      await expect.poll(async () => (await client.query(api.users.current, {})).status).toBe("ready");
-      const current = await client.query(api.users.current, {});
+      await expect.poll(async () => (await client.query(api.account.users.current, {})).status).toBe("ready");
+      const current = await client.query(api.account.users.current, {});
       expect(current.status).toBe("ready");
       if (current.status !== "ready") throw new Error("Account provisioning did not finish");
       expect(current.user.email).toBe(user.email);
@@ -36,7 +36,7 @@ test("a first signed-in visit provisions through Clerk without a loopback webhoo
       expect(Object.keys(current.user).sort()).toEqual(["displayName", "email", "id"]);
       records.push(current.user.id);
       await target.reload();
-      await expect.poll(async () => (await client.query(api.users.current, {})).status).toBe("ready");
+      await expect.poll(async () => (await client.query(api.account.users.current, {})).status).toBe("ready");
       await expect(target.getByRole("alert").filter({ hasText: "Account setup failed" })).toHaveCount(0);
     }
     expect(records[0]).not.toBe(records[1]);

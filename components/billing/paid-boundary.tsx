@@ -8,8 +8,8 @@ import { AuthPending } from "@/components/auth/auth-boundary";
 import { useAction } from "@/lib/convex";
 
 export function PaidBoundary({ children }: { children: ReactNode }) {
-  const status = useQuery(api.billing.status);
-  const recover = useAction(api.polar.recover);
+  const status = useQuery(api.billing.account.status);
+  const recover = useAction(api.billing.polar.recover);
   const router = useRouter();
   const deleting = status?.readiness === "deleting";
   const ready = status?.readiness === "ready";

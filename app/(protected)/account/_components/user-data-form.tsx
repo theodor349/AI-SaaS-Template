@@ -72,8 +72,8 @@ function EmailHelp() {
 }
 
 function UserDataFormContent() {
-  const current = useQuery(api.users.current);
-  const saveProfile = useMutation(api.profile.save);
+  const current = useQuery(api.account.users.current);
+  const saveProfile = useMutation(api.account.profile.save);
   const [draft, setDraft] = useState<{
     displayName: string;
   } | null>(null);

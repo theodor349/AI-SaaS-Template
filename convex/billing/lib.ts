@@ -1,10 +1,10 @@
 import type { Id } from "../_generated/dataModel";
 import { env } from "../_generated/server";
-import { billingModels, type BillingModel } from "./billingModel";
-import { appError } from "./errors";
-import type { QueryCtx } from "./functions";
-import { hasAcceptedCurrent } from "./legal";
-import { requireUser } from "./users";
+import { billingModels, type BillingModel } from "./plans";
+import { appError } from "../lib/errors";
+import type { QueryCtx } from "../lib/functions";
+import { hasAcceptedCurrent } from "../account/legalVersions";
+import { requireUser } from "../lib/users";
 
 // Failed reconciliations retry themselves this many times with backoff. Later
 // retries come from the scheduled sweep and are no longer shown as retrying.

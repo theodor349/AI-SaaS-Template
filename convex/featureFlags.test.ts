@@ -1,4 +1,3 @@
-/// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { makeFunctionReference } from "convex/server";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -7,8 +6,8 @@ import { hasErrorCode } from "./lib/errors";
 import { featureFlags, flagKeys, requireFlag } from "./lib/featureFlags";
 import { action, mutation } from "./lib/functions";
 import schema from "./schema";
+import { modules } from "./test.setup";
 
-const modules = import.meta.glob("./**/*.ts");
 const issuer = "https://clerk.example";
 const key = "exampleFeature";
 const defaults = Object.fromEntries(flagKeys.map((flag) => [flag, featureFlags[flag].default]));

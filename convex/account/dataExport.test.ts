@@ -1,14 +1,13 @@
-/// <reference types="vite/client" />
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { appConfig } from "../app.config";
-import { api } from "./_generated/api";
-import type { Doc, Id } from "./_generated/dataModel";
-import { retryAfter } from "./lib/errors";
-import schema from "./schema";
+import { appConfig } from "../../app.config";
+import { api } from "../_generated/api";
+import type { Doc, Id } from "../_generated/dataModel";
+import { retryAfter } from "../lib/errors";
+import schema from "../schema";
+import { modules } from "../test.setup";
 
-const modules = import.meta.glob("./**/*.ts");
 function setup() {
   const t = convexTest(schema, modules);
   rateLimiterTest.register(t);
@@ -67,7 +66,7 @@ async function seed(t: ReturnType<typeof convexTest>, name: string,
 }
 
 async function download(t: ReturnType<typeof convexTest>, name: string) {
-  return JSON.parse(await t.withIdentity({ issuer, subject: `${name}-clerk` }).action(api.dataExport.download, {})) as Export;
+  return JSON.parse(await t.withIdentity({ issuer, subject: `${name}-clerk` }).action(api.account.dataExport.download, {})) as Export;
 }
 
 test("an export holds only the caller's data, in the documented shape", async () => {
@@ -175,8 +174,8 @@ test("an export over the size limit stops early with a typed error", async () =>
 
 test("anonymous and unprovisioned callers cannot export", async () => {
   const t = setup();
-  await expect(t.action(api.dataExport.download, {})).rejects.toThrow("UNAUTHENTICATED");
-  await expect(t.withIdentity({ issuer, subject: "nobody" }).action(api.dataExport.download, {})).rejects.toThrow("PROVISIONING_REQUIRED");
+  await expect(t.action(api.account.dataExport.download, {})).rejects.toThrow("UNAUTHENTICATED");
+  await expect(t.withIdentity({ issuer, subject: "nobody" }).action(api.account.dataExport.download, {})).rejects.toThrow("PROVISIONING_REQUIRED");
 });
 
 test("repeated exports are rejected after a small burst", async () => {

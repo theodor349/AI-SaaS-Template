@@ -1,4 +1,3 @@
-/// <reference types="vite/client" />
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
 import { makeFunctionReference } from "convex/server";
@@ -9,8 +8,8 @@ import { api, internal } from "./_generated/api";
 import { hasErrorCode } from "./lib/errors";
 import { mutation } from "./lib/functions";
 import schema from "./schema";
+import { modules } from "./test.setup";
 
-const modules = import.meta.glob("./**/*.ts");
 const issuer = "https://test.clerk.accounts.dev";
 const secret = `whsec_${btoa("a sufficiently long test signing secret")}`;
 // Distinctive personal data, so any leak into an event is detectable.
@@ -51,12 +50,12 @@ async function setup() {
 
 test("a mutation emits one success event, or one error event that keeps the client's error code", async () => {
   const { user, userId } = await setup();
-  await user.mutation(api.profile.save, { displayName: "New name" });
+  await user.mutation(api.account.profile.save, { displayName: "New name" });
   expect(errors).not.toHaveBeenCalled();
   expect(events()).toEqual([expect.objectContaining({ status: "success", userId })]);
 
   clearEvents();
-  const failure: unknown = await user.mutation(api.profile.save, { displayName: "\u0000" }).catch((error: unknown) => error);
+  const failure: unknown = await user.mutation(api.account.profile.save, { displayName: "\u0000" }).catch((error: unknown) => error);
   expect(hasErrorCode(failure, "INVALID_NAME")).toBe(true);
   expect(logs).not.toHaveBeenCalled();
   const [event] = events();
@@ -78,15 +77,15 @@ test("the builders rethrow the handler's own error rather than an equivalent one
 
 test("query successes are logged only when their sample rate allows it", async () => {
   const { user } = await setup();
-  await user.query(api.users.current, {});
+  await user.query(api.account.users.current, {});
   expect(events()).toEqual([]);
 
   vi.stubEnv("LOG_SAMPLE_RATE_QUERY", "1");
-  await user.query(api.users.current, {});
+  await user.query(api.account.users.current, {});
   expect(events()).toEqual([expect.objectContaining({ status: "success" })]);
 
   vi.stubEnv("LOG_SAMPLE_RATE_QUERY", "");
-  await expect(convexTest(schema, modules).query(api.users.current, {})).rejects.toThrow("UNAUTHENTICATED");
+  await expect(convexTest(schema, modules).query(api.account.users.current, {})).rejects.toThrow("UNAUTHENTICATED");
   expect(events().at(-1)).toMatchObject({ status: "error", error: { code: "UNAUTHENTICATED" } });
 });
 
@@ -94,7 +93,7 @@ test("a browser flow continues through the work its mutation schedules", async (
   vi.useFakeTimers();
   const { t, user, userId } = await setup();
   const flow = { flowId: "client-generated-flow" };
-  await user.mutation(api.accountLifecycle.requestDeletion, { flow });
+  await user.mutation(api.account.lifecycle.requestDeletion, { flow });
   expect(events()).toEqual([expect.objectContaining({ flowId: flow.flowId, userId })]);
 
   clearEvents();
@@ -109,9 +108,9 @@ test("a browser flow continues through the work its mutation schedules", async (
 test("client flow IDs are kept only when well-formed", async () => {
   const { user } = await setup();
   const traceId = "0123456789abcdef0123456789abcdef";
-  await user.mutation(api.profile.save, { displayName: "A", flow: { flowId: "client-flow", sentryTraceId: traceId } });
-  await user.mutation(api.profile.save, { displayName: "B", flow: { flowId: "client-flow", sentryTraceId: "x".repeat(10_000) } });
-  await user.mutation(api.profile.save, { displayName: "C", flow: { flowId: "not a flow id\n" } });
+  await user.mutation(api.account.profile.save, { displayName: "A", flow: { flowId: "client-flow", sentryTraceId: traceId } });
+  await user.mutation(api.account.profile.save, { displayName: "B", flow: { flowId: "client-flow", sentryTraceId: "x".repeat(10_000) } });
+  await user.mutation(api.account.profile.save, { displayName: "C", flow: { flowId: "not a flow id\n" } });
   const [kept, dropped, replaced] = events();
   expect(kept).toMatchObject({ flowId: "client-flow", sentryTraceId: traceId });
   expect(dropped).toMatchObject({ flowId: "client-flow" });
@@ -127,11 +126,11 @@ test("events carry no personal data, and webhook deliveries log one event per at
   vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json(profile))
     .mockResolvedValueOnce(Response.json({ ...profile, id: "user_someoneElse" }));
 
-  await user.query(api.users.current, {});
-  await user.mutation(api.profile.save, { displayName: `${fixture.firstName} ${fixture.lastName}` });
-  await user.action(api.users.ensureCurrentUser, { refresh: true });
-  await expect(user.action(api.users.ensureCurrentUser, { refresh: true })).rejects.toThrow("PROVISIONING_FAILED");
-  await t.mutation(internal.users.syncProfile, { profile: { ...fixture, updatedAt: 200 }, eventAt: 200 });
+  await user.query(api.account.users.current, {});
+  await user.mutation(api.account.profile.save, { displayName: `${fixture.firstName} ${fixture.lastName}` });
+  await user.action(api.account.users.ensureCurrentUser, { refresh: true });
+  await expect(user.action(api.account.users.ensureCurrentUser, { refresh: true })).rejects.toThrow("PROVISIONING_FAILED");
+  await t.mutation(internal.account.users.syncProfile, { profile: { ...fixture, updatedAt: 200 }, eventAt: 200 });
 
   const payload = JSON.stringify({ type: "user.updated", timestamp: 300, data: { ...profile, updated_at: 300 } });
   const date = new Date();

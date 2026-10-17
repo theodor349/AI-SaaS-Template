@@ -45,7 +45,7 @@ async function startFixture(t) {
     const args = process.argv.slice(2);
     if (args[0] === "install") { console.log("Already up to date"); writeFileSync("installed", args.join(" ")); }
     else if (args.includes("--print-secret")) { console.log("whsec_example"); console.error("whsec_example"); }
-    else if (args.includes("polar:syncCatalog")) {
+    else if (args.includes("billing/polar:syncCatalog")) {
       if (!require("node:fs").existsSync(args[args.indexOf("--env-file") + 1])) process.exit(9);
       fetch(process.env.APP_URL).then(response => {
         if (!response.ok) process.exit(1);

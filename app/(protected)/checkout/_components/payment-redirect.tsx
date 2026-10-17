@@ -24,7 +24,7 @@ export function PaymentRedirect({ plan }: { plan: CheckoutPlan }) {
 
 // Deleting accounts and existing paid access leave checkout. Subscribers switch
 // recurring plans through billing's confirmation; lifetime is a new purchase.
-function exitDestination(status: FunctionReturnType<typeof api.billing.status>, isDeleting: boolean, plan: CheckoutPlan) {
+function exitDestination(status: FunctionReturnType<typeof api.billing.account.status>, isDeleting: boolean, plan: CheckoutPlan) {
   if (isDeleting) return "/account";
   if (status.state !== "active") return null;
   if (status.model === "lifetime") return "/billing";

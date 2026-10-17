@@ -1,4 +1,4 @@
-import type { BillingModel } from "./billingModel";
+import type { BillingModel } from "./plans";
 
 // Pure paid-access rules from docs/internals/paid-access.md. Persistence and
 // provider reads stay in billingState and polar; these functions only decide.

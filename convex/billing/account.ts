@@ -1,12 +1,12 @@
 import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
-import { accountForUser, requirePro, scheduledRetries, syncForCustomer } from "./lib/billing";
-import { billingModel, recurringModel } from "./lib/billingModel";
-import { exportMany, exportOne, exportTime, noRows } from "./lib/dataExport";
-import { internalMutation, internalQuery, query, type QueryCtx } from "./lib/functions";
-import { getDisplayName } from "./lib/profile";
-import { getCurrentUser, readiness } from "./lib/users";
-import schema, { scheduledPlanChange } from "./schema";
+import type { Doc } from "../_generated/dataModel";
+import { accountForUser, requirePro, scheduledRetries, syncForCustomer } from "./lib";
+import { billingModel, recurringModel } from "./plans";
+import { exportMany, exportOne, exportTime, noRows } from "../lib/dataExport";
+import { internalQuery, query, type QueryCtx } from "../lib/functions";
+import { getDisplayName } from "../lib/profile";
+import { getCurrentUser, readiness } from "../lib/users";
+import schema, { scheduledPlanChange } from "../schema";
 
 async function lifetimePurchasedAt(ctx: QueryCtx, account: Doc<"billingAccounts"> | null) {
   if (account?.status !== "active" || account.model !== "lifetime" || !account.lifetimeOrderId) {
@@ -68,43 +68,6 @@ export const syncStatus = query({
     }
     const retrying = sync.failureCode === "RECONCILIATION_FAILED" && sync.attempts <= scheduledRetries;
     return { failure: sync.failureCode, retrying };
-  },
-});
-
-export const products = query({
-  args: {},
-  returns: v.array(v.object({
-    model: billingModel,
-    name: v.string(),
-    amount: v.number(),
-    currency: v.string(),
-    taxBehavior: v.string(),
-  })),
-  handler: async (ctx) => {
-    const rows = await ctx.db.query("billingProducts").take(3);
-    return rows.map(({ model, name, amount, currency, taxBehavior }) => ({
-      model,
-      name,
-      amount,
-      currency,
-      taxBehavior,
-    }));
-  },
-});
-
-export const saveProduct = internalMutation({
-  args: schema.tables.billingProducts.validator.fields,
-  returns: v.null(),
-  handler: async (ctx, product) => {
-    const existing = await ctx.db.query("billingProducts")
-      .withIndex("by_model", (q) => q.eq("model", product.model))
-      .unique();
-    if (existing) {
-      await ctx.db.patch("billingProducts", existing._id, product);
-    } else {
-      await ctx.db.insert("billingProducts", product);
-    }
-    return null;
   },
 });
 

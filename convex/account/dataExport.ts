@@ -1,18 +1,18 @@
 import { parse } from "convex-helpers/validators";
 import { paginationOptsValidator } from "convex/server";
 import { v, type Value } from "convex/values";
-import { appConfig } from "../app.config";
-import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
-import { accountLifecycleExport } from "./accountLifecycle";
-import { billingExport } from "./billing";
-import type { Exporter } from "./lib/dataExport";
-import { appError } from "./lib/errors";
-import { action, internalQuery } from "./lib/functions";
-import { requireOwner } from "./lib/users";
+import { appConfig } from "../../app.config";
+import { internal } from "../_generated/api";
+import type { Id } from "../_generated/dataModel";
+import { accountLifecycleExport } from "./lifecycle";
+import { billingExport } from "../billing/account";
+import type { Exporter } from "../lib/dataExport";
+import { appError } from "../lib/errors";
+import { action, internalQuery } from "../lib/functions";
+import { requireOwner } from "../lib/users";
 import { legalExport } from "./legal";
 import { profileExport } from "./profile";
-import { withdrawalsExport } from "./withdrawals";
+import { withdrawalsExport } from "../billing/withdrawals";
 
 // Every section of the user's data export, one per feature. Registering a
 // feature's exporter here adds it to the download; see docs/internals/data-export.md.
@@ -73,7 +73,7 @@ export const download = action({
   returns: v.string(),
   alwaysLog: true,
   handler: async (ctx) => {
-    const ownerId: Id<"users"> = await ctx.runQuery(internal.dataExport.owner, {});
+    const ownerId: Id<"users"> = await ctx.runQuery(internal.account.dataExport.owner, {});
     ctx.log.setUser(ownerId);
     await ctx.runMutation(internal.rateLimits.admit, { action: "dataExport" });
     // A running total stops an oversized export before it exhausts action memory.
@@ -86,7 +86,7 @@ export const download = action({
         let cursor: string | null = null;
         let done = false;
         while (!done) {
-          const page: PartPage = await ctx.runQuery(internal.dataExport.readPart, {
+          const page: PartPage = await ctx.runQuery(internal.account.dataExport.readPart, {
             section, part: name, paginationOpts: { ...pageOptions, cursor },
           });
           items.push(...page.items);

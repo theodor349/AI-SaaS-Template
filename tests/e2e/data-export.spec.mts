@@ -25,7 +25,7 @@ test("users download their data from the account page, including a pending delet
   try {
     const sync = await interceptConvexSync(page);
     let call: ActionCall<Record<string, JSONValue>> | undefined;
-    sync.onAction("dataExport:download", (held) => { call = held; });
+    sync.onAction("account/dataExport:download", (held) => { call = held; });
 
     await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email });
     await page.goto("/account");
@@ -40,7 +40,7 @@ test("users download their data from the account page, including a pending delet
     await expect(page.getByRole("alert").filter({ hasText: "Couldn’t export your data" })).toBeVisible();
     await captureEvidence(page, "data-export-error");
 
-    sync.onAction("dataExport:download", (held) => held.forward());
+    sync.onAction("account/dataExport:download", (held) => held.forward());
     const exported = await exportData(page);
     await expect(page.getByRole("alert").filter({ hasText: "Couldn’t export your data" })).toHaveCount(0);
     expect(exported).toMatchObject({

@@ -5,9 +5,9 @@ import { api } from "@/convex/_generated/api";
 
 // Billing and checkout wait for deletion state before exposing payment actions.
 export function useBillingAccount() {
-  const status = useQuery(api.billing.status);
+  const status = useQuery(api.billing.account.status);
   const deletion = useQuery(
-    api.accountLifecycle.current,
+    api.account.lifecycle.current,
     status?.readiness === "ready" ? {} : "skip",
   );
 

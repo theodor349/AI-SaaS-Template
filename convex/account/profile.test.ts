@@ -1,10 +1,9 @@
-/// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { api, internal } from "./_generated/api";
-import schema from "./schema";
+import { api, internal } from "../_generated/api";
+import schema from "../schema";
+import { modules } from "../test.setup";
 
-const modules = import.meta.glob("./**/*.ts");
 const issuer = "https://clerk.example";
 beforeEach(() => vi.stubEnv("CLERK_JWT_ISSUER_DOMAIN", issuer));
 afterEach(() => vi.unstubAllEnvs());
@@ -16,7 +15,7 @@ test.each([
   { expected: null },
 ])("display name defaults to the available provider names: $expected", async ({ expected, ...names }) => {
   const t = convexTest(schema, modules);
-  const current = await t.mutation(internal.users.syncProfile, {
+  const current = await t.mutation(internal.account.users.syncProfile, {
     profile: { clerkId: "alice", email: "alice@example.com", ...names, updatedAt: 1 }, eventAt: 1,
   });
   expect(current).toMatchObject({ status: "ready", user: { displayName: expected } });
@@ -33,11 +32,11 @@ test.each([true, false])("existing names remain readable and survive synchroniza
     lifecycle: "active", profileUpdatedAt: 1, profileEventAt: 1,
   }));
   const alice = t.withIdentity({ issuer, subject: "alice" });
-  expect(await alice.query(api.users.current, {})).toMatchObject({ status: "ready", user: { displayName: "Legacy Name" } });
-  await t.mutation(internal.users.syncProfile, {
+  expect(await alice.query(api.account.users.current, {})).toMatchObject({ status: "ready", user: { displayName: "Legacy Name" } });
+  await t.mutation(internal.account.users.syncProfile, {
     profile: { clerkId: "alice", email: "new@example.com", firstName: "Provider", lastName: "Name", updatedAt: 2 }, eventAt: 2,
   });
-  expect(await alice.query(api.users.current, {})).toMatchObject({ status: "ready", user: {
+  expect(await alice.query(api.account.users.current, {})).toMatchObject({ status: "ready", user: {
     email: "new@example.com", displayName: profileEdited ? "Legacy Name" : "Provider Name",
   } });
   const user = await t.run(ctx => ctx.db.get("users", userId));
@@ -52,11 +51,11 @@ test("saving or clearing a legacy profile removes its separate names", async () 
     firstName: "Legacy", lastName: "Name", lifecycle: "active", profileUpdatedAt: 1, profileEventAt: 1,
   }));
   const alice = t.withIdentity({ issuer, subject: "alice" });
-  await alice.mutation(api.profile.save, { displayName: "  Custom name  " });
-  expect(await alice.query(api.users.current, {})).toMatchObject({ status: "ready", user: { displayName: "Custom name" } });
+  await alice.mutation(api.account.profile.save, { displayName: "  Custom name  " });
+  expect(await alice.query(api.account.users.current, {})).toMatchObject({ status: "ready", user: { displayName: "Custom name" } });
   const user = await t.run(ctx => ctx.db.get("users", userId));
   expect(user?.firstName).toBeUndefined();
   expect(user?.lastName).toBeUndefined();
-  await alice.mutation(api.profile.save, { displayName: "  " });
-  expect(await alice.query(api.users.current, {})).toMatchObject({ status: "ready", user: { displayName: null } });
+  await alice.mutation(api.account.profile.save, { displayName: "  " });
+  expect(await alice.query(api.account.users.current, {})).toMatchObject({ status: "ready", user: { displayName: null } });
 });

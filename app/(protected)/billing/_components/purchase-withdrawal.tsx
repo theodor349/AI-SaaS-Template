@@ -20,11 +20,11 @@ import {
 import { Button, ButtonLabel } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/convex/_generated/api";
-import { planLabels } from "@/convex/lib/billingModel";
+import { planLabels } from "@/convex/billing/plans";
 import { hasErrorCode } from "@/convex/lib/errors";
 import { useMutation } from "@/lib/convex";
 
-type Purchase = FunctionReturnType<typeof api.withdrawals.purchases>[number];
+type Purchase = FunctionReturnType<typeof api.billing.withdrawals.purchases>[number];
 
 const dateFormat = { day: "numeric", month: "long", year: "numeric" } as const;
 const dateTimeFormat = { ...dateFormat, hour: "numeric", minute: "2-digit" } as const;
@@ -63,9 +63,9 @@ function useNow(deadlines: number[]) {
 }
 
 function PurchaseWithdrawalContent() {
-  const purchases = useQuery(api.withdrawals.purchases);
-  const current = useQuery(api.users.current);
-  const request = useMutation(api.withdrawals.request);
+  const purchases = useQuery(api.billing.withdrawals.purchases);
+  const current = useQuery(api.account.users.current);
+  const request = useMutation(api.billing.withdrawals.request);
   const [selected, setSelected] = useState<Purchase | null>(null);
   const [pendingOrderId, setPendingOrderId] = useState<string | null>(null);
   const now = useNow(purchases?.map((purchase) => purchase.withdrawUntil) ?? []);

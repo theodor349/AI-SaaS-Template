@@ -51,7 +51,7 @@ test("the withdrawal control disappears when the period ends and the server refu
     const token = await page.evaluate(() => window.Clerk.session!.getToken({ template: "convex" }));
     const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
     client.setAuth(token!);
-    const [purchase] = await client.query(api.withdrawals.purchases, {});
+    const [purchase] = await client.query(api.billing.withdrawals.purchases, {});
 
     await page.clock.fastForward(purchase.withdrawUntil - Date.now());
     await expect(card).toHaveCount(0);
@@ -67,7 +67,7 @@ test("the withdrawal control disappears when the period ends and the server refu
     const token = await page.evaluate(() => window.Clerk.session!.getToken({ template: "convex" }));
     const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
     client.setAuth(token!);
-    await expect(client.mutation(api.withdrawals.request, { orderId: `fixture-order-${late.id}-lifetime` }))
+    await expect(client.mutation(api.billing.withdrawals.request, { orderId: `fixture-order-${late.id}-lifetime` }))
       .rejects.toThrow("WITHDRAWAL_PERIOD_ENDED");
   } finally { await late.cleanup(); }
 });

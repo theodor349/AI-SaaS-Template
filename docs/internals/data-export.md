@@ -4,11 +4,11 @@ The account page's **Export your data** card downloads the caller's data as one 
 
 ## Registering a feature
 
-A feature defines its exporter next to its own functions, built with `exportOne` and `exportMany` from [`convex/lib/dataExport.ts`](../../convex/lib/dataExport.ts), and adds one line to the registry in [`convex/dataExport.ts`](../../convex/dataExport.ts). [`billingExport`](../../convex/billing.ts) shows both kinds of part.
+A feature defines its exporter next to its own functions, built with `exportOne` and `exportMany` from [`convex/lib/dataExport.ts`](../../convex/lib/dataExport.ts), and adds one line to the registry in [`convex/account/dataExport.ts`](../../convex/account/dataExport.ts). [`billingExport`](../../convex/billing/account.ts) shows both kinds of part.
 
 Each part's validator is the published shape. Export rows pass through `parse`, which drops fields the validator doesn't declare, so a whole document returned by mistake still can't leak internal fields. Export what the user would recognize as theirs. Leave out sign-in and provider identifiers that link accounts, leases, retry and sync bookkeeping, and secrets. Timestamps are ISO strings. Bump `formatVersion` when a shape changes incompatibly, since people may keep these files and parse them later.
 
-Exporters receive the owner resolved from the caller's identity and must read only rows reachable from it, through an index. Add the section to [`dataExport.test.ts`](../../convex/dataExport.test.ts), which checks another user's records and internal fields never appear.
+Exporters receive the owner resolved from the caller's identity and must read only rows reachable from it, through an index. Add the section to [`dataExport.test.ts`](../../convex/account/dataExport.test.ts), which checks another user's records and internal fields never appear.
 
 ## Size limits
 

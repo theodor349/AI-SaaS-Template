@@ -1,9 +1,9 @@
 import { createPolar, type models as PolarModels } from "@polar-sh/sdk/2026-10";
 import { PolarClientError, PolarError, PolarNetworkError, PolarRateLimitError, PolarServerError } from "@polar-sh/sdk";
 import { ConvexError, v } from "convex/values";
-import { internal } from "./_generated/api";
-import type { Doc } from "./_generated/dataModel";
-import { env } from "./_generated/server";
+import { internal } from "../_generated/api";
+import type { Doc } from "../_generated/dataModel";
+import { env } from "../_generated/server";
 import {
   billingReturnUrl,
   configuredProduct,
@@ -11,10 +11,10 @@ import {
   isWorktreeExternalId,
   productModel,
   timestamp,
-} from "./lib/billing";
-import { billingModel, billingModels, recurringModel, type BillingModel } from "./lib/billingModel";
-import { appError } from "./lib/errors";
-import { action, internalAction, type ActionCtx } from "./lib/functions";
+} from "./lib";
+import { billingModel, billingModels, recurringModel, type BillingModel } from "./plans";
+import { appError } from "../lib/errors";
+import { action, internalAction, type ActionCtx } from "../lib/functions";
 
 type Polar = ReturnType<typeof createPolar>;
 
@@ -141,7 +141,7 @@ async function spend(ctx: ActionCtx, requests: number) {
 // Resolves the signed-in owner's provider customer, links it, and requests
 // a reconciliation so local state catches up with the provider.
 async function ownedCustomer(ctx: ActionCtx): Promise<{ p: Polar; customer: PolarModels.Customer }> {
-  const { user, account } = await ctx.runQuery(internal.billingState.owned, {});
+  const { user, account } = await ctx.runQuery(internal.billing.state.owned, {});
   ctx.log.setUser(user._id);
   const p = client();
   const externalId = externalCustomerId(user.tokenIdentifier);
@@ -151,8 +151,8 @@ async function ownedCustomer(ctx: ActionCtx): Promise<{ p: Polar; customer: Pola
     : await findOrCreateCustomer(p, user.email!, externalId);
   ctx.log.setCustomer(customer.id);
   belongs(customer, externalId);
-  await ctx.runMutation(internal.billingState.enqueue, { customerId: customer.id, externalId });
-  await ctx.runMutation(internal.billingState.claim, { customerId: customer.id, externalId });
+  await ctx.runMutation(internal.billing.state.enqueue, { customerId: customer.id, externalId });
+  await ctx.runMutation(internal.billing.state.claim, { customerId: customer.id, externalId });
   return { p, customer };
 }
 
@@ -190,7 +190,7 @@ export const syncCatalog = internalAction({
     const p = client();
     await spend(ctx, billingModels.length);
     for (const model of billingModels) {
-      await ctx.runMutation(internal.billing.saveProduct, await validateProduct(p, model));
+      await ctx.runMutation(internal.billing.catalog.saveProduct, await validateProduct(p, model));
     }
     return null;
   }),
@@ -202,13 +202,13 @@ export const checkout = action({
   handler: (ctx, { model, returnUrl }) => userFacing(ctx, async () => {
     ctx.log.set("model", model);
     const destination = billingReturnUrl(returnUrl);
-    await ctx.runQuery(internal.legal.requireAccepted, {});
+    await ctx.runQuery(internal.account.legal.requireAccepted, {});
     await ctx.runMutation(internal.rateLimits.admit, { action: "checkout" });
-    const lease = await ctx.runMutation(internal.billingState.beginOperation, {});
+    const lease = await ctx.runMutation(internal.billing.state.beginOperation, {});
     try {
       const { p, customer } = await ownedCustomer(ctx);
       await reconcile(ctx, customer.id);
-      const { account } = await ctx.runQuery(internal.billingState.owned, {});
+      const { account } = await ctx.runQuery(internal.billing.state.owned, {});
       const recurringActive = account?.status === "active" && model !== "lifetime";
       if (account?.model === "lifetime" || recurringActive) {
         throw appError("USE_SUBSCRIPTION_MANAGEMENT");
@@ -241,7 +241,7 @@ export const checkout = action({
       ctx.log.decision("checkout", { result: "created" });
       return created.url;
     } finally {
-      await ctx.runMutation(internal.billingState.endOperation, { lease });
+      await ctx.runMutation(internal.billing.state.endOperation, { lease });
     }
   }),
 });
@@ -251,7 +251,7 @@ export const portal = action({
   returns: v.string(),
   handler: (ctx, { returnUrl }) => userFacing(ctx, async () => {
     const destination = billingReturnUrl(returnUrl);
-    const { user, account } = await ctx.runQuery(internal.billingState.owned, {});
+    const { user, account } = await ctx.runQuery(internal.billing.state.owned, {});
     ctx.log.setUser(user._id);
     if (!account) {
       throw appError("CUSTOMER_NOT_FOUND");
@@ -269,11 +269,11 @@ export const changeSubscription = action({
   handler: (ctx, { operation }) => userFacing(ctx, async () => {
     ctx.log.set("change", operation);
     await ctx.runMutation(internal.rateLimits.admit, { action: "changeSubscription" });
-    const lease = await ctx.runMutation(internal.billingState.beginOperation, {});
+    const lease = await ctx.runMutation(internal.billing.state.beginOperation, {});
     try {
       const { p, customer } = await ownedCustomer(ctx);
       await reconcile(ctx, customer.id);
-      const { account } = await ctx.runQuery(internal.billingState.owned, {});
+      const { account } = await ctx.runQuery(internal.billing.state.owned, {});
       const subscriptionId = account?.subscriptionId;
       if (!account || account.model === "lifetime" || !subscriptionId) {
         throw appError("SUBSCRIPTION_UNAVAILABLE");
@@ -304,15 +304,15 @@ export const changeSubscription = action({
       }
       // The result is confirmed from provider state and paid orders, then published
       // reactively. A successful update alone cannot grant new paid entitlement.
-      await ctx.runMutation(internal.billingState.enqueue, { customerId: customer.id });
+      await ctx.runMutation(internal.billing.state.enqueue, { customerId: customer.id });
       await reconcile(ctx, customer.id);
-      await ctx.runMutation(internal.billingState.confirmChange, {
+      await ctx.runMutation(internal.billing.state.confirmChange, {
         customerId: customer.id,
         revision: account.revision,
       });
       return null;
     } finally {
-      await ctx.runMutation(internal.billingState.endOperation, { lease });
+      await ctx.runMutation(internal.billing.state.endOperation, { lease });
     }
   }),
 });
@@ -334,11 +334,11 @@ export const revoke = internalAction({
   handler: async (ctx, { userId, subscriptionId }) => {
     ctx.log.setUser(userId);
     ctx.log.setSubscription(subscriptionId);
-    const account = await ctx.runQuery(internal.billing.accountByUser, { userId });
+    const account = await ctx.runQuery(internal.billing.account.accountByUser, { userId });
     if (!account) {
       throw new Error("Billing account missing");
     }
-    await ctx.runMutation(internal.billingState.requestRevocation, { userId, subscriptionId });
+    await ctx.runMutation(internal.billing.state.requestRevocation, { userId, subscriptionId });
     await reconcile(ctx, account.customerId);
     return null;
   },
@@ -398,7 +398,7 @@ export const withdraw = internalAction({
   args: { withdrawalId: v.id("withdrawals") },
   returns: v.null(),
   handler: async (ctx, { withdrawalId }) => {
-    const claimed = await ctx.runMutation(internal.withdrawals.claim, { withdrawalId });
+    const claimed = await ctx.runMutation(internal.billing.withdrawals.claim, { withdrawalId });
     ctx.log.set("withdrawalId", withdrawalId);
     if (!claimed) {
       return null;
@@ -415,7 +415,7 @@ export const withdraw = internalAction({
       ctx.log.decision("refund", { result: "failed", code: "REFUND_FAILED", ...providerFailure(error) });
       ctx.log.markAsError();
     }
-    await ctx.runMutation(internal.withdrawals.finish, { withdrawalId, lease, outcome });
+    await ctx.runMutation(internal.billing.withdrawals.finish, { withdrawalId, lease, outcome });
     return null;
   },
 });
@@ -475,7 +475,7 @@ function configuredOrder(o: PolarModels.Order): o is PolarModels.Order & { produ
 // is picked up when the running worker finishes.
 async function reconcile(ctx: ActionCtx, customerId: string) {
   ctx.log.setCustomer(customerId);
-  const lease = await ctx.runMutation(internal.billingState.lease, { customerId });
+  const lease = await ctx.runMutation(internal.billing.state.lease, { customerId });
   if (!lease) {
     ctx.log.decision("reconciliation", { result: "skipped" });
     return;
@@ -508,7 +508,7 @@ async function reconcile(ctx: ActionCtx, customerId: string) {
       }
     }
     phase = "publish";
-    const revoke: string[] = await ctx.runMutation(internal.billingState.apply, {
+    const revoke: string[] = await ctx.runMutation(internal.billing.state.apply, {
       version: lease.version,
       snapshot: {
         customerId,
@@ -529,7 +529,7 @@ async function reconcile(ctx: ActionCtx, customerId: string) {
     }
     // Cleanup has changed provider state; reconcile once again to confirm it.
     if (revoke.length) {
-      await ctx.runMutation(internal.billingState.enqueue, { customerId });
+      await ctx.runMutation(internal.billing.state.enqueue, { customerId });
     }
     ctx.log.decision("reconciliation", {
       result: "published", subscriptions: subscriptions.length, orders: orders.length, revoked: revoke.length,
@@ -544,7 +544,7 @@ async function reconcile(ctx: ActionCtx, customerId: string) {
     });
     ctx.log.markAsError();
   }
-  await ctx.runMutation(internal.billingState.finish, { customerId, version: lease.version, failed });
+  await ctx.runMutation(internal.billing.state.finish, { customerId, version: lease.version, failed });
 }
 
 export const reconcileCustomer = internalAction({
@@ -563,7 +563,7 @@ export const cleanupAccount = internalAction({
   returns: v.object({ complete: v.boolean(), progress: v.optional(v.boolean()) }),
   handler: (ctx, { userId }) => withoutProviderDetails(ctx, async (): Promise<{ complete: boolean; progress?: boolean }> => {
     ctx.log.setUser(userId);
-    const { user, account } = await ctx.runQuery(internal.billingState.cleanupContext, { userId });
+    const { user, account } = await ctx.runQuery(internal.billing.state.cleanupContext, { userId });
     const p = client();
     await spend(ctx, 4);
     const externalId = externalCustomerId(user.tokenIdentifier);
@@ -611,11 +611,11 @@ export const cleanupAccount = internalAction({
       return { complete: false, progress: true };
     }
     if (cancelling) {
-      await ctx.runMutation(internal.billingState.enqueue, { customerId: customer.id, externalId });
+      await ctx.runMutation(internal.billing.state.enqueue, { customerId: customer.id, externalId });
       await reconcile(ctx, customer.id);
     } else {
       // Provider truth, rather than bounded cached history, gates identity erasure.
-      await ctx.runMutation(internal.billingState.confirmProviderCleanup, { userId });
+      await ctx.runMutation(internal.billing.state.confirmProviderCleanup, { userId });
     }
     return { complete: true };
   }),

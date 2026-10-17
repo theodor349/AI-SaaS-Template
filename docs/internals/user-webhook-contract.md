@@ -2,7 +2,7 @@
 
 An authenticated identity can exist before its application record. `users.current` derives the caller from `requireIdentity` and returns `provisioning`, `ready`, or `deleting`. Anonymous calls fail with `UNAUTHENTICATED`; missing records do not mean sign-out. Mount auth-dependent consumers below Convex authentication readiness. The [provisioning component](../../components/UserProvisioning.tsx) calls `users.ensureCurrentUser` after authentication settles; the action fetches the verified identity from Clerk's Backend API, so local sign-in needs no webhook tunnel. A ready record grants no paid access; see [paid access](paid-access.md).
 
-[Profile synchronization](../../convex/users.ts) patches only its own fields, so billing extends the user schema without profile delivery or provisioning resetting entitlement. Provider IDs and arbitrary lookup remain internal; account features should use the identity-derived current-user API.
+[Profile synchronization](../../convex/account/users.ts) patches only its own fields, so billing extends the user schema without profile delivery or provisioning resetting entitlement. Provider IDs and arbitrary lookup remain internal; account features should use the identity-derived current-user API.
 
 ## Webhook processing
 
@@ -14,6 +14,6 @@ Delivery history expires 30 days after the last attempt, so tracking cannot prov
 
 ## Deletion
 
-Clerk deletion atomically marks the application user `deletion_requested` and creates one [account lifecycle request](../../convex/accountLifecycle.ts), including when the user did not previously exist. Its processor performs resumable cleanup, then marks completion and user lifecycle `deleted` together. The user record is retained until cleanup finishes, and its minimal identity tombstone afterward. Neither replay nor a snapshot fetched before deletion can reactivate that Clerk ID; a genuinely new registration has a new provider ID.
+Clerk deletion atomically marks the application user `deletion_requested` and creates one [account lifecycle request](../../convex/account/lifecycle.ts), including when the user did not previously exist. Its processor performs resumable cleanup, then marks completion and user lifecycle `deleted` together. The user record is retained until cleanup finishes, and its minimal identity tombstone afterward. Neither replay nor a snapshot fetched before deletion can reactivate that Clerk ID; a genuinely new registration has a new provider ID.
 
 Bootstrap supplies a worktree-local Clerk webhook signing secret when none is provided, including with `--no-polar`; it does not register a hosted endpoint. Never point a hosted endpoint at a generated local secret unless an explicit development forwarder uses it. Hosted setup is in [deployment](../deployment.md#hosted-webhooks).

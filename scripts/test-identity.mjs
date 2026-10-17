@@ -1,5 +1,5 @@
-// Test copies of the identity formats from convex/lib/clerk.ts (clerkTokenIdentifier)
-// and convex/lib/billing.ts (externalCustomerId). Node scripts cannot import those
+// Test copies of the identity formats from convex/account/clerk.ts (clerkTokenIdentifier)
+// and convex/billing/lib.ts (externalCustomerId). Node scripts cannot import those
 // Convex modules, so change these together with them.
 
 /** Convex's `issuer|subject` identity key for a Clerk user in this worktree. */

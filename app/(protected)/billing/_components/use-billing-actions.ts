@@ -9,12 +9,12 @@ import { hasErrorCode } from "@/convex/lib/errors";
 import { useAction } from "@/lib/convex";
 import { rateLimitMessage } from "@/lib/rate-limit";
 
-type SubscriptionOperation = FunctionArgs<typeof api.polar.changeSubscription>["operation"];
+type SubscriptionOperation = FunctionArgs<typeof api.billing.polar.changeSubscription>["operation"];
 type BillingAction = SubscriptionOperation | "portal";
 type Expectation = { operation: SubscriptionOperation; revision: number };
 
 function matchesExpectation(
-  status: FunctionReturnType<typeof api.billing.status> | undefined,
+  status: FunctionReturnType<typeof api.billing.account.status> | undefined,
   expectation: Expectation | null,
 ) {
   if (!status || !expectation || status.revision <= expectation.revision) {
@@ -38,9 +38,9 @@ function matchesExpectation(
 // button pending until a newer billing publication matches the requested state.
 export function useBillingActions() {
   const { isAuthenticated, isLoading, isRefreshing } = useConvexAuth();
-  const status = useQuery(api.billing.status, isAuthenticated && !isLoading && !isRefreshing ? {} : "skip");
-  const change = useAction(api.polar.changeSubscription);
-  const portal = useAction(api.polar.portal);
+  const status = useQuery(api.billing.account.status, isAuthenticated && !isLoading && !isRefreshing ? {} : "skip");
+  const change = useAction(api.billing.polar.changeSubscription);
+  const portal = useAction(api.billing.polar.portal);
   const requestInFlight = useRef(false);
   const [busyAction, setBusyAction] = useState<BillingAction | null>(null);
   const [expectation, setExpectation] = useState<Expectation | null>(null);

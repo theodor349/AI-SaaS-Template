@@ -1,6 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { billingModel, recurringModel } from "./lib/billingModel";
+import { billingModel, recurringModel } from "./billing/plans";
 
 export const scheduledPlanChange = v.object({
   model: recurringModel,

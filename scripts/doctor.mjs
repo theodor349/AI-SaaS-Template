@@ -75,7 +75,7 @@ export function tailscaleChecks(status) {
   return [ok(name, `running with HTTPS at ${dnsName}`)];
 }
 
-// Mirrors the catalog rules in convex/polar.ts validateProduct, which fail bootstrap's syncCatalog.
+// Mirrors the catalog rules in convex/billing/polar.ts validateProduct, which fail bootstrap's syncCatalog.
 export function polarProductProblem(product, model, organizationId) {
   const prices = product.prices.filter(price => !price.is_archived);
   if (product.is_archived) return "is archived";

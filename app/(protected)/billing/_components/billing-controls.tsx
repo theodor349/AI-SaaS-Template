@@ -11,7 +11,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
-import { planLabels } from "@/convex/lib/billingModel";
+import { planLabels } from "@/convex/billing/plans";
 import { useBillingAccount } from "@/components/billing/use-billing-account";
 import { useBillingRequests } from "./billing-actions-provider";
 
@@ -46,7 +46,7 @@ function BillingControlsContent() {
   const { actions, checkout } = useBillingRequests();
   // Reconciliation problems are separate from the entitlement so bookkeeping
   // never re-runs every paid page's status subscription.
-  const sync = useQuery(api.billing.syncStatus);
+  const sync = useQuery(api.billing.account.syncStatus);
   const params = useSearchParams();
 
   if (isLoading || !status) {

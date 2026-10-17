@@ -6,7 +6,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useConvexAuth, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
-import { billingModels } from "@/convex/lib/billingModel";
+import { billingModels } from "@/convex/billing/plans";
 import { AuthPending, AuthRecovery } from "@/components/auth/auth-boundary";
 import { ContentSkeleton } from "@/components/loading/content-skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -16,7 +16,7 @@ import { SIGN_UP_PATH } from "@/lib/auth";
 
 const labels = { monthly: "Monthly", yearly: "Yearly", lifetime: "Lifetime" };
 const intervals = { monthly: " / month", yearly: " / year", lifetime: " once" };
-type Product = FunctionReturnType<typeof api.billing.products>[number];
+type Product = FunctionReturnType<typeof api.billing.catalog.products>[number];
 type PricingActions = {
   onboarding?: boolean;
   disabled?: boolean;
@@ -38,9 +38,9 @@ function taxDescription(taxBehavior: string) {
 export function Pricing({ onboarding = false, disabled = false, pendingPlan = null, onSelect }: PricingActions) {
   const { isSignedIn } = useAuth();
   const { isAuthenticated, isLoading, isRefreshing } = useConvexAuth();
-  const status = useQuery(api.billing.status, isAuthenticated && !isLoading && !isRefreshing ? {} : "skip");
+  const status = useQuery(api.billing.account.status, isAuthenticated && !isLoading && !isRefreshing ? {} : "skip");
   const currentPlan = status?.state === "active" ? status.model : null;
-  const products = useQuery(api.billing.products, currentPlan === "lifetime" ? "skip" : {});
+  const products = useQuery(api.billing.catalog.products, currentPlan === "lifetime" ? "skip" : {});
 
   if (isLoading || isRefreshing || (isAuthenticated && status === undefined)) {
     return <AuthPending fallback={<PricingSkeleton />} />;

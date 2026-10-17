@@ -25,12 +25,12 @@ import { useMutation } from "@/lib/convex";
 // change. Account, billing management, and deletion never ask, so they stay
 // available to users who haven't accepted. Use below an AuthBoundary.
 export function useLegalAcceptance() {
-  const status = useQuery(api.legal.status);
+  const status = useQuery(api.account.legal.status);
   return { isLoading: status === undefined, required: !!status && !status.accepted, updated: !!status?.previouslyAccepted };
 }
 
 function useAccept(onAccepted?: () => void) {
-  const accept = useMutation(api.legal.accept);
+  const accept = useMutation(api.account.legal.accept);
   const [pending, setPending] = useState(false);
 
   async function run() {
