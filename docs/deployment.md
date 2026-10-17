@@ -89,7 +89,9 @@ On the Convex project's **production deployment**, set:
 | `OPERATOR_ALERT_EMAIL` | Where operator alerts go, such as a user withdrawing more than once. This repository's hosted deployment uses `theodor@justenoughtsolutions.com`; set your own operator's address. Without it, or without Resend, the event records an admin action instead. |
 
 The three products must be distinct, unarchived, and have positive fixed prices;
-the recurring products must use a single-month and single-year interval. Reuse
+the recurring products must use a single-month and single-year interval. Make each
+price tax-inclusive: prices shown to EU consumers must include VAT, and the pricing
+cards then say "Tax included" instead of adding tax at checkout. Reuse
 the local sandbox products. If local credentials omit their IDs, select or create
 the three products in the sandbox dashboard.
 

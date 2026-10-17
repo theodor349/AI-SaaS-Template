@@ -28,14 +28,15 @@ export const accept = mutation({
   handler: async (ctx) => record(ctx, await requireUser(ctx)),
 });
 
-// Test fixtures create users who have already accepted.
-export const acceptForClerkUser = internalMutation({
+// Test fixtures: makes the user's acceptance predate the current terms, as
+// after a material change.
+export const outdateForClerkUser = internalMutation({
   args: { clerkId: v.string() }, returns: v.null(),
   handler: async (ctx, { clerkId }) => {
     const user = await userByClerkId(ctx, clerkId);
     if (!user) throw appError("PROVISIONING_REQUIRED");
-    ctx.log.setUser(user._id);
-    return record(ctx, user);
+    await ctx.db.patch("users", user._id, { legalAcceptance: { ...legalVersions, terms: legalVersions.terms - 1, acceptedAt: Date.now() } });
+    return null;
   },
 });
 

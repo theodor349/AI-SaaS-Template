@@ -40,13 +40,13 @@ export async function publishBillingSnapshot(snapshot, client = billingTestAdmin
   await client.mutation(internal.billing.state.finish, { customerId: snapshot.customerId, version: lease.version, failed: false });
 }
 
-// Paid users have accepted the current terms unless `acceptTerms` is false.
+// New users accept the current terms; `outdatedTerms` makes them predate a material change.
 // `purchasedAt` backdates the order, which starts the withdrawal period.
-export async function seedPaidTestUser(user, model = "lifetime", paid = true, { periodMs = 60 * 60_000, acceptTerms = true, purchasedAt = Date.now() } = {}) {
+export async function seedPaidTestUser(user, model = "lifetime", paid = true, { periodMs = 60 * 60_000, outdatedTerms = false, purchasedAt = Date.now() } = {}) {
   const { local, client } = billingTestAdmin();
   await client.mutation(internal.account.users.syncProfile, { profile: { clerkId: user.id, email: user.email,
     firstName: user.name, updatedAt: Date.now() }, eventAt: Date.now() });
-  if (acceptTerms) await client.mutation(internal.account.legal.acceptForClerkUser, { clerkId: user.id });
+  if (outdatedTerms) await client.mutation(internal.account.legal.outdateForClerkUser, { clerkId: user.id });
   const customerId = `fixture-${local.config.id}-${user.id}`;
   const externalId = testExternalCustomerId(local, user.id);
   await client.mutation(internal.billing.state.enqueue, { customerId, externalId });

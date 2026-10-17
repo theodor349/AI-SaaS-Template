@@ -15,7 +15,7 @@ import { Button, ButtonLabel } from "@/components/ui/button";
 import { SIGN_UP_PATH } from "@/lib/auth";
 
 const labels = { monthly: "Monthly", yearly: "Yearly", lifetime: "Lifetime" };
-const intervals = { monthly: " / month", yearly: " / year", lifetime: " once" };
+export const intervals = { monthly: " / month", yearly: " / year", lifetime: " once" };
 type Product = FunctionReturnType<typeof api.billing.catalog.products>[number];
 type PricingActions = {
   onboarding?: boolean;
@@ -24,12 +24,12 @@ type PricingActions = {
   onSelect?: (model: Product["model"]) => void;
 };
 
-function formatPrice(amount: number, currency: string) {
+export function formatPrice(amount: number, currency: string) {
   const formatter = new Intl.NumberFormat(undefined, { style: "currency", currency });
   return formatter.format(amount / 10 ** (formatter.resolvedOptions().maximumFractionDigits ?? 2));
 }
 
-function taxDescription(taxBehavior: string) {
+export function taxDescription(taxBehavior: string) {
   if (taxBehavior === "inclusive") return "Tax included";
   if (taxBehavior === "exclusive") return "Tax added at checkout";
   return "Final tax calculated at checkout";
