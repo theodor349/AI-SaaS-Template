@@ -9,7 +9,6 @@ import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 import { adminQuery, adminMutation } from "../../scripts/billing-test-admin";
 import { testExternalCustomerId } from "../../scripts/test-identity.mjs";
 import { interceptConvexSync } from "./convex-sync.mjs";
-import { acceptTerms, acceptTermsAsUser } from "./legal.mjs";
 import { captureEvidence } from "./evidence.mjs";
 
 const local = resolveLocalTestConfig();
@@ -26,7 +25,6 @@ test("selected plan opens checkout once after authentication; success URL alone 
     await page.goto("/checkout?plan=yearly");
     await expect(page).toHaveURL(/\/sign-in\?/);
     await clerk.signIn({ page, emailAddress: user.email });
-    await acceptTerms(page);
     await expect(page.getByText("We couldn’t open the payment page")).toBeVisible();
     await expect(page).toHaveURL(`${local.config.env.APP_URL}/checkout`);
     expect(checkoutModels).toEqual(["yearly"]);
@@ -39,7 +37,8 @@ test("selected plan opens checkout once after authentication; success URL alone 
     await page.goto("/app");
     await expect(page).toHaveURL(`${local.config.env.APP_URL}/billing`);
     await expect(page.getByRole("heading", { name: "Your application" })).toHaveCount(0);
-    await page.goto("/billing?confirmation=pending");
+    await page.goto("/billing?confirmation=lifetime&customer_session_token=fixture-session");
+    await expect(page).toHaveURL(`${local.config.env.APP_URL}/billing?confirmation=lifetime`);
     await expect(page.getByText(/Payment confirmation pending/)).toBeVisible();
     await expect(page.getByText("Your paid access is confirmed.")).toHaveCount(0);
     const token = await page.evaluate(() => window.Clerk.session!.getToken({ template: "convex" }));
@@ -47,8 +46,12 @@ test("selected plan opens checkout once after authentication; success URL alone 
     await expect(client.query(api.billing.account.application, {})).rejects.toThrow("PAID_ACCESS_REQUIRED");
     await expect(client.query(api.billing.account.application, {})).rejects.toThrow("PAID_ACCESS_REQUIRED");
     await captureEvidence(page, "confirmation-pending");
-    // The trusted billing publication alone, not the success URL, confirms access.
+    // The trusted billing publication alone, not the success URL, confirms access,
+    // and then opens the product.
     await seedPaidTestUser(user);
+    await expect(page).toHaveURL(`${local.config.env.APP_URL}/app`);
+    await expect(page.getByRole("heading", { name: "Your application" })).toBeVisible();
+    await page.goto("/billing");
     await expect(page.getByText("You have lifetime access.")).toBeVisible();
     await captureEvidence(page, "lifetime-confirmed");
     await expect(page.getByRole("heading", { name: "Monthly", exact: true })).toHaveCount(0);
@@ -115,7 +118,6 @@ for (const action of ["checkout", "portal"] as const) {
         call.succeed(`${local.config.env.APP_URL}/billing#navigation-${requests}`);
       });
       await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email });
-      await acceptTermsAsUser(page);
       await page.goto("/billing");
       const label = action === "checkout" ? "Choose monthly" : "Customer portal";
       const progress = action === "checkout" ? "Opening checkout…" : "Opening portal…";
@@ -179,9 +181,6 @@ test("sandbox checkout and recovery work when another customer uses the sign-in 
     collisionCustomerId = collision.id;
     await page.goto("/billing"); await clerk.signIn({ page, emailAddress: user.email });
     await page.getByRole("button", { name: "Choose monthly" }).click();
-    await expect(page.getByRole("dialog", { name: "Accept the terms to continue" })).toBeVisible();
-    await captureEvidence(page, "billing-acceptance-dialog");
-    await acceptTerms(page);
     await expect(page).toHaveURL(/https:\/\/sandbox\.polar\.sh\/checkout\//);
     // Don't record provider pages, tokens, or payment details in PR artifacts.
     await page.goto(`${local.config.env.APP_URL}/billing`);

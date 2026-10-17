@@ -67,7 +67,7 @@ function GuestControls() {
           <LogIn aria-hidden="true" size={20} /><span className={styles.pageLabel}>Sign in</span>
         </button>
       </SignInButton>
-      <SignUpButton mode="modal">
+      <SignUpButton>
         <button className={styles.pageLink} aria-label="Sign up">
           <UserPlus aria-hidden="true" size={20} /><span className={styles.pageLabel}>Sign up</span>
         </button>
