@@ -9,7 +9,7 @@ import schema from "./schema";
 import { modules } from "./test.setup";
 
 const issuer = "https://clerk.example";
-const key = "exampleFeature";
+const key = "notePinning";
 const defaults = Object.fromEntries(flagKeys.map((flag) => [flag, featureFlags[flag].default]));
 
 beforeEach(() => {

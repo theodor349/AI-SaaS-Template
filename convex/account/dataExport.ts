@@ -13,6 +13,7 @@ import { requireOwner } from "../lib/users";
 import { legalExport } from "./legal";
 import { profileExport } from "./profile";
 import { withdrawalsExport } from "../billing/withdrawals";
+import { notesExport } from "../notes/notes";
 
 // Every section of the user's data export, one per feature. Registering a
 // feature's exporter here adds it to the download; see docs/internals/data-export.md.
@@ -22,6 +23,7 @@ const exporters: Record<string, Exporter> = {
   accountLifecycle: accountLifecycleExport,
   legal: legalExport,
   withdrawals: withdrawalsExport,
+  notes: notesExport,
 };
 
 // Bump when an exported shape changes incompatibly.

@@ -36,7 +36,7 @@ test("selected plan opens checkout once after authentication; success URL alone 
     expect(checkoutModels).toEqual(["yearly"]);
     await page.goto("/app");
     await expect(page).toHaveURL(`${local.config.env.APP_URL}/billing`);
-    await expect(page.getByRole("heading", { name: "Your application" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Notes", exact: true })).toHaveCount(0);
     await page.goto("/billing?confirmation=lifetime&customer_session_token=fixture-session");
     await expect(page).toHaveURL(`${local.config.env.APP_URL}/billing?confirmation=lifetime`);
     await expect(page.getByText(/Payment confirmation pending/)).toBeVisible();
@@ -50,7 +50,7 @@ test("selected plan opens checkout once after authentication; success URL alone 
     // and then opens the product.
     await seedPaidTestUser(user);
     await expect(page).toHaveURL(`${local.config.env.APP_URL}/app`);
-    await expect(page.getByRole("heading", { name: "Your application" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Notes", exact: true })).toBeVisible();
     await page.goto("/billing");
     await expect(page.getByText("You have lifetime access.")).toBeVisible();
     await captureEvidence(page, "lifetime-confirmed");
@@ -58,7 +58,7 @@ test("selected plan opens checkout once after authentication; success URL alone 
     await page.goto("/");
     await expect(page.getByText("You have lifetime access.")).toBeVisible();
     await page.getByRole("link", { name: "Dashboard", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Your application" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Notes", exact: true })).toBeVisible();
   } finally { await user.cleanup(); }
 });
 
@@ -151,7 +151,7 @@ test("expiry removes paid pages reactively while billing and account controls re
     await captureEvidence(page, "billing-summary-mobile");
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto("/app");
-    await expect(page.getByRole("heading", { name: "Your application" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Notes", exact: true })).toBeVisible();
     const { client: admin } = billingTestAdmin();
     const account = (await adminQuery(admin, internal.billing.state.get, { customerId: fixture.customerId }))!;
     // A higher revision ending state is the same trusted publication used by

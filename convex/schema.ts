@@ -153,6 +153,16 @@ export default defineSchema(
       .index("by_orderId", ["orderId"])
       .index("by_status_and_nextAttemptAt", ["status", "nextAttemptAt"])
       .index("by_failureCode", ["failureCode"]),
+    // The reference paid feature in convex/notes. Pinned notes sort first
+    // while the notePinning flag is on.
+    notes: defineTable({
+      userId: v.id("users"),
+      title: v.string(),
+      body: v.string(),
+      pinned: v.boolean(),
+      updatedAt: v.number(),
+    }).index("by_userId_and_updatedAt", ["userId", "updatedAt"])
+      .index("by_userId_and_pinned_and_updatedAt", ["userId", "pinned", "updatedAt"]),
     // Per-deployment state for flags declared in lib/featureFlags.ts. A flag
     // without a row uses its default; rows for removed flags are ignored.
     featureFlags: defineTable({

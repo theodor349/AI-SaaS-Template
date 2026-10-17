@@ -25,12 +25,12 @@ test("Clerk identity reaches paid local Convex and persists across reloads", asy
     client.setAuth(token!);
     expect(await client.query(api.billing.account.application, {})).toEqual({ name: user.name });
     await page.getByRole("link", { name: "Dashboard", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Your application" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Notes", exact: true })).toBeVisible();
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();
     await page.reload();
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();
     await clerk.signOut({ page });
-    await expect(page.getByRole("heading", { name: "Your application" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Notes", exact: true })).toHaveCount(0);
   } finally { await user.cleanup(); }
 });
 
@@ -65,7 +65,7 @@ test("revoked sessions remove protected content and restored cookies cannot re-e
       try { await window.Clerk.session?.getToken({ template: "convex", skipCache: true }); } catch { /* Revoked sessions cannot issue tokens. */ }
     });
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: "Your application" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Notes", exact: true })).toHaveCount(0);
     // Restore the original cookies in a fresh page so Clerk's live sign-out
     // redirect cannot race the attempt to re-enter the protected route.
     const restored = await browser.newContext({ baseURL: local.config.env.APP_URL, storageState: savedSession });
@@ -73,7 +73,7 @@ test("revoked sessions remove protected content and restored cookies cannot re-e
       const restoredPage = await restored.newPage();
       await restoredPage.goto("/app");
       await expect(restoredPage.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
-      await expect(restoredPage.getByRole("heading", { name: "Your application" })).toHaveCount(0);
+      await expect(restoredPage.getByRole("heading", { name: "Notes", exact: true })).toHaveCount(0);
       await expect(restoredPage.getByText(`Welcome ${user.name}!`, { exact: true })).toHaveCount(0);
     } finally { await restored.close(); }
   } finally {
@@ -128,7 +128,7 @@ test("signed-out application navigation preserves the requested destination and 
   const returnTo = new URL(page.url()).searchParams.get("redirect_url");
   expect(returnTo).toBe(`${local.config.env.APP_URL}/app?tab=profile`);
   await clerk.loaded({ page });
-  await expect(page.getByRole("heading", { name: "Your application" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Notes", exact: true })).toHaveCount(0);
   await page.goto("/sign-in?redirect_url=https%3A%2F%2Fevil.example%2Fapp");
   await expect(page).toHaveURL(`${local.config.env.APP_URL}/sign-in`);
 });
@@ -215,7 +215,7 @@ test("slow Clerk token acquisition shows loading and sends no protected query", 
     expect(sync.hasSubscribed("billing/account:status")).toBe(true);
     await page.getByRole("link", { name: "Dashboard", exact: true }).click();
     await expect(page).toHaveURL(`${local.config.env.APP_URL}${authenticatedDestination}`);
-    await expect(page.getByRole("heading", { name: "Your application" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Notes", exact: true })).toBeVisible();
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();
     expect(sync.hasSubscribed("billing/account:application")).toBe(true);
     expect(errors).toEqual([]);

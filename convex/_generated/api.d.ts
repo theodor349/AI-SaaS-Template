@@ -41,6 +41,8 @@ import type * as lib_log from "../lib/log.js";
 import type * as lib_profile from "../lib/profile.js";
 import type * as lib_retry from "../lib/retry.js";
 import type * as lib_users from "../lib/users.js";
+import type * as notes_notes from "../notes/notes.js";
+import type * as notes_validation from "../notes/validation.js";
 import type * as rateLimits from "../rateLimits.js";
 import type * as webhooks from "../webhooks.js";
 
@@ -84,6 +86,8 @@ declare const fullApi: ApiFromModules<{
   "lib/profile": typeof lib_profile;
   "lib/retry": typeof lib_retry;
   "lib/users": typeof lib_users;
+  "notes/notes": typeof notes_notes;
+  "notes/validation": typeof notes_validation;
   rateLimits: typeof rateLimits;
   webhooks: typeof webhooks;
 }>;

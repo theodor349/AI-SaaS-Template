@@ -40,6 +40,7 @@ async function seed(t: ReturnType<typeof convexTest>, name: string,
       userId, source: "user", sourceDeliveryId: `${name}-delivery`, requestedAt: at, status: "pending", deleteAfter: at,
       nextAttemptAt: at, leaseUntil: at, cancellationConfirmed: true, attempts: 3, failureCode: `${name}-failure`,
     });
+    await ctx.db.insert("notes", { userId, title: `${name} note`, body: "Body", pinned: true, updatedAt: at });
     if (!billing) return userId;
     const customerId = `${name}-customer`;
     await ctx.db.insert("billingAccounts", {
@@ -100,6 +101,7 @@ test("an export holds only the caller's data, in the documented shape", async ()
       withdrawals: {
         requests: [{ orderId: "alice-order", model: "monthly", purchasedAt: iso, receivedAt: iso, status: "pending", refundedAt: null }],
       },
+      notes: { notes: [{ title: "alice note", body: "Body", pinned: true, createdAt: expect.any(String), updatedAt: iso }] },
     },
   });
   const text = JSON.stringify(exported);

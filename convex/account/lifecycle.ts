@@ -8,6 +8,7 @@ import { appError } from "../lib/errors";
 import { internalAction, internalMutation, internalQuery, mutation, query } from "../lib/functions";
 import { isLeased, leaseDeadline, retryDelay } from "../lib/retry";
 import { requireOwner, userByClerkId } from "../lib/users";
+import { eraseNotes } from "../notes/notes";
 import schema from "../schema";
 
 const recoveryWindow = 7 * 24 * 60 * 60_000;
@@ -193,6 +194,10 @@ export const erase = internalMutation({
     for (const withdrawal of settled) await ctx.db.delete("withdrawals", withdrawal._id);
     if (withdrawals.length === 100 && settled.length) {
       ctx.log.decision("erase", { result: "batch", table: "withdrawals" });
+      return false;
+    }
+    if (!await eraseNotes(ctx, user._id)) {
+      ctx.log.decision("erase", { result: "batch", table: "notes" });
       return false;
     }
     await ctx.db.patch("users", user._id, { lifecycle: "deleted", email: undefined, displayName: undefined, firstName: undefined, lastName: undefined, profileEdited: undefined, legalAcceptance: undefined, profileUpdatedAt: 0, profileEventAt: 0 });
