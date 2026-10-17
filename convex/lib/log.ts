@@ -61,9 +61,11 @@ export class RequestLog {
     this.failed = true;
   }
 
-  // Handled, but a human must act. Always logged as an error.
+  // Handled, but a human must act. Always logged as an error. Several actions
+  // in one event are kept, one per line.
   adminAction(text: string) {
-    this.set("adminAction", text);
+    const earlier = this.attributes.adminAction;
+    this.set("adminAction", earlier ? `${earlier}\n${text}` : text);
     this.markAsError();
   }
 
