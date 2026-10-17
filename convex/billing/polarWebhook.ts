@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { env } from "../_generated/server";
-import { isWorktreeExternalId } from "./billing";
+import { isWorktreeExternalId } from "./lib";
 
 // SDK 1.x verifies signatures and recognizes event names, but doesn't validate
 // resource fields at runtime. Normalize only the association we consume; all

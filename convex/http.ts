@@ -1,10 +1,10 @@
 import { webhooks as polarWebhooks } from "@polar-sh/sdk/2026-10";
-import { normalizePolarEvent } from "./lib/polarWebhook";
+import { normalizePolarEvent } from "./billing/polarWebhook";
 import { httpRouter } from "convex/server";
 import { Webhook } from "svix";
 import { internal } from "./_generated/api";
 import { env } from "./_generated/server";
-import { parseClerkEvent } from "./lib/clerk";
+import { parseClerkEvent } from "./account/clerk";
 import { httpAction } from "./lib/functions";
 
 // Each delivery attempt is its own flow and always logs one event with the
@@ -46,7 +46,7 @@ http.route({
     }
     ctx.log.set("eventType", event.type);
     try {
-      const result = await ctx.runMutation(internal.clerkWebhooks.process, { payload, deliveryId, eventType: event.type });
+      const result = await ctx.runMutation(internal.account.clerkWebhooks.process, { payload, deliveryId, eventType: event.type });
       ctx.log.decision("delivery", { result });
       return new Response(result === "failure" ? "Retry delivery" : "OK", { status: result === "failure" ? 503 : 200 });
     } catch {
@@ -92,7 +92,7 @@ http.route({
     }
     ctx.log.setCustomer(event.association.customerId);
     try {
-      const result = await ctx.runMutation(internal.billingState.process, {
+      const result = await ctx.runMutation(internal.billing.state.process, {
         provider: "polar", deliveryId, eventType: event.type, ...event.association,
       });
       ctx.log.decision("delivery", { result });

@@ -20,8 +20,8 @@ export function UserProvisioning() {
 }
 
 function ProvisionCurrentUser() {
-  const current = useQuery(api.users.current);
-  const ensure = useAction(api.users.ensureCurrentUser);
+  const current = useQuery(api.account.users.current);
+  const ensure = useAction(api.account.users.ensureCurrentUser);
   const [attempt, setAttempt] = useState(0);
   const [failure, setFailure] = useState<string | null>(null);
   const needsProvisioning = current?.status === "provisioning";

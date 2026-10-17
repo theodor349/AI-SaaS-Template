@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { BackLink } from "@/components/layout/back-link";
-import { isBillingModel } from "@/convex/lib/billingModel";
+import { isBillingModel } from "@/convex/billing/plans";
 import { PaymentRedirect } from "./_components/payment-redirect";
 
 export const metadata: Metadata = { title: "Checkout" };

@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { expect, test } from "vitest";
 import { appConfig } from "../../app.config";
-import { legalVersions } from "../../convex/lib/legal";
+import { legalVersions } from "../../convex/account/legalVersions";
 import { consentServices } from "../consent/services";
 import { effectiveDate, loadLegalDocument, legalSlugs } from "./documents";
 

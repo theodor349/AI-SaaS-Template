@@ -1,14 +1,14 @@
 import { v } from "convex/values";
-import { internal } from "./_generated/api";
-import { accountForUser, operationForUser, syncForCustomer } from "./lib/billing";
-import { clerkTokenIdentifier } from "./lib/clerk";
-import { exportMany, exportTime } from "./lib/dataExport";
-import { deleteClerkUser } from "./lib/clerkApi";
-import { appError } from "./lib/errors";
-import { internalAction, internalMutation, internalQuery, mutation, query } from "./lib/functions";
-import { isLeased, leaseDeadline, retryDelay } from "./lib/retry";
-import { requireOwner, userByClerkId } from "./lib/users";
-import schema from "./schema";
+import { internal } from "../_generated/api";
+import { accountForUser, operationForUser, syncForCustomer } from "../billing/lib";
+import { clerkTokenIdentifier } from "./clerk";
+import { exportMany, exportTime } from "../lib/dataExport";
+import { deleteClerkUser } from "./clerkApi";
+import { appError } from "../lib/errors";
+import { internalAction, internalMutation, internalQuery, mutation, query } from "../lib/functions";
+import { isLeased, leaseDeadline, retryDelay } from "../lib/retry";
+import { requireOwner, userByClerkId } from "../lib/users";
+import schema from "../schema";
 
 const recoveryWindow = 7 * 24 * 60 * 60_000;
 export const current = query({
@@ -44,7 +44,7 @@ export const requestDeletion = mutation({
     if (old) await ctx.db.patch("accountLifecycleRequests", old._id, fields);
     ctx.log.set("requestId", requestId);
     ctx.log.decision("request", { result: old ? "renewed" : "created" });
-    await ctx.scheduler.runAfter(0, internal.accountLifecycle.process, { requestId });
+    await ctx.scheduler.runAfter(0, internal.account.lifecycle.process, { requestId });
     return null;
   },
 });
@@ -76,7 +76,7 @@ export const requestClerkDeletion = internalMutation({
       requestedAt: request?.status === "pending" ? request.requestedAt : eventAt, status: "pending" as const, deleteAfter: Date.now(), nextAttemptAt: Date.now() };
     const requestId = request?._id ?? await ctx.db.insert("accountLifecycleRequests", fields);
     if (request) await ctx.db.patch("accountLifecycleRequests", requestId, fields);
-    await ctx.scheduler.runAfter(0, internal.accountLifecycle.process, { requestId });
+    await ctx.scheduler.runAfter(0, internal.account.lifecycle.process, { requestId });
     return requestId;
   },
 });
@@ -117,7 +117,7 @@ export const finishAttempt = internalMutation({
     const nextAttemptAt = success && !finalizing && request.source === "user" ? request.deleteAfter ?? Date.now() : Date.now() + retryDelay(attempts);
     await ctx.db.patch("accountLifecycleRequests", requestId, { leaseUntil: 0, attempts, nextAttemptAt,
       cancellationConfirmed: success, failureCode: success ? undefined : "ACCOUNT_CLEANUP_PENDING" });
-    await ctx.scheduler.runAt(nextAttemptAt, internal.accountLifecycle.process, { requestId });
+    await ctx.scheduler.runAt(nextAttemptAt, internal.account.lifecycle.process, { requestId });
     return null;
   },
 });
@@ -127,7 +127,7 @@ export const sweep = internalMutation({
     ctx.log.set("due", requests.length);
     for (const request of requests) {
       await ctx.db.patch("accountLifecycleRequests", request._id, { nextAttemptAt: leaseDeadline() });
-      await ctx.scheduler.runAfter(0, internal.accountLifecycle.process, { requestId: request._id });
+      await ctx.scheduler.runAfter(0, internal.account.lifecycle.process, { requestId: request._id });
     }
     return null;
   },
@@ -157,7 +157,7 @@ export const continueProcessing = internalMutation({
     if (!request || request.status !== "pending" || request.leaseUntil !== lease) return null;
     // A successful batch is progress, including recovery from an earlier exception.
     await ctx.db.patch("accountLifecycleRequests", requestId, { leaseUntil: 0, nextAttemptAt: Date.now(), attempts: 0, failureCode: undefined });
-    await ctx.scheduler.runAfter(0, internal.accountLifecycle.process, { requestId });
+    await ctx.scheduler.runAfter(0, internal.account.lifecycle.process, { requestId });
     return null;
   },
 });
@@ -203,36 +203,36 @@ export const erase = internalMutation({
 });
 export const process = internalAction({
   args: { requestId: v.id("accountLifecycleRequests") }, returns: v.null(), handler: async (ctx, { requestId }) => {
-    const claimed = await ctx.runMutation(internal.accountLifecycle.claim, { requestId });
+    const claimed = await ctx.runMutation(internal.account.lifecycle.claim, { requestId });
     ctx.log.set("requestId", requestId);
     if (!claimed) return null;
     ctx.log.setUser(claimed.user._id);
     let success = false;
     try {
       if (claimed.request.erasing) {
-        const complete = await ctx.runMutation(internal.accountLifecycle.erase, { requestId, lease: claimed.lease });
+        const complete = await ctx.runMutation(internal.account.lifecycle.erase, { requestId, lease: claimed.lease });
         if (complete) return null;
-        await ctx.runMutation(internal.accountLifecycle.continueProcessing, { requestId, lease: claimed.lease });
+        await ctx.runMutation(internal.account.lifecycle.continueProcessing, { requestId, lease: claimed.lease });
         return null;
       }
-      const billing = await ctx.runAction(internal.polar.cleanupAccount, { userId: claimed.user._id });
+      const billing = await ctx.runAction(internal.billing.polar.cleanupAccount, { userId: claimed.user._id });
       ctx.log.decision("billing_cleanup", { complete: billing.complete, progress: billing.progress ?? false });
       if (billing.progress) {
-        await ctx.runMutation(internal.accountLifecycle.continueProcessing, { requestId, lease: claimed.lease });
+        await ctx.runMutation(internal.account.lifecycle.continueProcessing, { requestId, lease: claimed.lease });
         return null;
       }
       success = billing.complete;
       if (success && claimed.finalizing) {
-        const latest = await ctx.runQuery(internal.accountLifecycle.context, { requestId });
+        const latest = await ctx.runQuery(internal.account.lifecycle.context, { requestId });
         if (latest?.source !== "clerk") {
           await deleteClerkUser(claimed.user.clerkId);
           ctx.log.decision("identity", { result: "deleted" });
         }
-        const erasing = await ctx.runMutation(internal.accountLifecycle.beginErasure, { requestId, lease: claimed.lease });
+        const erasing = await ctx.runMutation(internal.account.lifecycle.beginErasure, { requestId, lease: claimed.lease });
         if (!erasing) return null;
-        const complete = await ctx.runMutation(internal.accountLifecycle.erase, { requestId, lease: claimed.lease });
+        const complete = await ctx.runMutation(internal.account.lifecycle.erase, { requestId, lease: claimed.lease });
         if (complete) return null;
-        await ctx.runMutation(internal.accountLifecycle.continueProcessing, { requestId, lease: claimed.lease });
+        await ctx.runMutation(internal.account.lifecycle.continueProcessing, { requestId, lease: claimed.lease });
         return null;
       }
     } catch {
@@ -241,7 +241,7 @@ export const process = internalAction({
       ctx.log.decision("cleanup", { result: "failed", code: "ACCOUNT_CLEANUP_PENDING" });
       ctx.log.markAsError();
     }
-    await ctx.runMutation(internal.accountLifecycle.finishAttempt, { requestId, lease: claimed.lease, success, finalizing: claimed.finalizing });
+    await ctx.runMutation(internal.account.lifecycle.finishAttempt, { requestId, lease: claimed.lease, success, finalizing: claimed.finalizing });
     return null;
   },
 });

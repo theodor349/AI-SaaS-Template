@@ -1,18 +1,18 @@
 import { v } from "convex/values";
-import { appConfig } from "../app.config";
-import { internal } from "./_generated/api";
-import type { Doc, Id } from "./_generated/dataModel";
-import { env } from "./_generated/server";
-import { accountForCustomer, accountForUser, productModel, scheduledRetries } from "./lib/billing";
-import { billingModel, planLabels } from "./lib/billingModel";
-import { exportMany, exportTime } from "./lib/dataExport";
-import { sendEmail } from "./lib/email";
-import { appError } from "./lib/errors";
-import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./lib/functions";
-import { isLeased, leaseDeadline, retryDelay } from "./lib/retry";
-import { getCurrentUser, requireUser } from "./lib/users";
-import { legalTimeZone, purchases as purchasesOf, type Purchase } from "./lib/withdrawal";
-import schema from "./schema";
+import { appConfig } from "../../app.config";
+import { internal } from "../_generated/api";
+import type { Doc, Id } from "../_generated/dataModel";
+import { env } from "../_generated/server";
+import { accountForCustomer, accountForUser, productModel, scheduledRetries } from "./lib";
+import { billingModel, planLabels } from "./plans";
+import { exportMany, exportTime } from "../lib/dataExport";
+import { sendEmail } from "../lib/email";
+import { appError } from "../lib/errors";
+import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "../lib/functions";
+import { isLeased, leaseDeadline, retryDelay } from "../lib/retry";
+import { getCurrentUser, requireUser } from "../lib/users";
+import { legalTimeZone, purchases as purchasesOf, type Purchase } from "./withdrawalPeriod";
+import schema from "../schema";
 
 // How long to wait before checking a refund Polar is still processing.
 const refundCheckDelay = 5 * 60_000;
@@ -239,7 +239,7 @@ export const request = mutation({
     }
     ctx.log.decision("request", { result: "received", model: purchase.model, receipt: !!receiptEmailId });
     await alertOnRepeatWithdrawal(ctx, user._id, withdrawalId);
-    await ctx.scheduler.runAfter(0, internal.polar.withdraw, { withdrawalId });
+    await ctx.scheduler.runAfter(0, internal.billing.polar.withdraw, { withdrawalId });
     return null;
   },
 });
@@ -298,7 +298,7 @@ export const finish = internalMutation({
       ctx.log.markAsError();
     }
     if (attempts > scheduledRetries) {
-      ctx.log.adminAction("A withdrawal refund keeps failing and is owed within 14 days; see withdrawals:recoveryIssues");
+      ctx.log.adminAction("A withdrawal refund keeps failing and is owed within 14 days; see billing/withdrawals:recoveryIssues");
     }
     return null;
   },
@@ -322,7 +322,7 @@ async function completeRefund(ctx: MutationCtx, withdrawal: Doc<"withdrawals">, 
   });
   // Reconciliation publishes the refunded orders, which ends paid access.
   if (await accountForCustomer(ctx, withdrawal.customerId)) {
-    await ctx.scheduler.runAfter(0, internal.billingState.enqueue, { customerId: withdrawal.customerId });
+    await ctx.scheduler.runAfter(0, internal.billing.state.enqueue, { customerId: withdrawal.customerId });
   }
 }
 
@@ -336,7 +336,7 @@ export const sweep = internalMutation({
     ctx.log.set("due", due.length);
     for (const withdrawal of due) {
       await ctx.db.patch("withdrawals", withdrawal._id, { nextAttemptAt: leaseDeadline() });
-      await ctx.scheduler.runAfter(0, internal.polar.withdraw, { withdrawalId: withdrawal._id });
+      await ctx.scheduler.runAfter(0, internal.billing.polar.withdraw, { withdrawalId: withdrawal._id });
     }
     return null;
   },

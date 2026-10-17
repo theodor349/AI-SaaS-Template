@@ -21,7 +21,7 @@ for (const width of [1280, 390]) {
     await setupClerkTestingToken({ page });
     await page.setViewportSize({ width, height: 900 });
     const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL);
-    const products = await client.query(api.billing.products, {});
+    const products = await client.query(api.billing.catalog.products, {});
     expect(products).toHaveLength(3);
 
     await page.goto("/");
@@ -49,7 +49,7 @@ test("checkout shows progress after sign-in and for signed-in users, with explic
   await page.setViewportSize({ width: 390, height: 900 });
   await setupClerkTestingToken({ page });
   const sync = await interceptConvexSync(page);
-  sync.onAction<{ model: string }>("polar:checkout", (call) => {
+  sync.onAction<{ model: string }>("billing/polar:checkout", (call) => {
     checkoutModels.push(call.args.model);
     release = () => call.fail("Fixture checkout failure");
   });
@@ -110,7 +110,7 @@ test("a new visitor creates an account and reaches Polar sandbox checkout for th
   let release: (() => void) | undefined;
   await setupClerkTestingToken({ page });
   const sync = await interceptConvexSync(page);
-  sync.onAction<{ model: string }>("polar:checkout", (call) => {
+  sync.onAction<{ model: string }>("billing/polar:checkout", (call) => {
     checkoutModels.push(call.args.model);
     release = call.forward;
   });
@@ -141,9 +141,9 @@ test("a new visitor creates an account and reaches Polar sandbox checkout for th
     const users = await clerkClient.users.getUserList({ emailAddress: [email] });
     expect(users.data).toHaveLength(1);
     const { client: admin } = billingTestAdmin();
-    const userId = await adminQuery(admin, internal.users.byClerkId, { clerkId: users.data[0].id });
+    const userId = await adminQuery(admin, internal.account.users.byClerkId, { clerkId: users.data[0].id });
     expect(userId).toBeTruthy();
-    const account = await adminQuery(admin, internal.billing.accountByUser, { userId: userId! });
+    const account = await adminQuery(admin, internal.billing.account.accountByUser, { userId: userId! });
     expect(account).toBeTruthy();
     const checkouts = await polar.checkouts.list({ customer_id: account!.customerId, limit: 10 });
     expect(checkouts.items).toHaveLength(1);
@@ -164,7 +164,7 @@ test("existing Pro users switch recurring plans through billing and buy lifetime
   const user = await createClerkTestUser(local);
   const checkoutModels: string[] = [];
   const sync = await interceptConvexSync(page);
-  sync.onAction<{ model: string }>("polar:checkout", (call) => {
+  sync.onAction<{ model: string }>("billing/polar:checkout", (call) => {
     checkoutModels.push(call.args.model);
     call.fail("Fixture checkout failure");
   });
@@ -203,7 +203,7 @@ for (const transition of ["paid", "deleting", "manual"] as const) {
       return route.fulfill({ contentType: "text/html", body: "<h1>Stale checkout destination</h1>" });
     });
     const sync = await interceptConvexSync(page);
-    sync.onAction("polar:checkout", (call) => {
+    sync.onAction("billing/polar:checkout", (call) => {
       completeCheckout = () => call.succeed(destination, [`[LOG] ${responseMarker}`]);
     });
     try {
@@ -223,7 +223,7 @@ for (const transition of ["paid", "deleting", "manual"] as const) {
         const token = await page.evaluate(() => window.Clerk.session!.getToken({ template: "convex" }));
         const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
         client.setAuth(token!);
-        await client.mutation(api.accountLifecycle.requestDeletion, {});
+        await client.mutation(api.account.lifecycle.requestDeletion, {});
         await expect(page).toHaveURL(`${local.config.env.APP_URL}/account`);
         await expect(page.getByText(/Deletion scheduled for/)).toBeVisible();
       } else {

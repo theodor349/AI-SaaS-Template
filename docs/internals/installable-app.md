@@ -13,7 +13,7 @@ The worker registers only in production builds, so `pnpm bootstrap` never exerci
 Clerk OAuth, Polar checkout, and the Polar customer portal leave the app's origin. Android keeps an out-of-scope page inside the installed app with a small browser toolbar, and returns to the standalone view when a navigation comes back into scope. The manifest's scope is the whole origin, so this works as long as two things hold:
 
 - Provider flows navigate the current window. A new tab or `window.open` opens Chrome instead, and the user finishes signing in or paying outside the installed app.
-- Return URLs are absolute URLs on the app's own origin. Clerk builds its callback from the current origin; checkout and portal pass `window.location.origin`, which [billingReturnUrl](../../convex/lib/billing.ts) checks against `APP_URL`.
+- Return URLs are absolute URLs on the app's own origin. Clerk builds its callback from the current origin; checkout and portal pass `window.location.origin`, which [billingReturnUrl](../../convex/billing/lib.ts) checks against `APP_URL`.
 
 Chrome on Android shares cookies between the browser and installed apps, so the user comes back signed in.
 

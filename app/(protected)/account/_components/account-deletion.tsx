@@ -68,15 +68,15 @@ function AccountDeletionSkeleton() {
 }
 
 function AccountDeletionContent() {
-  const current = useQuery(api.users.current);
+  const current = useQuery(api.account.users.current);
   const canLoadDeletion =
     current?.status === "ready" || current?.status === "deleting";
   const deletion = useQuery(
-    api.accountLifecycle.current,
+    api.account.lifecycle.current,
     canLoadDeletion ? {} : "skip",
   );
-  const requestDeletion = useMutation(api.accountLifecycle.requestDeletion);
-  const recoverAccount = useMutation(api.accountLifecycle.recover);
+  const requestDeletion = useMutation(api.account.lifecycle.requestDeletion);
+  const recoverAccount = useMutation(api.account.lifecycle.recover);
   const [busyAction, setBusyAction] = useState<"request" | "recover" | null>(null);
   const isBusy = busyAction !== null;
 

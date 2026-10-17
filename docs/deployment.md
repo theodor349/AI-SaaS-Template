@@ -176,7 +176,7 @@ to the stable app URL, paid access, and delivery of both providers' webhooks.
 Initialize the public product catalog after deploying to a fresh database:
 
 ```sh
-pnpm exec convex run --deployment <team>:<project>:cloud-dev polar:syncCatalog '{}'
+pnpm exec convex run --deployment <team>:<project>:cloud-dev billing/polar:syncCatalog '{}'
 ```
 
 The catalog is subsequently refreshed by the existing six-hour cron job.

@@ -81,6 +81,7 @@ Most code changes do not need an internal documentation change. Agents can read 
 ## Taste
 
 - Pages describe what is on the screen; nearby components implement how those parts work. Keep page-specific components in the page's `_components` folder, components shared across pages at their narrowest shared ancestor, and app-wide components in the global `components` folder. Pages own composition and route concerns; components own cohesive behavior and implementation details.
+- Convex functions live in a folder per feature, such as `convex/billing/`, with that feature's helpers and tests beside them. Start a new feature in its own folder even when it is one file. The `convex` root keeps only the files Convex requires there and cross-cutting modules; `convex/lib` holds helpers several features share. A file's path is its functions' API path, and queued scheduled jobs store that path, so moving a function later breaks jobs already scheduled under the old one.
 - Write JSX so its structure is easy to scan. Avoid nested ternaries or chains of conditions inside JSX. Extract components around cohesive behavior.
 - Client components should call Convex hooks where the data or behavior is needed instead of prop drilling.
 - Each component owns its loading state. Keep the page shell visible while its components load independently. Use dynamic skeletons that match the loaded component's dimensions, spacing, fields, controls, and text wrapping at supported screen sizes. Keep skeleton markup close to the component so layout changes update both states together.

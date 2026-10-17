@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
-import type { BillingModel } from "./billingModel";
-import { purchases, withdrawalDeadline } from "./withdrawal";
+import type { BillingModel } from "./plans";
+import { purchases, withdrawalDeadline } from "./withdrawalPeriod";
 
 const modelOf = (productId: string) => (["monthly", "yearly", "lifetime"] as BillingModel[]).find((m) => m === productId);
 

@@ -33,14 +33,14 @@ test("local Convex HTTP verifies signatures, handles concurrent deliveries, and 
   } };
   try {
     assert.equal((await deliver(event, id, false)).status, 400);
-    assert.equal(await admin.query(internal.users.byClerkId, { clerkId }), null);
+    assert.equal(await admin.query(internal.account.users.byClerkId, { clerkId }), null);
     const responses = await Promise.all(Array.from({ length: 4 }, () => deliver(event, id)));
     assert.deepEqual(responses.map((response) => response.status), [200, 200, 200, 200]);
     // This indexed unique lookup fails if concurrent delivery created duplicates.
-    const userId = await admin.query(internal.users.byClerkId, { clerkId });
+    const userId = await admin.query(internal.account.users.byClerkId, { clerkId });
     assert.ok(userId);
     const tokenIdentifier = testTokenIdentifier(env, clerkId);
-    const current = await admin.query(internal.users.lookupCurrent, { tokenIdentifier });
+    const current = await admin.query(internal.account.users.lookupCurrent, { tokenIdentifier });
     assert.equal(current.status, "ready");
     assert.equal(current.user.id, userId);
     assert.equal(current.user.email, "local@example.com");
@@ -51,7 +51,7 @@ test("local Convex HTTP verifies signatures, handles concurrent deliveries, and 
     // deleting application records through an unauthenticated test backdoor.
     const response = await deliver({ type: "user.deleted", timestamp: Date.now(), data: { id: clerkId, deleted: true } }, `${id}-delete`);
     assert.equal(response.status, 200);
-    assert.deepEqual(await admin.query(internal.users.lookupCurrent, {
+    assert.deepEqual(await admin.query(internal.account.users.lookupCurrent, {
       tokenIdentifier: testTokenIdentifier(env, clerkId),
     }), { status: "deleting" });
   }
@@ -59,7 +59,7 @@ test("local Convex HTTP verifies signatures, handles concurrent deliveries, and 
 
 test("local backend denies anonymous user APIs and arbitrary internal user lookup", async () => {
   const client = new ConvexHttpClient(config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
-  await assert.rejects(client.query(api.users.current, {}), /UNAUTHENTICATED/);
-  await assert.rejects(client.action(api.users.ensureCurrentUser, {}), /UNAUTHENTICATED/);
-  await assert.rejects(client.query("users:byClerkId", { clerkId: "somebody-else" }));
+  await assert.rejects(client.query(api.account.users.current, {}), /UNAUTHENTICATED/);
+  await assert.rejects(client.action(api.account.users.ensureCurrentUser, {}), /UNAUTHENTICATED/);
+  await assert.rejects(client.query("account/users:byClerkId", { clerkId: "somebody-else" }));
 });

@@ -21,7 +21,7 @@ test("signed local Polar HTTP fixtures isolate foreign worktrees before creating
   for (const type of ["customer.created", "subscription.active", "subscription.canceled", "subscription.uncanceled", "subscription.revoked", "order.paid", "order.refunded"]) {
     const data = type.startsWith("customer.") ? foreign : { id: `resource-${id}`, customer_id: foreign.id, customer: foreign };
     assert.equal((await deliver(type, data, `${id}-${type}`)).status, 200);
-    assert.equal(await admin.query(internal.billingState.get, { customerId: foreign.id }), null);
+    assert.equal(await admin.query(internal.billing.state.get, { customerId: foreign.id }), null);
   }
   assert.equal((await deliver("customer.created", foreign, `${id}-invalid`, false)).status, 400);
   assert.equal((await deliver("subscription.active", { id: "x", customer_id: 3 }, `${id}-bad`)).status, 400);

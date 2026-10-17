@@ -1,4 +1,3 @@
-/// <reference types="vite/client" />
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
 import { defineSchema, defineTable, makeFunctionReference, type FunctionReference } from "convex/server";
@@ -9,11 +8,11 @@ import { api, internal } from "./_generated/api";
 import { internalMutation } from "./lib/functions";
 import schema from "./schema";
 import { DELIVERY_RETENTION_MS, deliveryArgs, deliveryResult, processDelivery } from "./webhooks";
-import { apply as applyClerk, process as processClerk } from "./clerkWebhooks";
+import { apply as applyClerk, process as processClerk } from "./account/clerkWebhooks";
+import { modules } from "./test.setup";
 
 const issuer = "https://test.clerk.accounts.dev";
 const secret = `whsec_${btoa("a sufficiently long test signing secret")}`;
-const modules = import.meta.glob("./**/*.ts");
 // Billing owns its eventual fields. Extend the test schema to prove the profile
 // writer preserves a downstream domain's paid entitlement and application data.
 const extendedSchema = defineSchema({
@@ -171,16 +170,16 @@ test("provisioning is identity-derived, retryable, and works without webhooks", 
   const t = setup();
   const alice = t.withIdentity({ issuer, subject: "user_a" });
   const bob = t.withIdentity({ issuer, subject: "user_b" });
-  expect(await alice.query(api.users.current, {})).toEqual({ status: "provisioning" });
+  expect(await alice.query(api.account.users.current, {})).toEqual({ status: "provisioning" });
   const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("failure", { status: 503 }));
-  await expect(alice.action(api.users.ensureCurrentUser, {})).rejects.toThrow("PROVISIONING_FAILED");
+  await expect(alice.action(api.account.users.ensureCurrentUser, {})).rejects.toThrow("PROVISIONING_FAILED");
   expect((await rows(t)).users).toEqual([]);
   fetchMock.mockResolvedValueOnce(Response.json(profile()));
-  expect(await alice.action(api.users.ensureCurrentUser, {})).toMatchObject({ status: "ready", user: { email: "primary@example.com" } });
+  expect(await alice.action(api.account.users.ensureCurrentUser, {})).toMatchObject({ status: "ready", user: { email: "primary@example.com" } });
   expect(fetchMock.mock.calls[1][0]).toBe("https://api.clerk.com/v1/users/user_a");
-  expect(await bob.query(api.users.current, {})).toEqual({ status: "provisioning" });
+  expect(await bob.query(api.account.users.current, {})).toEqual({ status: "provisioning" });
   expect((await rows(t)).users[0].paidEntitlement).toBeUndefined();
-  await alice.action(api.users.ensureCurrentUser, {});
+  await alice.action(api.account.users.ensureCurrentUser, {});
   expect(fetchMock).toHaveBeenCalledTimes(2);
   await send(t, event(), "delayed-webhook");
   expect((await rows(t)).users).toHaveLength(1);
@@ -188,11 +187,11 @@ test("provisioning is identity-derived, retryable, and works without webhooks", 
 
 test("anonymous and foreign-issuer callers cannot provision or choose somebody else's identity", async () => {
   const t = setup();
-  await expect(t.query(api.users.current, {})).rejects.toThrow("UNAUTHENTICATED");
-  await expect(t.action(api.users.ensureCurrentUser, {})).rejects.toThrow("UNAUTHENTICATED");
+  await expect(t.query(api.account.users.current, {})).rejects.toThrow("UNAUTHENTICATED");
+  await expect(t.action(api.account.users.ensureCurrentUser, {})).rejects.toThrow("UNAUTHENTICATED");
   await expect(t.withIdentity({ subject: "user_a", issuer: "https://other.example" })
-    .action(api.users.ensureCurrentUser, {})).rejects.toThrow("UNAUTHENTICATED");
-  await expect(t.withIdentity({ subject: "user_a", issuer }).query(api.users.current,
+    .action(api.account.users.ensureCurrentUser, {})).rejects.toThrow("UNAUTHENTICATED");
+  await expect(t.withIdentity({ subject: "user_a", issuer }).query(api.account.users.current,
     { clerkId: "user_b" } as unknown as Record<string, never>)).rejects.toThrow();
   expect((await rows(t)).users).toEqual([]);
 });
@@ -204,8 +203,8 @@ test("a signed deletion racing provisioning cannot resurrect an identity", async
     await send(t, { type: "user.deleted", timestamp: 300, data: { id: "user_a", deleted: true } }, "delete");
     return Response.json(profile("user_a", 400));
   });
-  expect(await alice.action(api.users.ensureCurrentUser, {})).toEqual({ status: "deleting" });
-  expect(await alice.query(api.users.current, {})).toEqual({ status: "deleting" });
+  expect(await alice.action(api.account.users.ensureCurrentUser, {})).toEqual({ status: "deleting" });
+  expect(await alice.query(api.account.users.current, {})).toEqual({ status: "deleting" });
   expect((await rows(t)).requests).toHaveLength(1);
 });
 
@@ -271,10 +270,10 @@ test("explicit reconciliation preserves paid fields and rejects provider identit
   await t.run((ctx) => ctx.db.patch("users", user._id, { paidEntitlement: "pro" }));
   const alice = t.withIdentity({ issuer, subject: "user_a" });
   const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ ...profile("user_a", 500), first_name: "Updated" }));
-  expect(await alice.action(api.users.ensureCurrentUser, { refresh: true })).toMatchObject({ status: "ready", user: { displayName: "Updated" } });
+  expect(await alice.action(api.account.users.ensureCurrentUser, { refresh: true })).toMatchObject({ status: "ready", user: { displayName: "Updated" } });
   expect((await rows(t)).users[0].paidEntitlement).toBe("pro");
   fetchMock.mockResolvedValueOnce(Response.json(profile("user_b", 600)));
-  await expect(alice.action(api.users.ensureCurrentUser, { refresh: true })).rejects.toThrow("PROVISIONING_FAILED");
+  await expect(alice.action(api.account.users.ensureCurrentUser, { refresh: true })).rejects.toThrow("PROVISIONING_FAILED");
   expect((await rows(t)).users).toHaveLength(1);
   expect((await rows(t)).users[0].displayName).toBe("Updated");
 });
@@ -284,7 +283,7 @@ test("signed HTTP handler failures return 503, roll back writes, and recover on 
   const t = convexTest(extendedSchema, {
     ...modules,
     "./realClerkWebhooks.ts": async () => ({ apply: applyClerk }),
-    "./clerkWebhooks.ts": async () => ({
+    "./account/clerkWebhooks.ts": async () => ({
       process: processClerk,
       apply: internalMutation({
         args: { payload: v.string(), deliveryId: v.string() }, returns: v.null(),
@@ -313,16 +312,16 @@ test("a Clerk API 404 stays retryable without deleting a new or paid application
   const t = setup();
   const alice = t.withIdentity({ issuer, subject: "user_a" });
   const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("", { status: 404 }));
-  await expect(alice.action(api.users.ensureCurrentUser, {})).rejects.toThrow("PROVISIONING_FAILED");
-  expect(await alice.query(api.users.current, {})).toEqual({ status: "provisioning" });
+  await expect(alice.action(api.account.users.ensureCurrentUser, {})).rejects.toThrow("PROVISIONING_FAILED");
+  expect(await alice.query(api.account.users.current, {})).toEqual({ status: "provisioning" });
   expect(await rows(t)).toEqual({ users: [], deliveries: [], requests: [] });
   fetchMock.mockResolvedValueOnce(Response.json(profile()));
-  expect(await alice.action(api.users.ensureCurrentUser, {})).toMatchObject({ status: "ready" });
+  expect(await alice.action(api.account.users.ensureCurrentUser, {})).toMatchObject({ status: "ready" });
   const user = (await rows(t)).users[0];
   await t.run((ctx) => ctx.db.patch("users", user._id, { paidEntitlement: "pro" }));
   fetchMock.mockResolvedValueOnce(new Response("", { status: 404 }));
-  await expect(alice.action(api.users.ensureCurrentUser, { refresh: true })).rejects.toThrow("PROVISIONING_FAILED");
-  expect(await alice.query(api.users.current, {})).toMatchObject({ status: "ready" });
+  await expect(alice.action(api.account.users.ensureCurrentUser, { refresh: true })).rejects.toThrow("PROVISIONING_FAILED");
+  expect(await alice.query(api.account.users.current, {})).toMatchObject({ status: "ready" });
   expect((await rows(t)).users[0]).toMatchObject({ lifecycle: "active", paidEntitlement: "pro" });
   expect((await rows(t)).requests).toEqual([]);
 });

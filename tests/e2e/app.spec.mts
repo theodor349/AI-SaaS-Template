@@ -23,7 +23,7 @@ test("Clerk identity reaches paid local Convex and persists across reloads", asy
     const token = await page.evaluate(() => window.Clerk.session!.getToken({ template: "convex" }));
     const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
     client.setAuth(token!);
-    expect(await client.query(api.billing.application, {})).toEqual({ name: user.name });
+    expect(await client.query(api.billing.account.application, {})).toEqual({ name: user.name });
     await page.getByRole("link", { name: "Dashboard", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Your application" })).toBeVisible();
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();
@@ -208,16 +208,16 @@ test("slow Clerk token acquisition shows loading and sends no protected query", 
     await expect(page.getByRole("status").filter({ hasText: "Loading paid plans…" })).toHaveText("Loading paid plans…");
     await expect(page.getByRole("button", { name: "Sign in", exact: true })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "Dashboard", exact: true })).toHaveCount(0);
-    expect(sync.hasSubscribed("billing:status")).toBe(false);
-    expect(sync.hasSubscribed("billing:application")).toBe(false);
+    expect(sync.hasSubscribed("billing/account:status")).toBe(false);
+    expect(sync.hasSubscribed("billing/account:application")).toBe(false);
     await page.evaluate(() => window.dispatchEvent(new Event("release-auth-test")));
     await expect(page.getByText("You have lifetime access.")).toBeVisible();
-    expect(sync.hasSubscribed("billing:status")).toBe(true);
+    expect(sync.hasSubscribed("billing/account:status")).toBe(true);
     await page.getByRole("link", { name: "Dashboard", exact: true }).click();
     await expect(page).toHaveURL(`${local.config.env.APP_URL}${authenticatedDestination}`);
     await expect(page.getByRole("heading", { name: "Your application" })).toBeVisible();
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();
-    expect(sync.hasSubscribed("billing:application")).toBe(true);
+    expect(sync.hasSubscribed("billing/account:application")).toBe(true);
     expect(errors).toEqual([]);
   } finally {
     await page.evaluate(() => window.dispatchEvent(new Event("release-auth-test")));
@@ -244,10 +244,10 @@ test("a restored session waits for Convex validation without signed-out UI, redi
     await expect(page.getByRole("button", { name: "Sign in", exact: true })).toHaveCount(0);
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toHaveCount(0);
     expect(page.url()).toBe(`${local.config.env.APP_URL}/app`);
-    expect(sync.hasSubscribed("billing:application")).toBe(false);
+    expect(sync.hasSubscribed("billing/account:application")).toBe(false);
     release();
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();
-    expect(sync.hasSubscribed("billing:application")).toBe(true);
+    expect(sync.hasSubscribed("billing/account:application")).toBe(true);
     expect(errors).toEqual([]);
   } finally {
     release();

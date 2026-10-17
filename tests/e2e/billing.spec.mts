@@ -18,7 +18,7 @@ test("selected plan opens checkout once after authentication; success URL alone 
   const user = await createClerkTestUser(local);
   const checkoutModels: string[] = [];
   const sync = await interceptConvexSync(page);
-  sync.onAction<{ model: string }>("polar:checkout", (call) => {
+  sync.onAction<{ model: string }>("billing/polar:checkout", (call) => {
     checkoutModels.push(call.args.model);
     call.fail("Fixture checkout failure");
   });
@@ -44,8 +44,8 @@ test("selected plan opens checkout once after authentication; success URL alone 
     await expect(page.getByText("Your paid access is confirmed.")).toHaveCount(0);
     const token = await page.evaluate(() => window.Clerk.session!.getToken({ template: "convex" }));
     const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false }); client.setAuth(token!);
-    await expect(client.query(api.billing.application, {})).rejects.toThrow("PAID_ACCESS_REQUIRED");
-    await expect(client.query(api.billing.application, {})).rejects.toThrow("PAID_ACCESS_REQUIRED");
+    await expect(client.query(api.billing.account.application, {})).rejects.toThrow("PAID_ACCESS_REQUIRED");
+    await expect(client.query(api.billing.account.application, {})).rejects.toThrow("PAID_ACCESS_REQUIRED");
     await captureEvidence(page, "confirmation-pending");
     // The trusted billing publication alone, not the success URL, confirms access.
     await seedPaidTestUser(user);
@@ -66,7 +66,7 @@ test("lifetime access shows the purchase date and opens the customer portal", as
   const portalUrl = "https://sandbox.polar.sh/fixture-lifetime-portal";
   await page.route(portalUrl, route => route.fulfill({ contentType: "text/html", body: "<h1>Customer portal fixture</h1>" }));
   const sync = await interceptConvexSync(page);
-  sync.onAction("polar:portal", (call) => {
+  sync.onAction("billing/polar:portal", (call) => {
     requests++;
     release = () => call.succeed(portalUrl);
   });
@@ -77,7 +77,7 @@ test("lifetime access shows the purchase date and opens the customer portal", as
     const token = await page.evaluate(() => window.Clerk.session!.getToken({ template: "convex" }));
     const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
     client.setAuth(token!);
-    const status = await client.query(api.billing.status, {});
+    const status = await client.query(api.billing.account.status, {});
     expect(status.lifetimePurchasedAt).not.toBeNull();
     const purchaseDate = await page.evaluate(timestamp => new Date(timestamp!).toLocaleDateString(undefined, {
       day: "numeric", month: "long", year: "numeric",
@@ -108,7 +108,7 @@ for (const action of ["checkout", "portal"] as const) {
     try {
       if (action === "portal") await seedPaidTestUser(user);
       const sync = await interceptConvexSync(page);
-      sync.onAction(`polar:${action}`, (call) => {
+      sync.onAction(`billing/polar:${action}`, (call) => {
         requests++;
         // Keep the document mounted after a successful navigation response,
         // then reproduce the browser's cached-page lifecycle event below.
@@ -151,7 +151,7 @@ test("expiry removes paid pages reactively while billing and account controls re
     await page.goto("/app");
     await expect(page.getByRole("heading", { name: "Your application" })).toBeVisible();
     const { client: admin } = billingTestAdmin();
-    const account = (await adminQuery(admin, internal.billingState.get, { customerId: fixture.customerId }))!;
+    const account = (await adminQuery(admin, internal.billing.state.get, { customerId: fixture.customerId }))!;
     // A higher revision ending state is the same trusted publication used by
     // reconciliation. No browser-side success flags or mocked auth are involved.
     await publishBillingSnapshot({ customerId: fixture.customerId, externalId: fixture.externalId,
@@ -190,18 +190,18 @@ test("sandbox checkout and recovery work when another customer uses the sign-in 
     const token = await page.evaluate(() => window.Clerk.session!.getToken({ template: "convex" }));
     const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
     client.setAuth(token!);
-    await client.action(api.polar.recover, {});
+    await client.action(api.billing.polar.recover, {});
     await expect(page.getByText("We couldn’t complete the billing request")).toHaveCount(0);
     const { client: admin } = billingTestAdmin();
-    const userId = await adminQuery(admin, internal.users.byClerkId, { clerkId: user.id });
-    const account = (await adminQuery(admin, internal.billing.accountByUser, { userId: userId! }))!;
+    const userId = await adminQuery(admin, internal.account.users.byClerkId, { clerkId: user.id });
+    const account = (await adminQuery(admin, internal.billing.account.accountByUser, { userId: userId! }))!;
     expect(account.externalId).toBe(testExternalCustomerId(local, user.id));
     expect(account.customerId).not.toBe(collisionCustomerId);
     const owned = await polar.customers.get(account.customerId);
     expect(owned.email).toBe(user.email.replace("@", `+${local.config.id}@`));
     expect((await polar.customers.get(collisionCustomerId)).external_id).toBe(collision.external_id);
     // Poll provider-delivery tracking through a bounded operational query.
-    await expect.poll(async () => (await adminQuery(admin, internal.billing.deliveryStatus, { customerId: account.customerId })).delivered).toBe(true);
+    await expect.poll(async () => (await adminQuery(admin, internal.billing.account.deliveryStatus, { customerId: account.customerId })).delivered).toBe(true);
   } finally {
     try {
       if (collisionCustomerId) await polar.customers.delete(collisionCustomerId);
@@ -216,7 +216,7 @@ test("yearly-to-monthly requires confirmation and shows the scheduled plan witho
   const { client: admin } = billingTestAdmin();
   let requests = 0;
   const sync = await interceptConvexSync(page);
-  sync.onAction("polar:changeSubscription", (call) => {
+  sync.onAction("billing/polar:changeSubscription", (call) => {
     requests++;
     call.succeed(null);
   });
@@ -234,7 +234,7 @@ test("yearly-to-monthly requires confirmation and shows the scheduled plan witho
     await dialog.getByRole("button", { name: "Confirm switch" }).click();
     await expect(page.getByRole("button", { name: "Confirming plan…" })).toBeDisabled();
     await expect.poll(() => requests).toBe(1);
-    const account = (await adminQuery(admin, internal.billingState.get, { customerId: fixture.customerId }))!;
+    const account = (await adminQuery(admin, internal.billing.state.get, { customerId: fixture.customerId }))!;
     const now = Date.now();
     await publishBillingSnapshot({
       customerId: fixture.customerId, externalId: fixture.externalId,
@@ -264,13 +264,13 @@ for (const model of ["monthly", "yearly"] as const) {
     const target = model === "monthly" ? "yearly" : "monthly";
     let switchRequests = 0;
     const sync = await interceptConvexSync(page);
-    sync.onAction("polar:changeSubscription", (call) => {
+    sync.onAction("billing/polar:changeSubscription", (call) => {
       switchRequests++;
       call.forward();
     });
     try {
       const fixture = await seedPaidTestUser(user, model);
-      const account = (await adminQuery(admin, internal.billingState.get, { customerId: fixture.customerId }))!;
+      const account = (await adminQuery(admin, internal.billing.state.get, { customerId: fixture.customerId }))!;
       const now = Date.now();
       const productId = local.env[`POLAR_PRODUCT_${model.toUpperCase()}`]!;
       await publishBillingSnapshot({
@@ -320,7 +320,7 @@ test("billing retries show progress until a yearly payment is confirmed", async 
     await expect(page.getByLabel("Plan", { exact: true })).toHaveValue("Monthly Pro");
 
     const failedLease = await leaseBillingFixture(fixture.customerId);
-    await adminMutation(admin, internal.billingState.finish, { customerId: fixture.customerId, version: failedLease.version, failed: true });
+    await adminMutation(admin, internal.billing.state.finish, { customerId: fixture.customerId, version: failedLease.version, failed: true });
     await expect(page.getByText("Confirming your billing details", { exact: true })).toBeVisible();
     await expect(page.getByText("We couldn’t update your billing details", { exact: true })).toHaveCount(0);
     await expect(page.getByLabel("Plan", { exact: true })).toHaveValue("Monthly Pro");
@@ -361,7 +361,7 @@ test("repeated switches and cancellation cycles confirm reactive state; failures
       await dialog.getByRole("button", { name: "Confirm switch" }).click();
     }
     const sync = await interceptConvexSync(page);
-    sync.onAction<{ operation: string }>("polar:changeSubscription", async (call) => {
+    sync.onAction<{ operation: string }>("billing/polar:changeSubscription", async (call) => {
       // The UI action result is deliberately separated from a trusted state
       // publication to prove the label never treats an action ACK as entitlement.
       if (failNext) {

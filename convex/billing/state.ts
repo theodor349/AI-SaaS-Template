@@ -1,6 +1,6 @@
 import { v, type Infer } from "convex/values";
-import { internal } from "./_generated/api";
-import type { Doc, Id } from "./_generated/dataModel";
+import { internal } from "../_generated/api";
+import type { Doc, Id } from "../_generated/dataModel";
 import {
   accountForCustomer,
   accountForUser,
@@ -10,7 +10,7 @@ import {
   productModel,
   scheduledRetries,
   syncForCustomer,
-} from "./lib/billing";
+} from "./lib";
 import {
   computeEntitlement,
   ended,
@@ -20,13 +20,13 @@ import {
   sameEntitlement,
   sameValues,
   type Entitlement,
-} from "./lib/entitlement";
-import { appError } from "./lib/errors";
-import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./lib/functions";
-import { isLeased, leaseDeadline, retryDelay } from "./lib/retry";
-import { requireUser, userByTokenIdentifier } from "./lib/users";
-import schema, { scheduledPlanChange } from "./schema";
-import { deliveryArgs, deliveryResult, processDelivery } from "./webhooks";
+} from "./entitlement";
+import { appError } from "../lib/errors";
+import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "../lib/functions";
+import { isLeased, leaseDeadline, retryDelay } from "../lib/retry";
+import { requireUser, userByTokenIdentifier } from "../lib/users";
+import schema, { scheduledPlanChange } from "../schema";
+import { deliveryArgs, deliveryResult, processDelivery } from "../webhooks";
 
 const sweepPage = 100;
 
@@ -100,7 +100,7 @@ async function requestReconciliation(ctx: MutationCtx, customerId: string) {
     nextCheckAt: leaseDeadline(),
     attempts: 0,
   });
-  await ctx.scheduler.runAfter(0, internal.polar.reconcileCustomer, { customerId });
+  await ctx.scheduler.runAfter(0, internal.billing.polar.reconcileCustomer, { customerId });
   return sync._id;
 }
 
@@ -109,7 +109,7 @@ async function writeEntitlement(ctx: MutationCtx, account: Doc<"billingAccounts"
   const revision = account.revision + 1;
   await ctx.db.patch("billingAccounts", account._id, { ...entitlementOf(entitlement), revision });
   if (entitlement.paidThrough !== undefined) {
-    await ctx.scheduler.runAt(entitlement.paidThrough, internal.billingState.expire, {
+    await ctx.scheduler.runAt(entitlement.paidThrough, internal.billing.state.expire, {
       accountId: account._id,
       revision,
     });
@@ -182,7 +182,7 @@ export const process = internalMutation({
     }
     const delivery = { provider: args.provider, deliveryId: args.deliveryId, eventType: args.eventType };
     const request = { customerId: args.customerId, externalId: args.externalId };
-    const result = await processDelivery(ctx, delivery, internal.billingState.enqueue, request);
+    const result = await processDelivery(ctx, delivery, internal.billing.state.enqueue, request);
     if (result === "success") {
       const sync = await syncForCustomer(ctx, args.customerId);
       if (sync) {
@@ -373,7 +373,7 @@ export const apply = internalMutation({
     if (deletion?.status === "pending" && !deleting && state.subscriptions.some(renews)) {
       ctx.log.decision("deletion_window", { result: "renewal_restarted" });
       await ctx.db.patch("accountLifecycleRequests", deletion._id, { cancellationConfirmed: false });
-      await ctx.scheduler.runAfter(0, internal.accountLifecycle.process, { requestId: deletion._id });
+      await ctx.scheduler.runAfter(0, internal.account.lifecycle.process, { requestId: deletion._id });
     }
 
     const decision = computeEntitlement({
@@ -448,13 +448,13 @@ export const finish = internalMutation({
       ctx.log.markAsError();
     }
     if (failed && attempts > scheduledRetries) {
-      ctx.log.adminAction("Scheduled reconciliation retries are exhausted; see billing:recoveryIssues");
+      ctx.log.adminAction("Scheduled reconciliation retries are exhausted; see billing/account:recoveryIssues");
     } else if (failureCode === "CUSTOMER_LINK_REQUIRED") {
-      ctx.log.adminAction("Link the unclaimed Polar customer to its owner; see billing:recoveryIssues");
+      ctx.log.adminAction("Link the unclaimed Polar customer to its owner; see billing/account:recoveryIssues");
     }
     // After the scheduled retries, the sweep keeps retrying at nextCheckAt.
     if (pending || (failed && attempts <= scheduledRetries)) {
-      await ctx.scheduler.runAfter(delay, internal.polar.reconcileCustomer, { customerId });
+      await ctx.scheduler.runAfter(delay, internal.billing.polar.reconcileCustomer, { customerId });
     }
     return null;
   },
@@ -492,10 +492,10 @@ export const sweep = internalMutation({
     for (const row of due) {
       // Moving the check out of range lets the next page start after this one.
       await ctx.db.patch("billingSync", row._id, { nextCheckAt: leaseDeadline(now) });
-      await ctx.scheduler.runAfter(0, internal.polar.reconcileCustomer, { customerId: row.customerId });
+      await ctx.scheduler.runAfter(0, internal.billing.polar.reconcileCustomer, { customerId: row.customerId });
     }
     if (due.length === sweepPage) {
-      await ctx.scheduler.runAfter(0, internal.billingState.sweep, {});
+      await ctx.scheduler.runAfter(0, internal.billing.state.sweep, {});
     }
     return null;
   },
@@ -526,7 +526,7 @@ export const backfillSync = internalMutation({
       });
     }
     if (!page.isDone) {
-      await ctx.scheduler.runAfter(0, internal.billingState.backfillSync, { cursor: page.continueCursor });
+      await ctx.scheduler.runAfter(0, internal.billing.state.backfillSync, { cursor: page.continueCursor });
     }
     return null;
   },

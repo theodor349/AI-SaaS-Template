@@ -11,8 +11,8 @@ const { config } = resolveLocalTestConfig();
 const client = new ConvexHttpClient(config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
 
 test("the running local backend rejects anonymous application calls", async () => {
-  await assert.rejects(client.query(api.billing.application, {}), /UNAUTHENTICATED/);
-  assert.equal((await client.query(api.billing.products, {})).length, 3);
+  await assert.rejects(client.query(api.billing.account.application, {}), /UNAUTHENTICATED/);
+  assert.equal((await client.query(api.billing.catalog.products, {})).length, 3);
 });
 
 test("the worktree frontend serves successfully", { timeout: 30000 }, async () => {
@@ -22,10 +22,10 @@ test("the worktree frontend serves successfully", { timeout: 30000 }, async () =
 });
 
 test("protected backend calls reject anonymous and invalid-token callers", async () => {
-  await assert.rejects(client.query(api.users.current, {}), /UNAUTHENTICATED/);
+  await assert.rejects(client.query(api.account.users.current, {}), /UNAUTHENTICATED/);
   const invalid = new ConvexHttpClient(config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
   invalid.setAuth("invalid-token");
-  await assert.rejects(invalid.query(api.users.current, {}));
+  await assert.rejects(invalid.query(api.account.users.current, {}));
 });
 
 test("public pages and JSON/TXT/XML assets stay public while application routes require sign-in", { timeout: 60000 }, async () => {

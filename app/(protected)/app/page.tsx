@@ -6,7 +6,7 @@ import { AuthPending } from "@/components/auth/auth-boundary";
 import { Link } from "@/components/typography/link";
 
 export default function ApplicationPage() {
-  const identity = useQuery(api.billing.application);
+  const identity = useQuery(api.billing.account.application);
   if (identity === undefined) return <AuthPending message="Loading your account…" />;
   return (
     <div className="flex flex-col gap-6">

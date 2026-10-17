@@ -67,8 +67,8 @@ function saveFile(json: string) {
 }
 
 function DataExportContent() {
-  const current = useQuery(api.users.current);
-  const download = useAction(api.dataExport.download);
+  const current = useQuery(api.account.users.current);
+  const download = useAction(api.account.dataExport.download);
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

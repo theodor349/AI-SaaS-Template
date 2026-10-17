@@ -16,6 +16,6 @@ export async function acceptTermsAsUser(page: Page) {
   const token = await page.evaluate(() => window.Clerk.session!.getToken({ template: "convex" }));
   const client = new ConvexHttpClient(resolveLocalTestConfig().config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
   client.setAuth(token!);
-  await expect.poll(async () => (await client.query(api.users.current, {})).status).toBe("ready");
-  await client.mutation(api.legal.accept, {});
+  await expect.poll(async () => (await client.query(api.account.users.current, {})).status).toBe("ready");
+  await client.mutation(api.account.legal.accept, {});
 }

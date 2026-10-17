@@ -22,7 +22,7 @@ export function billingTestAdmin() {
  */
 export async function leaseBillingFixture(customerId, client = billingTestAdmin().client) {
   for (let attempt = 0; attempt < 100; attempt++) {
-    const lease = await client.mutation(internal.billingState.lease, { customerId });
+    const lease = await client.mutation(internal.billing.state.lease, { customerId });
     if (lease) return lease;
     await delay(100);
   }
@@ -32,24 +32,24 @@ export async function leaseBillingFixture(customerId, client = billingTestAdmin(
 /**
  * Publishes a provider snapshot through the same lease, apply, and finish steps
  * that reconciliation uses, so pages react exactly as they would to Polar.
- * @param {import("convex/values").Infer<typeof import("../convex/billingState.js").snapshot>} snapshot
+ * @param {import("convex/values").Infer<typeof import("../convex/billing/state.js").snapshot>} snapshot
  */
 export async function publishBillingSnapshot(snapshot, client = billingTestAdmin().client) {
   const lease = await leaseBillingFixture(snapshot.customerId, client);
-  await client.mutation(internal.billingState.apply, { version: lease.version, snapshot });
-  await client.mutation(internal.billingState.finish, { customerId: snapshot.customerId, version: lease.version, failed: false });
+  await client.mutation(internal.billing.state.apply, { version: lease.version, snapshot });
+  await client.mutation(internal.billing.state.finish, { customerId: snapshot.customerId, version: lease.version, failed: false });
 }
 
 // Paid users have accepted the current terms unless `acceptTerms` is false.
 // `purchasedAt` backdates the order, which starts the withdrawal period.
 export async function seedPaidTestUser(user, model = "lifetime", paid = true, { periodMs = 60 * 60_000, acceptTerms = true, purchasedAt = Date.now() } = {}) {
   const { local, client } = billingTestAdmin();
-  await client.mutation(internal.users.syncProfile, { profile: { clerkId: user.id, email: user.email,
+  await client.mutation(internal.account.users.syncProfile, { profile: { clerkId: user.id, email: user.email,
     firstName: user.name, updatedAt: Date.now() }, eventAt: Date.now() });
-  if (acceptTerms) await client.mutation(internal.legal.acceptForClerkUser, { clerkId: user.id });
+  if (acceptTerms) await client.mutation(internal.account.legal.acceptForClerkUser, { clerkId: user.id });
   const customerId = `fixture-${local.config.id}-${user.id}`;
   const externalId = testExternalCustomerId(local, user.id);
-  await client.mutation(internal.billingState.enqueue, { customerId, externalId });
+  await client.mutation(internal.billing.state.enqueue, { customerId, externalId });
   const now = Date.now();
   const productId = local.env[`POLAR_PRODUCT_${model.toUpperCase()}`];
   if (!productId) throw new Error("Billing fixtures need configured sandbox products");

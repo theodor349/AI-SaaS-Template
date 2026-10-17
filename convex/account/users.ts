@@ -1,12 +1,12 @@
 import { v, type Infer } from "convex/values";
-import { internal } from "./_generated/api";
-import { requireIdentity } from "./lib/auth";
-import { clerkIssuer, clerkProfile, clerkTokenIdentifier, parseClerkProfile } from "./lib/clerk";
-import { fetchClerkUser } from "./lib/clerkApi";
-import { appError } from "./lib/errors";
-import { action, internalMutation, internalQuery, query } from "./lib/functions";
-import { getDisplayName } from "./lib/profile";
-import { currentUserResult, getCurrentUser, readiness, userByClerkId, userByTokenIdentifier } from "./lib/users";
+import { internal } from "../_generated/api";
+import { requireIdentity } from "../lib/auth";
+import { clerkIssuer, clerkProfile, clerkTokenIdentifier, parseClerkProfile } from "./clerk";
+import { fetchClerkUser } from "./clerkApi";
+import { appError } from "../lib/errors";
+import { action, internalMutation, internalQuery, query } from "../lib/functions";
+import { getDisplayName } from "../lib/profile";
+import { currentUserResult, getCurrentUser, readiness, userByClerkId, userByTokenIdentifier } from "../lib/users";
 
 export const current = query({
   args: {}, returns: currentUserResult,
@@ -73,7 +73,7 @@ export const ensureCurrentUser = action({
         identity.tokenIdentifier !== clerkTokenIdentifier(identity.subject)) {
       throw appError("UNAUTHENTICATED");
     }
-    const current = await ctx.runQuery(internal.users.lookupCurrent, { tokenIdentifier: identity.tokenIdentifier });
+    const current = await ctx.runQuery(internal.account.users.lookupCurrent, { tokenIdentifier: identity.tokenIdentifier });
     if (current.status === "ready") ctx.log.setUser(current.user.id);
     ctx.log.decision("lookup", { status: current.status, refresh: refresh ?? false });
     if (current.status === "deleting" || (current.status === "ready" && !refresh)) return current;
@@ -87,7 +87,7 @@ export const ensureCurrentUser = action({
       step = "identity";
       if (profile.clerkId !== identity.subject) throw new Error("Provider identity mismatch");
       step = "sync";
-      const result = await ctx.runMutation(internal.users.syncProfile, { profile, eventAt: profile.updatedAt });
+      const result = await ctx.runMutation(internal.account.users.syncProfile, { profile, eventAt: profile.updatedAt });
       if (result.status === "ready") ctx.log.setUser(result.user.id);
       return result;
     } catch {

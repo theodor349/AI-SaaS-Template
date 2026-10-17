@@ -5,14 +5,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { useAction } from "@/lib/convex";
 
-export type CheckoutPlan = FunctionArgs<typeof api.polar.checkout>["model"];
+export type CheckoutPlan = FunctionArgs<typeof api.billing.polar.checkout>["model"];
 
 // Opens Polar checkout for one plan at a time. A started checkout stays pending
 // until the browser leaves, so callers can keep its control disabled. A cached
 // page restored with Back, cancel(), or unmounting allows another attempt and
 // stops a late response from navigating away from where the user went.
 export function useCheckout({ onError }: { onError?: (error: unknown) => void } = {}) {
-  const checkout = useAction(api.polar.checkout);
+  const checkout = useAction(api.billing.polar.checkout);
   const mounted = useRef(false);
   const attempt = useRef(0);
   const requestInFlight = useRef(false);
