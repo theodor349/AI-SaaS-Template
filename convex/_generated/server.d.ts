@@ -38,6 +38,7 @@ type Env = {
   readonly LOG_SAMPLE_RATE_ACTION: string | undefined;
   readonly LOG_SAMPLE_RATE_MUTATION: string | undefined;
   readonly LOG_SAMPLE_RATE_QUERY: string | undefined;
+  readonly OPERATOR_ALERT_EMAIL: string | undefined;
   readonly POLAR_ACCESS_TOKEN: string | undefined;
   readonly POLAR_ENVIRONMENT: "sandbox" | "production" | undefined;
   readonly POLAR_ORGANIZATION_ID: string | undefined;
