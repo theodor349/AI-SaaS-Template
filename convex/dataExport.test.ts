@@ -1,12 +1,19 @@
 /// <reference types="vite/client" />
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { appConfig } from "../app.config";
 import { api } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
+import { retryAfter } from "./lib/errors";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
+function setup() {
+  const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
+  return t;
+}
 const issuer = "https://clerk.example";
 const at = Date.UTC(2026, 0, 2, 3, 4, 5);
 const iso = new Date(at).toISOString();
@@ -64,7 +71,7 @@ async function download(t: ReturnType<typeof convexTest>, name: string) {
 }
 
 test("an export holds only the caller's data, in the documented shape", async () => {
-  const t = convexTest(schema, modules);
+  const t = setup();
   await seed(t, "alice");
   await seed(t, "bob");
   const exported = await download(t, "alice");
@@ -103,7 +110,7 @@ test("an export holds only the caller's data, in the documented shape", async ()
 });
 
 test("lists larger than one page are exported in full and logged as counts only", async () => {
-  const t = convexTest(schema, modules);
+  const t = setup();
   await seed(t, "alice");
   await t.run(async (ctx) => {
     for (let i = 0; i < 250; i++) {
@@ -130,7 +137,7 @@ test.each([
   { state: "awaiting payment", lifecycle: "active" as const },
   { state: "finalizing deletion", lifecycle: "deletion_requested" as const },
 ])("a user who is $state can export", async ({ lifecycle }) => {
-  const t = convexTest(schema, modules);
+  const t = setup();
   const userId: Id<"users"> = await seed(t, "alice", { lifecycle, billing: false });
   await t.run((ctx) => ctx.db.insert("billingAccounts", { customerId: "alice-customer", userId, status: "awaiting_payment", cancelAtPeriodEnd: false, revision: 0 }));
   const { sections } = await download(t, "alice");
@@ -142,13 +149,13 @@ test.each([
 });
 
 test("a user without billing exports an empty billing section", async () => {
-  const t = convexTest(schema, modules);
+  const t = setup();
   await seed(t, "alice", { billing: false });
   expect((await download(t, "alice")).sections.billing).toEqual({ plan: null, subscriptions: [], orders: [] });
 });
 
 test("an export over the size limit stops early with a typed error", async () => {
-  const t = convexTest(schema, modules);
+  const t = setup();
   await seed(t, "alice");
   // Twenty orders near the 1 MiB document limit pass the 12 MiB export limit.
   await t.run(async (ctx) => {
@@ -167,7 +174,17 @@ test("an export over the size limit stops early with a typed error", async () =>
 });
 
 test("anonymous and unprovisioned callers cannot export", async () => {
-  const t = convexTest(schema, modules);
+  const t = setup();
   await expect(t.action(api.dataExport.download, {})).rejects.toThrow("UNAUTHENTICATED");
   await expect(t.withIdentity({ issuer, subject: "nobody" }).action(api.dataExport.download, {})).rejects.toThrow("PROVISIONING_REQUIRED");
+});
+
+test("repeated exports are rejected after a small burst", async () => {
+  const t = setup();
+  await seed(t, "alice");
+  for (let call = 0; call < 3; call++) await download(t, "alice");
+
+  const rejected = await download(t, "alice").catch((error: unknown) => error);
+
+  expect(retryAfter(rejected)).toBeGreaterThan(0);
 });

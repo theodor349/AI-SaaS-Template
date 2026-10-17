@@ -19,6 +19,7 @@ export type ErrorCode =
   | "PAID_ACCESS_REQUIRED"
   | "PROVISIONING_FAILED"
   | "PROVISIONING_REQUIRED"
+  | "RATE_LIMITED"
   | "RECOVERY_UNAVAILABLE"
   | "SUBSCRIPTION_REACTIVATION_REQUIRED"
   | "SUBSCRIPTION_UNAVAILABLE"
@@ -27,8 +28,9 @@ export type ErrorCode =
   | "WITHDRAWAL_PERIOD_ENDED"
   | "WITHDRAWAL_UNAVAILABLE";
 
-export function appError(code: ErrorCode) {
-  return new ConvexError({ code });
+// `retryAfter` is the milliseconds until a RATE_LIMITED call may succeed.
+export function appError(code: ErrorCode, details: { retryAfter?: number } = {}) {
+  return new ConvexError({ code, ...details });
 }
 
 // Use on the client to branch on a specific failure from a Convex call.
@@ -37,4 +39,12 @@ export function hasErrorCode(error: unknown, code: ErrorCode) {
     typeof error.data === "object" &&
     error.data !== null &&
     error.data.code === code;
+}
+
+// Milliseconds until a rejected RATE_LIMITED call may succeed, or null when
+// the error is something else.
+export function retryAfter(error: unknown) {
+  if (!hasErrorCode(error, "RATE_LIMITED")) return null;
+  const value = (error as ConvexError<{ retryAfter?: number }>).data.retryAfter;
+  return typeof value === "number" ? value : 0;
 }

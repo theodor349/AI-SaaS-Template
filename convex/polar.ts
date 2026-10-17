@@ -133,6 +133,11 @@ async function findOrCreateCustomer(p: Polar, email: string, externalId: string)
   }
 }
 
+// Counts internal Polar requests against the shared budget in rateLimits.ts.
+async function spend(ctx: ActionCtx, requests: number) {
+  await ctx.runMutation(internal.rateLimits.spendPolar, { requests });
+}
+
 // Resolves the signed-in owner's provider customer, links it, and requests
 // a reconciliation so local state catches up with the provider.
 async function ownedCustomer(ctx: ActionCtx): Promise<{ p: Polar; customer: PolarModels.Customer }> {
@@ -183,6 +188,7 @@ export const syncCatalog = internalAction({
   returns: v.null(),
   handler: (ctx) => withoutProviderDetails(ctx, async () => {
     const p = client();
+    await spend(ctx, billingModels.length);
     for (const model of billingModels) {
       await ctx.runMutation(internal.billing.saveProduct, await validateProduct(p, model));
     }
@@ -197,9 +203,10 @@ export const checkout = action({
     ctx.log.set("model", model);
     const destination = billingReturnUrl(returnUrl);
     await ctx.runQuery(internal.legal.requireAccepted, {});
-    const { p, customer } = await ownedCustomer(ctx);
+    await ctx.runMutation(internal.rateLimits.admit, { action: "checkout" });
     const lease = await ctx.runMutation(internal.billingState.beginOperation, {});
     try {
+      const { p, customer } = await ownedCustomer(ctx);
       await reconcile(ctx, customer.id);
       const { account } = await ctx.runQuery(internal.billingState.owned, {});
       const recurringActive = account?.status === "active" && model !== "lifetime";
@@ -249,6 +256,7 @@ export const portal = action({
     if (!account) {
       throw appError("CUSTOMER_NOT_FOUND");
     }
+    await ctx.runMutation(internal.rateLimits.admit, { action: "portal" });
     const { p, customer } = await ownedCustomer(ctx);
     const session = await p.customerSessions.create({ customer_id: customer.id, return_url: destination });
     return session.customer_portal_url;
@@ -260,9 +268,10 @@ export const changeSubscription = action({
   returns: v.null(),
   handler: (ctx, { operation }) => userFacing(ctx, async () => {
     ctx.log.set("change", operation);
-    const { p, customer } = await ownedCustomer(ctx);
+    await ctx.runMutation(internal.rateLimits.admit, { action: "changeSubscription" });
     const lease = await ctx.runMutation(internal.billingState.beginOperation, {});
     try {
+      const { p, customer } = await ownedCustomer(ctx);
       await reconcile(ctx, customer.id);
       const { account } = await ctx.runQuery(internal.billingState.owned, {});
       const subscriptionId = account?.subscriptionId;
@@ -312,6 +321,7 @@ export const recover = action({
   args: {},
   returns: v.null(),
   handler: (ctx) => userFacing(ctx, async () => {
+    await ctx.runMutation(internal.rateLimits.admit, { action: "recover" });
     const { customer } = await ownedCustomer(ctx);
     await reconcile(ctx, customer.id);
     return null;
@@ -398,6 +408,7 @@ export const withdraw = internalAction({
     ctx.log.setCustomer(withdrawal.customerId);
     let outcome: "refunded" | "waiting" | "failed";
     try {
+      await spend(ctx, 2 * withdrawal.refundOrderIds.length + 2);
       outcome = await refundWithdrawal(ctx, withdrawal);
     } catch (error) {
       outcome = "failed";
@@ -472,6 +483,7 @@ async function reconcile(ctx: ActionCtx, customerId: string) {
   let failed = false;
   let phase = "customer";
   try {
+    await spend(ctx, 4);
     const p = client();
     const customer = await retry(() => p.customers.get(customerId));
     belongs(customer, lease.account.externalId);
@@ -553,6 +565,7 @@ export const cleanupAccount = internalAction({
     ctx.log.setUser(userId);
     const { user, account } = await ctx.runQuery(internal.billingState.cleanupContext, { userId });
     const p = client();
+    await spend(ctx, 4);
     const externalId = externalCustomerId(user.tokenIdentifier);
     let customer: PolarModels.Customer;
     try {

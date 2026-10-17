@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import { hasErrorCode } from "@/convex/lib/errors";
 import { useAction } from "@/lib/convex";
+import { rateLimitMessage } from "@/lib/rate-limit";
 
 type SubscriptionOperation = FunctionArgs<typeof api.polar.changeSubscription>["operation"];
 type BillingAction = SubscriptionOperation | "portal";
@@ -99,7 +100,7 @@ export function useBillingActions() {
       toast.error("We couldn’t complete the billing request", {
         description: needsReactivation
           ? "Reactivate your subscription before switching plans."
-          : "Please try again or use the customer portal.",
+          : rateLimitMessage(error) ?? "Please try again or use the customer portal.",
         id: "billing-request-error",
       });
 

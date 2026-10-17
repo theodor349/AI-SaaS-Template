@@ -38,6 +38,7 @@ import type * as lib_users from "../lib/users.js";
 import type * as lib_withdrawal from "../lib/withdrawal.js";
 import type * as polar from "../polar.js";
 import type * as profile from "../profile.js";
+import type * as rateLimits from "../rateLimits.js";
 import type * as users from "../users.js";
 import type * as webhooks from "../webhooks.js";
 import type * as withdrawals from "../withdrawals.js";
@@ -79,6 +80,7 @@ declare const fullApi: ApiFromModules<{
   "lib/withdrawal": typeof lib_withdrawal;
   polar: typeof polar;
   profile: typeof profile;
+  rateLimits: typeof rateLimits;
   users: typeof users;
   webhooks: typeof webhooks;
   withdrawals: typeof withdrawals;
@@ -111,5 +113,6 @@ export declare const internal: FilterApi<
 >;
 
 export declare const components: {
+  rateLimiter: import("@convex-dev/rate-limiter/_generated/component.js").ComponentApi<"rateLimiter">;
   resend: import("@convex-dev/resend/_generated/component.js").ComponentApi<"resend">;
 };

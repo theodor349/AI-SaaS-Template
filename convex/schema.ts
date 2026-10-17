@@ -84,7 +84,7 @@ export default defineSchema(
     }).index("by_customerId", ["customerId"])
       .index("by_externalId", ["externalId"])
       .index("by_userId", ["userId"]),
-    // Reconciliation job state and the billing operation lock, one per customer.
+    // Reconciliation job state, one per customer.
     billingSync: defineTable({
       customerId: v.string(),
       requestedVersion: v.number(),
@@ -95,11 +95,19 @@ export default defineSchema(
       nextCheckAt: v.optional(v.number()),
       reconciledAt: v.optional(v.number()),
       failureCode: v.optional(v.string()),
+      // Retired: the operation lock moved to billingOperations. Optional so
+      // existing documents validate.
       operationLeaseUntil: v.optional(v.number()),
       lastDeliveryAt: v.optional(v.number()),
     }).index("by_customerId", ["customerId"])
       .index("by_nextCheckAt", ["nextCheckAt"])
       .index("by_failureCode", ["failureCode"]),
+    // The billing operation lock, one per user. It is per user rather than per
+    // customer so checkout can take it before a Polar customer exists.
+    billingOperations: defineTable({
+      userId: v.id("users"),
+      leaseUntil: v.number(),
+    }).index("by_userId", ["userId"]),
     billingSubscriptions: defineTable({
       customerId: v.string(), subscriptionId: v.string(), productId: v.string(),
       superseded: v.boolean(), status: v.string(), paidThrough: v.number(),

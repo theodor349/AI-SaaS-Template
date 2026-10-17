@@ -75,6 +75,7 @@ export const download = action({
   handler: async (ctx) => {
     const ownerId: Id<"users"> = await ctx.runQuery(internal.dataExport.owner, {});
     ctx.log.setUser(ownerId);
+    await ctx.runMutation(internal.rateLimits.admit, { action: "dataExport" });
     // A running total stops an oversized export before it exhausts action memory.
     let collected = 0;
     const sections: Record<string, Record<string, Value>> = {};

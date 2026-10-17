@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
 import { makeFunctionReference } from "convex/server";
 import { ConvexError } from "convex/values";
@@ -39,6 +40,7 @@ afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); vi.useRealTimers(); 
 
 async function setup() {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   const userId = await t.run(ctx => ctx.db.insert("users", {
     tokenIdentifier: `${issuer}|${fixture.clerkId}`, clerkId: fixture.clerkId, email: fixture.email,
     displayName: `${fixture.firstName} ${fixture.lastName}`, lifecycle: "active", profileUpdatedAt: 1, profileEventAt: 1,

@@ -12,6 +12,7 @@ import { Button, ButtonLabel } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ContentSkeleton, TextSkeleton } from "@/components/loading/content-skeleton";
 import { useAction } from "@/lib/convex";
+import { rateLimitMessage } from "@/lib/rate-limit";
 
 const exportDescription =
   "Download a copy of your profile, billing history, and account requests as a JSON file.";
@@ -81,7 +82,7 @@ function DataExportContent() {
       if (hasErrorCode(failure, "EXPORT_TOO_LARGE")) {
         setError(`Your data is too large to download here. Contact ${appConfig.supportEmail} for a copy.`);
       } else {
-        setError("We couldn’t prepare your export. Try again in a moment.");
+        setError(rateLimitMessage(failure) ?? "We couldn’t prepare your export. Try again in a moment.");
       }
     } finally {
       setIsExporting(false);
