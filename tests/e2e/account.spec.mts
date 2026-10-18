@@ -1,6 +1,7 @@
 import { clerk } from "@clerk/testing/playwright";
 import { expect, test } from "@playwright/test";
 import { ConvexHttpClient } from "convex/browser";
+import { createPolar } from "@polar-sh/sdk/2026-10";
 import { api, internal } from "../../convex/_generated/api";
 import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
@@ -87,4 +88,38 @@ test("provider deletion supersedes an open user request and completes cleanup", 
     await expect(page.getByRole("heading", { name: "Account", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Undo deletion" })).toHaveCount(0);
   } finally { if (!removed) await user.cleanup(); }
+});
+
+test("a deleted account's email can open checkout again on a new account", async ({ page }) => {
+  const first = await createClerkTestUser(local);
+  const polar = createPolar({ accessToken: local.env.POLAR_ACCESS_TOKEN, environment: "sandbox", organizationId: local.env.POLAR_ORGANIZATION_ID });
+  const { client: admin } = billingTestAdmin();
+  let second: Awaited<ReturnType<typeof createClerkTestUser>> | undefined;
+  let firstRemoved = false;
+  try {
+    // Opening checkout creates the first account's Polar customer.
+    await page.goto("/billing"); await clerk.signIn({ page, emailAddress: first.email });
+    await page.getByRole("button", { name: "Choose monthly" }).click();
+    await expect(page).toHaveURL(/https:\/\/sandbox\.polar\.sh\/checkout\//);
+    await page.goto(`${local.config.env.APP_URL}/billing`);
+    const userId = await adminQuery(admin, internal.account.users.byClerkId, { clerkId: first.id });
+    const { customerId } = (await adminQuery(admin, internal.billing.account.accountByUser, { userId: userId! }))!;
+    await clerk.signOut({ page });
+    await first.cleanup(); firstRemoved = true;
+    // The local Clerk instance has no loopback delivery, so drive its deletion consumer.
+    const requestId = await adminMutation(admin, internal.account.lifecycle.requestClerkDeletion, { clerkId: first.id, eventAt: Date.now(), deliveryId: `e2e-${first.id}` });
+    await expect.poll(async () => (await adminQuery(admin, internal.account.lifecycle.context, { requestId }))?.status).toBe("completed");
+    await expect(polar.customers.get(customerId)).rejects.toMatchObject({ statusCode: 404 });
+    // Polar allows one customer per email, so the new account's customer needs the old one gone.
+    second = await createClerkTestUser(local, { email: first.email });
+    await page.goto("/billing"); await clerk.signIn({ page, emailAddress: second.email });
+    await page.getByRole("button", { name: "Choose monthly" }).click();
+    await expect(page).toHaveURL(/https:\/\/sandbox\.polar\.sh\/checkout\//);
+  } finally {
+    try {
+      if (!firstRemoved) await first.cleanup();
+    } finally {
+      await second?.cleanup();
+    }
+  }
 });
