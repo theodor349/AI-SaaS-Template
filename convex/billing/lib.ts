@@ -1,10 +1,10 @@
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { env } from "../_generated/server";
 import { billingModels, type BillingModel } from "./plans";
 import { appError } from "../lib/errors";
 import type { QueryCtx } from "../lib/functions";
 import { hasAcceptedCurrent } from "../account/legalVersions";
-import { requireUser } from "../lib/users";
+import { isActive, requireUser } from "../lib/users";
 
 // Failed reconciliations retry themselves this many times with backoff. Later
 // retries come from the scheduled sweep and are no longer shown as retrying.
@@ -77,15 +77,27 @@ export async function operationForUser(ctx: Pick<QueryCtx, "db">, userId: Id<"us
 // also requires the current terms; account, billing, and deletion functions don't.
 export async function requirePro(ctx: QueryCtx, now?: number) {
   const user = await requireUser(ctx);
-  const account = await accountForUser(ctx, user._id);
-  const expired = now !== undefined && account?.paidThrough !== undefined && account.paidThrough <= now;
-  if (account?.status !== "active" || expired) {
+  if (!hasPaidAccess(await accountForUser(ctx, user._id), now)) {
     throw appError("PAID_ACCESS_REQUIRED");
   }
   if (!hasAcceptedCurrent(user.legalAcceptance)) {
     throw appError("LEGAL_ACCEPTANCE_REQUIRED");
   }
   return user;
+}
+
+function hasPaidAccess(account: Doc<"billingAccounts"> | null, now?: number) {
+  const expired = now !== undefined && account?.paidThrough !== undefined && account.paidThrough <= now;
+  return account?.status === "active" && !expired;
+}
+
+// Whether any user, not only the caller, has paid for Pro and their account is
+// active, for decisions about someone else such as limits on a shared resource.
+// Pass `now` from mutations and actions, as with requirePro. Unlike requirePro it
+// ignores legal acceptance, which gates the user's own use of the product rather
+// than whether they paid. Never throws.
+export async function hasPaidPro(ctx: Pick<QueryCtx, "db">, userId: Id<"users">, now?: number) {
+  return hasPaidAccess(await accountForUser(ctx, userId), now) && isActive(await ctx.db.get("users", userId));
 }
 
 export function billingReturnUrl(value: string) {

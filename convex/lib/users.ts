@@ -45,11 +45,16 @@ export async function requireOwner(ctx: CallerCtx) {
   return user;
 }
 
+// Whether the account is in use, rather than being deleted.
+export function isActive(user: Doc<"users"> | null) {
+  return user?.lifecycle === "active";
+}
+
 // A provisioned caller whose account is active.
 export async function requireUser(ctx: CallerCtx) {
   const user = await getCurrentUser(ctx);
   if (!user?.email) throw appError("PROVISIONING_REQUIRED");
-  if (user.lifecycle !== "active") throw appError("ACCOUNT_UNAVAILABLE");
+  if (!isActive(user)) throw appError("ACCOUNT_UNAVAILABLE");
   return user;
 }
 

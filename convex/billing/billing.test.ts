@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { PolarClientError, PolarNetworkError } from "@polar-sh/sdk";
 import { api, internal } from "../_generated/api";
 import schema from "../schema";
-import { billingReturnUrl, externalCustomerId, externalIdTokenIdentifier } from "./lib";
+import { billingReturnUrl, externalCustomerId, externalIdTokenIdentifier, hasPaidPro } from "./lib";
 import { retryAfter } from "../lib/errors";
 import { legalVersions } from "../account/legalVersions";
 import { modules } from "../test.setup";
@@ -132,6 +132,29 @@ test("anonymous and unpaid callers cannot invoke paid application queries; provi
   }
   await expect(t.action(api.billing.polar.checkout, { model: "monthly", returnUrl: "/billing" })).rejects.toThrow("UNAUTHENTICATED");
   expect(await t.query(api.billing.catalog.products, {})).toEqual([]);
+});
+
+test("hasPaidPro reports another user's paid access without throwing", async () => {
+  const t = setup();
+  const userId = await provision(t);
+  const now = Date.now();
+  const paid = () => t.run(ctx => hasPaidPro(ctx, userId, now));
+  expect(await paid()).toBe(false);
+  const accountId = await t.run(ctx => ctx.db.insert("billingAccounts", { customerId: "customer-a", userId,
+    status: "active", paidThrough: now + 1000, cancelAtPeriodEnd: false, revision: 1 }));
+  expect(await paid()).toBe(true);
+  // Terms the user has not accepted yet don't change whether they paid.
+  await t.run(ctx => ctx.db.patch("users", userId, { legalAcceptance: undefined }));
+  expect(await paid()).toBe(true);
+  // Without `now`, as in a query, materialized expiry decides.
+  await t.run(ctx => ctx.db.patch("billingAccounts", accountId, { paidThrough: now }));
+  expect(await paid()).toBe(false);
+  expect(await t.run(ctx => hasPaidPro(ctx, userId))).toBe(true);
+  await t.run(ctx => ctx.db.patch("billingAccounts", accountId, { paidThrough: now + 1000, status: "ended" }));
+  expect(await paid()).toBe(false);
+  await t.run(ctx => ctx.db.patch("billingAccounts", accountId, { status: "active" }));
+  await t.run(ctx => ctx.db.patch("users", userId, { lifecycle: "deletion_requested" }));
+  expect(await paid()).toBe(false);
 });
 
 test.each(["cancel", "reactivate"] as const)("repeating %s confirms provider state without issuing a rejected update", async operation => {
