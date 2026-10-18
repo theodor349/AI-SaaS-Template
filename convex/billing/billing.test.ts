@@ -11,7 +11,7 @@ import { legalVersions } from "../account/legalVersions";
 import { modules } from "../test.setup";
 
 const provider = vi.hoisted(() => ({
-  customers: { get: vi.fn(), getExternal: vi.fn(), create: vi.fn() },
+  customers: { get: vi.fn(), getExternal: vi.fn(), create: vi.fn(), delete: vi.fn() },
   products: { get: vi.fn() },
   checkouts: { list: vi.fn(), create: vi.fn() },
   customerSessions: { create: vi.fn() },
@@ -27,6 +27,7 @@ const externalId = `wt-test:${tokenIdentifier}`;
 let subscriptions: ReturnType<typeof sub>[];
 let orders: ReturnType<typeof order>[];
 let customer: { id: string; external_id: string | null; metadata: { worktree_id: string } };
+let customerDeleted: boolean;
 const start = Date.now() - 1000;
 const end = Date.now() + 30 * 24 * 60 * 60_000;
 function sub(product = "monthly", cancel = false) {
@@ -80,9 +81,16 @@ beforeEach(() => {
   vi.stubEnv("POLAR_ORGANIZATION_ID", ""); vi.stubEnv("CLERK_JWT_ISSUER_DOMAIN", "https://clerk.example");
   subscriptions = [sub()]; orders = [order()];
   customer = { id: "customer-a", external_id: externalId, metadata: { worktree_id: "wt-test" } };
-  provider.customers.get.mockImplementation(async () => customer);
-  provider.customers.getExternal.mockImplementation(async () => customer);
+  // Polar answers 404 for a deleted customer.
+  customerDeleted = false;
+  const current = async () => {
+    if (customerDeleted) throw new PolarClientError(404, { detail: "Not Found" });
+    return customer;
+  };
+  provider.customers.get.mockImplementation(current);
+  provider.customers.getExternal.mockImplementation(current);
   provider.customers.create.mockImplementation(async () => customer);
+  provider.customers.delete.mockImplementation(async () => { customerDeleted = true; });
   provider.products.get.mockImplementation(async (id: string) => ({ id, name: id, is_archived: false,
     is_recurring: id !== "lifetime", recurring_interval: id === "monthly" ? "month" : id === "yearly" ? "year" : null,
     recurring_interval_count: id === "lifetime" ? null : 1,
@@ -669,6 +677,8 @@ test("seven day deadline commits deletion, confirms revocation before identity r
   expect(provider.subscriptions.revoke).toHaveBeenCalledWith("sub-a");
   expect(fetchSpy).not.toHaveBeenCalled();
   await t.action(internal.account.lifecycle.process, { requestId: request._id });
+  // Deleting the Polar customer frees its email for a new sign-up.
+  expect(provider.customers.delete).toHaveBeenCalledWith("customer-a", { anonymize: true });
   expect(fetchSpy).toHaveBeenCalledWith("https://api.clerk.com/v1/users/alice", expect.objectContaining({ method: "DELETE" }));
   const user = await t.run(ctx => ctx.db.get("users", userId));
   expect((await alice(t).query(api.billing.account.status, {})).readiness).toBe("deleting");
@@ -677,10 +687,28 @@ test("seven day deadline commits deletion, confirms revocation before identity r
   expect(await t.run(ctx => ctx.db.query("billingOrders").take(10))).toEqual([]);
   await t.action(internal.account.lifecycle.process, { requestId: request._id });
   expect(fetchSpy).toHaveBeenCalledTimes(1);
-  // Delayed paid data cannot resurrect entitlement or restore erased history.
+  // Delayed events for the deleted customer cannot resurrect entitlement,
+  // restore erased history, or leave a reconciliation retrying.
   await link(t); await reconcile(t);
   expect((await state(t))?.status).toBe("ended");
   expect(await t.run(ctx => ctx.db.query("billingOrders").take(10))).toEqual([]);
+  expect((await sync(t))?.failureCode).toBeUndefined();
+});
+
+test("a lost customer deletion response is retried as already deleted and still finishes erasure", async () => {
+  const t = setup(); const userId = await provision(t); await link(t); await reconcile(t);
+  vi.stubEnv("CLERK_SECRET_KEY", "test-key");
+  const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 200 }));
+  subscriptions[0].status = "canceled";
+  provider.customers.delete.mockImplementationOnce(async () => { customerDeleted = true; throw new Error("response lost"); });
+  await alice(t).mutation(api.account.lifecycle.requestDeletion, {});
+  const request = await deletionRequest(t); vi.setSystemTime(request.deleteAfter!);
+  await t.action(internal.account.lifecycle.process, { requestId: request._id });
+  expect(fetchSpy).not.toHaveBeenCalled();
+  await t.action(internal.account.lifecycle.process, { requestId: request._id });
+  expect(provider.customers.delete).toHaveBeenCalledTimes(1);
+  expect(fetchSpy).toHaveBeenCalledTimes(1);
+  expect((await t.run(ctx => ctx.db.get("users", userId)))?.lifecycle).toBe("deleted");
 });
 
 test("provider failures retry without falsely confirming cancellation or completing deletion", async () => {
@@ -710,7 +738,7 @@ test("Clerk deletion supersedes the recovery window and never deletes the alread
 
 test("expired, refunded and revoked recovery never grants paid access; lifetime closes only after the window", async () => {
   for (const model of ["awaiting", "expired", "refunded", "revoked", "cancelled", "lifetime"] as const) {
-    const t = setup(); await provision(t); await link(t);
+    const t = setup(); await provision(t); await link(t); customerDeleted = false;
     subscriptions = model === "awaiting" || model === "lifetime" ? [] : [sub("monthly", model === "cancelled")];
     orders = model === "awaiting" ? [] : [order(model === "lifetime" ? "lifetime" : "monthly", "order-a", model === "lifetime" ? null : "sub-a")];
     if (model === "refunded") { orders[0].status = "refunded"; orders[0].refunded_amount = 1000; }
