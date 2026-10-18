@@ -25,7 +25,7 @@ Set these environment variables for **Production only**:
 
 | Variable | Value |
 | --- | --- |
-| `CONVEX_DEPLOY_KEY` | Production deployment key generated in Convex; grant `deployment:deploy`. |
+| `CONVEX_DEPLOY_KEY` | Production deployment key generated in Convex; grant `deployment:deploy` and write access to environment variables, which the build needs to [pause the app](#pausing-the-app). |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Existing Clerk development publishable key (`pk_test_...`). |
 | `CLERK_SECRET_KEY` | Matching Clerk development secret key (`sk_test_...`). |
 | `NEXT_PUBLIC_APP_URL` | The Vercel project's stable application URL. The build needs it to render the legal pages. |
@@ -35,6 +35,7 @@ Set these environment variables for **Production only**:
 | `NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE` | Optional share of page loads and navigations traced, between 0 and 1; defaults to 1. |
 | `SENTRY_AUTH_TOKEN` | Optional. A Sentry organization auth token, for uploading source maps. |
 | `SENTRY_ORG`, `SENTRY_PROJECT` | The organization and project slugs the source maps belong to. Needed with `SENTRY_AUTH_TOKEN`. |
+| `MAINTENANCE_MODE` | Optional. `1` pauses the app in this build; see [pausing the app](#pausing-the-app). Any other value fails the build. |
 | `CSP_REPORT_ONLY` | Optional. `1` sends the Content Security Policy as report-only, so violations are reported (to Sentry, with a DSN) but not blocked; see [security headers](internals/security-headers.md). |
 
 Next.js reports errors from server components, route handlers, Server Functions,
@@ -134,6 +135,36 @@ Keep the local bootstrap's Polar forwarding separate. The hosted endpoint needs
 to receive events even when no local environment is running. Shared sandbox
 events reach multiple listeners; billing ignores customers from other deployment
 namespaces. Changing shared products affects every environment using them.
+
+## Pausing the app
+
+Pause the app during a migration or any other change that must not race with
+users' edits. While it is paused, the landing and legal pages stay up with their
+plan buttons disabled. Sign-in, sign-up, checkout, and every signed-in page show
+a maintenance notice at their usual address.
+
+To pause, set `MAINTENANCE_MODE=1` in Vercel's Production environment and
+redeploy `main`. To resume, remove it and redeploy. Next.js reads the variable at
+build time, so each change needs a deployment.
+
+After a successful build, `pnpm build:vercel` copies the value to the Convex
+production deployment, or removes it there. While it is set, every public mutation
+and action fails with the `MAINTENANCE_MODE` error code, including calls from tabs
+opened before the paused frontend deployed. Queries, internal functions, crons,
+and the Clerk and Polar webhooks keep running, so provider events aren't lost and
+migrations can write. Start the migration once the paused deployment is live.
+
+Vercel is the only switch. A value set by hand on Convex lasts until the next
+deployment of `main` replaces it with Vercel's.
+
+The app hides its sign-up form, but Clerk's hosted pages still accept new
+accounts, and the Clerk webhook records them. If no account may be created at
+all, also turn on restricted sign-up mode in Clerk.
+
+To try the paused app in a worktree, add `MAINTENANCE_MODE=1` to that worktree's
+own `.env.bootstrap.local` and restart bootstrap; the main checkout's file can't
+pause other worktrees. Bootstrap sets or removes the variable on the local Convex
+deployment to match.
 
 ## Checks and launch
 

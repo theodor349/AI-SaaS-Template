@@ -162,7 +162,11 @@ async function runServices({ root, config, credentials, polar, browserEnv, env, 
     const hostArgs = (start, ...flags) => ["dev", "--until-success", "--tail-logs", "disable", ...flags, "--start", start,
       "--local-cloud-port", String(config.ports.convex), "--local-site-port", String(config.ports.site)];
     const backendHealthUrl = `${config.env.NEXT_PUBLIC_CONVEX_URL}/version`;
-    const setBackendEnvironment = (runner) => runner.run(["env", "set", "--from-file", backendEnvFile, "--force"], { command: tool("convex") });
+    // `env set` never unsets a variable, so turning maintenance mode off removes it.
+    const setBackendEnvironment = async (runner) => {
+      await runner.run(["env", "set", "--from-file", backendEnvFile, "--force"], { command: tool("convex") });
+      if (!backendEnv.MAINTENANCE_MODE) await runner.run(["env", "remove", "MAINTENANCE_MODE"], { command: tool("convex") });
+    };
     // Lives beside the database, so pnpm db:reset clears it with the environment it records.
     const appliedEnvFile = join(dirname(stateFile), "bootstrap-env.sha256");
     const envDigest = createHash("sha256").update(JSON.stringify(backendEnv)).digest("hex");

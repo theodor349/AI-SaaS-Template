@@ -8,6 +8,7 @@ import { usePathname } from "next/navigation";
 import { LayoutDashboard, LogIn, UserPlus } from "lucide-react";
 import { appConfig } from "@/app.config";
 import { AUTHENTICATED_DESTINATION } from "@/lib/auth";
+import { maintenanceMode } from "@/lib/maintenance";
 import { cn } from "@/lib/utils";
 import { ProfileMenu } from "./profile-menu";
 import styles from "./site-navigation.module.css";
@@ -31,7 +32,7 @@ export function SiteNavigation() {
             <Image src="/icon.svg" alt="" width={36} height={36} loading="eager" />
             <span>{appConfig.appName}</span>
           </Link>
-          {isSignedIn && pages.map(({ href, label, icon: Icon }) => {
+          {isSignedIn && !maintenanceMode && pages.map(({ href, label, icon: Icon }) => {
             if (label === "Dashboard" && pending) {
               return (
                 <span key={href} aria-hidden="true" className={cn(styles.pageLink, styles.disabledLink)}>
@@ -51,7 +52,7 @@ export function SiteNavigation() {
         </div>
         <div className={styles.controls}>
           {!isLoaded && <span className={styles.avatarPending} role="status" aria-label="Loading navigation" />}
-          {isLoaded && !isSignedIn && <GuestControls />}
+          {isLoaded && !isSignedIn && !maintenanceMode && <GuestControls />}
           {isLoaded && isSignedIn && <ProfileMenu />}
         </div>
       </nav>

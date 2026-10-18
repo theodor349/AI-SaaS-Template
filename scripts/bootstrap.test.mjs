@@ -364,6 +364,26 @@ test("generated Clerk signing secrets stay local while explicit overrides can be
   }
 });
 
+test("only the worktree's own settings pause it, and removing the setting resumes it", () => {
+  const fixture = realpathSync(mkdtempSync(join(tmpdir(), "bootstrap maintenance ")));
+  const mainRoot = join(fixture, "main");
+  const worktreeRoot = join(fixture, "worktree");
+  for (const root of [mainRoot, worktreeRoot]) mkdirSync(root);
+  try {
+    writeFileSync(join(mainRoot, ".env.bootstrap.local"), environmentFile({ ...credentials, MAINTENANCE_MODE: "1" }));
+    assert.equal(worktreeCredentials(worktreeRoot, mainRoot, false, {}).MAINTENANCE_MODE, undefined);
+    writeFileSync(join(worktreeRoot, ".env.bootstrap.local"), environmentFile({ MAINTENANCE_MODE: "1" }));
+    const paused = worktreeCredentials(worktreeRoot, mainRoot, false, {});
+    assert.equal(paused.MAINTENANCE_MODE, "1");
+    // The generated .env.local from the paused run must not keep the worktree paused.
+    writeFileSync(join(worktreeRoot, ".env.local"), environmentFile({ ...paused, ...worktreeConfig(worktreeRoot).env }));
+    rmSync(join(worktreeRoot, ".env.bootstrap.local"));
+    assert.equal(worktreeCredentials(worktreeRoot, mainRoot, false, {}).MAINTENANCE_MODE, undefined);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
 test("BOOTSTRAP_PORT_BLOCK moves loopback and Tailscale ports without changing the worktree identity", () => {
   const fixture = realpathSync(mkdtempSync(join(tmpdir(), "bootstrap ports ")));
   const mainRoot = join(fixture, "main");
