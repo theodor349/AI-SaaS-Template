@@ -24,12 +24,13 @@ export async function withProviderRetry(operation) {
   }
 }
 
-export async function createClerkTestUser({ config, env }, { purpose = "local-agent-test" } = {}) {
+// Pass `email` to sign up again with the address of a deleted test user.
+export async function createClerkTestUser({ config, env }, { purpose = "local-agent-test", email = /** @type {string | undefined} */ (undefined) } = {}) {
   if (!TEST_USER_PURPOSES.includes(purpose)) throw new Error(`Unknown Clerk test-user purpose: ${purpose}`);
   const client = clerkBackend(env);
   const label = `${config.id}-${randomUUID().slice(0, 8)}`;
   // Clerk recognizes +clerk_test; Polar also requires a domain with valid MX.
-  const email = `${label}+clerk_test@gmail.com`;
+  email ??= `${label}+clerk_test@gmail.com`;
   const firstName = `Test ${randomUUID().slice(0, 8).replace(/[0-9]/g, digit => String.fromCharCode(97 + Number(digit)))}`;
   let user;
   try {
