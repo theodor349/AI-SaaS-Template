@@ -17,6 +17,8 @@ export const backendEnvKeys = [
   "LOG_SAMPLE_RATE_QUERY", "LOG_SAMPLE_RATE_MUTATION", "LOG_SAMPLE_RATE_ACTION",
   // Never read from credentials, so local stacks send no email.
   "RESEND_API_KEY", "EMAIL_FROM", "OPERATOR_ALERT_EMAIL",
+  // Read from this worktree's .env.bootstrap.local, so it can try the paused app.
+  "MAINTENANCE_MODE",
 ];
 const localBlocks = 12000;
 const tailscaleBlocks = 5000;
@@ -153,10 +155,11 @@ export function saveEnvironment(file, values) {
 }
 
 // Blank optional settings in a copied template keep inherited configuration.
+// worktreeCredentials reads the worktree-only settings separately.
 function credentialOverrides(values) {
   const inheritedWhenBlank = ["CLERK_WEBHOOK_SIGNING_SECRET", "POLAR_ORGANIZATION_ID", ...polarProductKeys];
   return Object.fromEntries(Object.entries(values).filter(([key, value]) =>
-    key !== "BOOTSTRAP_PORT_BLOCK" && (!inheritedWhenBlank.includes(key) || value !== "")));
+    !["BOOTSTRAP_PORT_BLOCK", "MAINTENANCE_MODE"].includes(key) && (!inheritedWhenBlank.includes(key) || value !== "")));
 }
 
 export function worktreeCredentials(root, mainRoot, polar = true, inherited = process.env) {
@@ -169,12 +172,16 @@ export function worktreeCredentials(root, mainRoot, polar = true, inherited = pr
   const providerKeys = Object.fromEntries(Object.entries(mainKeys).filter(([key]) =>
     providerNames.includes(key) && key !== "CLERK_WEBHOOK_SIGNING_SECRET"));
   const localKeys = readEnvironment(join(root, ".env.local"));
+  const worktreeSettings = readEnvironment(join(root, ".env.bootstrap.local"));
   // Re-derive generated issuers after a worktree overrides its Clerk key pair.
   if (localKeys.WORKTREE_ID === worktreeId(root)) delete localKeys.CLERK_JWT_ISSUER_DOMAIN;
   return developmentCredentials({
     ...credentialOverrides(providerKeys), ...credentialOverrides(sharedKeys), ...credentialOverrides(localKeys),
-    ...credentialOverrides(readEnvironment(join(root, ".env.bootstrap.local"))),
+    ...credentialOverrides(worktreeSettings),
     ...credentialOverrides(Object.fromEntries(Object.entries(inherited).filter(([key]) => providerNames.includes(key)))),
+    // Pausing comes only from this worktree's .env.bootstrap.local: a main-checkout value
+    // would pause every worktree, and the generated .env.local would keep it paused.
+    ...(worktreeSettings.MAINTENANCE_MODE && { MAINTENANCE_MODE: worktreeSettings.MAINTENANCE_MODE }),
   }, polar, join(mainRoot, ".env.bootstrap.local"));
 }
 

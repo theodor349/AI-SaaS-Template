@@ -35,6 +35,7 @@ Set these environment variables for **Production only**:
 | `NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE` | Optional share of page loads and navigations traced, between 0 and 1; defaults to 1. |
 | `SENTRY_AUTH_TOKEN` | Optional. A Sentry organization auth token, for uploading source maps. |
 | `SENTRY_ORG`, `SENTRY_PROJECT` | The organization and project slugs the source maps belong to. Needed with `SENTRY_AUTH_TOKEN`. |
+| `MAINTENANCE_MODE` | Optional. `1` pauses the app in this build; see [pausing the app](#pausing-the-app). Any other value fails the build. |
 | `CSP_REPORT_ONLY` | Optional. `1` sends the Content Security Policy as report-only, so violations are reported (to Sentry, with a DSN) but not blocked; see [security headers](internals/security-headers.md). |
 
 Next.js reports errors from server components, route handlers, Server Functions,
@@ -84,6 +85,7 @@ On the Convex project's **production deployment**, set:
 | `POLAR_PRODUCT_LIFETIME` | One-time fixed-price sandbox product ID. |
 | `POLAR_WEBHOOK_SECRET` | Signing secret of the dedicated hosted Polar webhook below. |
 | `LOG_SAMPLE_RATE_QUERY`, `LOG_SAMPLE_RATE_MUTATION`, `LOG_SAMPLE_RATE_ACTION` | Optional success-event sampling, between 0 and 1; see [logging](internals/logging.md#sampling-and-attention). |
+| `MAINTENANCE_MODE` | Optional. `1` refuses every public mutation and action; see [pausing the app](#pausing-the-app). |
 | `RESEND_API_KEY` | A Resend API key with sending access. Required by law for withdrawal receipts; see [legal documents](internals/legal-documents.md#withdrawal-function). |
 | `EMAIL_FROM` | The sender, e.g. `AI SaaS Template <receipts@example.com>`, on a domain verified in Resend. |
 | `OPERATOR_ALERT_EMAIL` | Where operator alerts go, such as a user withdrawing more than once. This repository's hosted deployment uses `theodor@justenoughtsolutions.com`; set your own operator's address. Without it, or without Resend, the event records an admin action instead. |
@@ -134,6 +136,41 @@ Keep the local bootstrap's Polar forwarding separate. The hosted endpoint needs
 to receive events even when no local environment is running. Shared sandbox
 events reach multiple listeners; billing ignores customers from other deployment
 namespaces. Changing shared products affects every environment using them.
+
+## Pausing the app
+
+Pause the app during a migration or any other change that must not race with
+users' edits. While it is paused, the landing and legal pages stay up with their
+plan buttons disabled. Sign-in, sign-up, checkout, and every signed-in page show
+a maintenance notice at their usual address.
+
+The Next.js build and the Convex deployment each read their own environment, so
+the pause has two switches:
+
+- `MAINTENANCE_MODE=1` in Vercel's Production environment controls what visitors
+  see. Next.js reads it at build time, so it takes effect with the next deployment
+  of `main`, and removing it needs another deployment.
+- `MAINTENANCE_MODE=1` on the Convex production deployment stops the writes. It
+  applies immediately: every public mutation and action fails with the
+  `MAINTENANCE_MODE` error code, including calls from tabs opened before the new
+  frontend deployed. Queries, internal functions, crons, and the Clerk and Polar
+  webhooks keep running, so provider events aren't lost and migrations can write.
+  `convex deploy` leaves this variable unchanged.
+
+To pause, set the Vercel variable and redeploy, then run
+`pnpm exec convex env set MAINTENANCE_MODE 1 --prod` before the migration starts.
+To resume, run `pnpm exec convex env remove MAINTENANCE_MODE --prod` after the
+migration, then remove the Vercel variable and redeploy. In this order, visitors
+see the notice instead of failed saves.
+
+The app hides its sign-up form, but Clerk's hosted pages still accept new
+accounts, and the Clerk webhook records them. If no account may be created at
+all, also turn on restricted sign-up mode in Clerk.
+
+To try the paused app in a worktree, add `MAINTENANCE_MODE=1` to that worktree's
+own `.env.bootstrap.local` and restart bootstrap; the main checkout's file can't
+pause other worktrees. Bootstrap sets or removes the variable on the local Convex
+deployment to match.
 
 ## Checks and launch
 

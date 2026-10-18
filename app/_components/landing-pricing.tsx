@@ -1,4 +1,6 @@
 import { Pricing } from "@/components/billing/pricing";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { maintenanceMode } from "@/lib/maintenance";
 
 export function LandingPricing() {
   return (
@@ -8,8 +10,16 @@ export function LandingPricing() {
         <h2 id="pricing-heading" className="text-3xl font-semibold tracking-tight sm:text-4xl">Choose how you get started.</h2>
         <p className="max-w-xl leading-relaxed text-muted-foreground">Every plan includes the same Pro access. Choose a subscription or pay once for lifetime access.</p>
       </div>
-      <Pricing onboarding />
-      <p className="text-sm leading-relaxed text-muted-foreground">Choose your plan, create an account, and complete checkout. Pro access starts after payment is confirmed.</p>
+      {maintenanceMode && (
+        <Alert>
+          <AlertTitle>Sign-ups and purchases are paused</AlertTitle>
+          <AlertDescription>We’re making a few changes. Plans will be available again soon.</AlertDescription>
+        </Alert>
+      )}
+      <Pricing onboarding disabled={maintenanceMode} />
+      {!maintenanceMode && (
+        <p className="text-sm leading-relaxed text-muted-foreground">Choose your plan, create an account, and complete checkout. Pro access starts after payment is confirmed.</p>
+      )}
     </section>
   );
 }

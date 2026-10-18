@@ -8,6 +8,14 @@ function sentryDsn() {
   return `${protocol}//e2e@${host}/e2e/sentry/1`;
 }
 
+// MAINTENANCE_MODE=1 pauses the app for this build; see docs/deployment.md#pausing-the-app.
+// Any other value fails the build rather than silently leaving the app running.
+function maintenanceMode() {
+  const value = process.env.MAINTENANCE_MODE ?? "";
+  if (value !== "" && value !== "1") throw new Error(`MAINTENANCE_MODE must be 1 or unset, not "${value}".`);
+  return value;
+}
+
 // Sent with every response, static files included. The Content Security Policy,
 // including frame-ancestors 'none', is set per page in proxy.ts.
 const securityHeaders = [
@@ -43,6 +51,8 @@ const nextConfig = {
     NEXT_PUBLIC_SENTRY_RELEASE: process.env.VERCEL_GIT_COMMIT_SHA ?? "",
     // Read by components/pwa/service-worker.tsx so each deploy updates the worker.
     NEXT_PUBLIC_DEPLOYMENT_VERSION: process.env.VERCEL_DEPLOYMENT_ID || process.env.VERCEL_GIT_COMMIT_SHA || "",
+    // Read through lib/maintenance.ts.
+    NEXT_PUBLIC_MAINTENANCE_MODE: maintenanceMode(),
   },
 }
 

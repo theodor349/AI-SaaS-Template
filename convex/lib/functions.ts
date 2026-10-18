@@ -2,6 +2,7 @@ import { customAction, customMutation, customQuery, type CustomCtx } from "conve
 import { getFunctionAddress, type FunctionReference, type Scheduler } from "convex/server";
 import { v } from "convex/values";
 import {
+  env,
   action as rawAction,
   httpAction as rawHttpAction,
   internalAction as rawInternalAction,
@@ -12,6 +13,7 @@ import {
   type ActionCtx as RawActionCtx,
   type MutationCtx as RawMutationCtx,
 } from "../_generated/server";
+import { appError } from "./errors";
 import { flowValidator, RequestLog, startFlow, type Flow, type FunctionKind } from "./log";
 
 // Every Convex function is registered through these builders, which emit one
@@ -73,13 +75,17 @@ function actionContext(ctx: RawActionCtx, flow: Flow | undefined, { operation }:
 type Definition = LogOptions & { handler: (ctx: { log: RequestLog }, args: object) => unknown };
 
 // Emits the event when the handler settles and rethrows the original error,
-// so clients still receive typed `appError` codes.
-function withEvents<Builder>(kind: FunctionKind, builder: Builder): Builder {
+// so clients still receive typed `appError` codes. `pausable` builders refuse
+// to run while MAINTENANCE_MODE is set, so no browser, including a tab opened
+// before the pause, can change data. Queries, internal functions, webhooks,
+// and crons keep running.
+function withEvents<Builder>(kind: FunctionKind, builder: Builder, { pausable = false } = {}): Builder {
   const register = builder as unknown as (definition: Definition) => unknown;
   return ((definition: Definition) => register({
     ...definition,
     handler: async (ctx, args) => {
       try {
+        if (pausable && env.MAINTENANCE_MODE === "1") throw appError("MAINTENANCE_MODE");
         const result = await definition.handler(ctx, args);
         ctx.log.emit(kind, { alwaysLog: definition.alwaysLog });
         return result;
@@ -109,9 +115,9 @@ const actionLog = {
 
 export const query = withEvents("query", customQuery(rawQuery, queryLog));
 export const internalQuery = withEvents("query", customQuery(rawInternalQuery, queryLog));
-export const mutation = withEvents("mutation", customMutation(rawMutation, mutationLog));
+export const mutation = withEvents("mutation", customMutation(rawMutation, mutationLog), { pausable: true });
 export const internalMutation = withEvents("mutation", customMutation(rawInternalMutation, mutationLog));
-export const action = withEvents("action", customAction(rawAction, actionLog));
+export const action = withEvents("action", customAction(rawAction, actionLog), { pausable: true });
 export const internalAction = withEvents("action", customAction(rawInternalAction, actionLog));
 
 export type QueryCtx = CustomCtx<typeof query>;

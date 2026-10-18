@@ -3,7 +3,9 @@ import type { Metadata } from "next";
 import { BackLink } from "@/components/layout/back-link";
 import { Link } from "@/components/typography/link";
 import { isBillingModel } from "@/convex/billing/plans";
+import { maintenanceMode } from "@/lib/maintenance";
 import { noIndex } from "@/lib/seo";
+import { MaintenanceNotice } from "../../_components/maintenance-notice";
 import { SelectedPlan } from "./_components/selected-plan";
 
 export const metadata: Metadata = { title: "Sign up", robots: noIndex };
@@ -23,6 +25,7 @@ function chosenPlan(redirectUrl: string | string[] | undefined) {
 export default async function SignUpPage({ searchParams }: {
   searchParams: Promise<{ redirect_url?: string | string[] }>;
 }) {
+  if (maintenanceMode) return <MaintenanceNotice />;
   const plan = chosenPlan((await searchParams).redirect_url);
   return (
     <main className="flex min-h-screen flex-col gap-6">

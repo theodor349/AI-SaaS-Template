@@ -5,6 +5,7 @@ import { ConvexReactClient } from "convex/react";
 import { ConvexProviderWithClerk } from "convex/react-clerk";
 import { useAuth } from "@clerk/nextjs";
 import { UserProvisioning } from "@/components/UserProvisioning";
+import { maintenanceMode } from "@/lib/maintenance";
 
 const convex = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
@@ -21,7 +22,8 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
   const key = !scopes || scopes.current === scopes.first ? "first" : scopes.current;
   return (
     <ConvexProviderWithClerk key={key} client={convex} useAuth={useAuth}>
-      <UserProvisioning />
+      {/* Provisioning writes to Convex, which refuses writes during maintenance. */}
+      {!maintenanceMode && <UserProvisioning />}
       {children}
     </ConvexProviderWithClerk>
   );

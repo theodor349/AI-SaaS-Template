@@ -2,7 +2,9 @@ import { auth } from "@clerk/nextjs/server";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { AuthBoundary } from "@/components/auth/auth-boundary";
+import { maintenanceMode } from "@/lib/maintenance";
 import { noIndex } from "@/lib/seo";
+import { MaintenanceNotice } from "../_components/maintenance-notice";
 
 export const metadata: Metadata = { robots: noIndex };
 
@@ -12,6 +14,8 @@ export const metadata: Metadata = { robots: noIndex };
 // server must call `auth.protect()` itself, because this layout does not re-run on
 // navigation between its pages.
 export default async function ProtectedLayout({ children }: { children: ReactNode }) {
+  // Before auth, so signed-out visitors aren't sent to the paused sign-in page.
+  if (maintenanceMode) return <MaintenanceNotice />;
   // Sends signed-out visitors to sign-in with a return-to URL.
   await auth.protect();
   // Covers sessions that end while a page is open. Pages keep their shell while auth
