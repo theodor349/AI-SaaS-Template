@@ -2,7 +2,7 @@
 title: Privacy Policy
 description: How {{COMPANY_NAME}} collects, uses, and protects personal data in {{APP_NAME}}.
 version: 1
-effective: 2026-10-15
+effective: 2026-10-18
 ---
 
 This policy explains how we process personal data when you use {{APP_NAME}} at {{APP_URL}}. We follow the EU General Data Protection Regulation (GDPR) and the Danish Data Protection Act (databeskyttelsesloven).
@@ -40,8 +40,8 @@ These providers are based in the United States, so your data may be transferred 
 
 ## How long we keep it
 
-- **Your account and application data:** for as long as you have an account. When you delete your account on the Account page, you have 7 days to change your mind. After that, we erase your profile and application data and delete your sign-in account at Clerk. We keep a record without your name or email that the account was deleted, so that delayed messages from our providers can't recreate it.
-- **Billing records:** Polar keeps its own payment and tax records as merchant of record. We keep our accounting records for 5 years after the end of the financial year, as the Danish Bookkeeping Act (bogføringsloven) requires.
+- **Your account and application data:** for as long as you have an account. When you delete your account on the Account page, you have 7 days to change your mind. After that, we erase your profile and application data, delete your sign-in account at Clerk, and delete your customer record at Polar, which removes your name, email, and billing address from it. We keep a record without your name or email that the account was deleted, so that delayed messages from our providers can't recreate it.
+- **Billing records:** Polar keeps its own payment and tax records as merchant of record, including your orders and invoices after you delete your account. We keep our accounting records for 5 years after the end of the financial year, as the Danish Bookkeeping Act (bogføringsloven) requires.
 - **Logs and error reports:** for a limited time, normally no more than 90 days.
 
 ## Your rights
