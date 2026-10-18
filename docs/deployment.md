@@ -25,7 +25,7 @@ Set these environment variables for **Production only**:
 
 | Variable | Value |
 | --- | --- |
-| `CONVEX_DEPLOY_KEY` | Production deployment key generated in Convex; grant `deployment:deploy`. |
+| `CONVEX_DEPLOY_KEY` | Production deployment key generated in Convex; grant `deployment:deploy` and write access to environment variables, which the build needs to [pause the app](#pausing-the-app). |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Existing Clerk development publishable key (`pk_test_...`). |
 | `CLERK_SECRET_KEY` | Matching Clerk development secret key (`sk_test_...`). |
 | `NEXT_PUBLIC_APP_URL` | The Vercel project's stable application URL. The build needs it to render the legal pages. |
@@ -85,7 +85,6 @@ On the Convex project's **production deployment**, set:
 | `POLAR_PRODUCT_LIFETIME` | One-time fixed-price sandbox product ID. |
 | `POLAR_WEBHOOK_SECRET` | Signing secret of the dedicated hosted Polar webhook below. |
 | `LOG_SAMPLE_RATE_QUERY`, `LOG_SAMPLE_RATE_MUTATION`, `LOG_SAMPLE_RATE_ACTION` | Optional success-event sampling, between 0 and 1; see [logging](internals/logging.md#sampling-and-attention). |
-| `MAINTENANCE_MODE` | Optional. `1` refuses every public mutation and action; see [pausing the app](#pausing-the-app). |
 | `RESEND_API_KEY` | A Resend API key with sending access. Required by law for withdrawal receipts; see [legal documents](internals/legal-documents.md#withdrawal-function). |
 | `EMAIL_FROM` | The sender, e.g. `AI SaaS Template <receipts@example.com>`, on a domain verified in Resend. |
 | `OPERATOR_ALERT_EMAIL` | Where operator alerts go, such as a user withdrawing more than once. This repository's hosted deployment uses `theodor@justenoughtsolutions.com`; set your own operator's address. Without it, or without Resend, the event records an admin action instead. |
@@ -144,24 +143,19 @@ users' edits. While it is paused, the landing and legal pages stay up with their
 plan buttons disabled. Sign-in, sign-up, checkout, and every signed-in page show
 a maintenance notice at their usual address.
 
-The Next.js build and the Convex deployment each read their own environment, so
-the pause has two switches:
+To pause, set `MAINTENANCE_MODE=1` in Vercel's Production environment and
+redeploy `main`. To resume, remove it and redeploy. Next.js reads the variable at
+build time, so each change needs a deployment.
 
-- `MAINTENANCE_MODE=1` in Vercel's Production environment controls what visitors
-  see. Next.js reads it at build time, so it takes effect with the next deployment
-  of `main`, and removing it needs another deployment.
-- `MAINTENANCE_MODE=1` on the Convex production deployment stops the writes. It
-  applies immediately: every public mutation and action fails with the
-  `MAINTENANCE_MODE` error code, including calls from tabs opened before the new
-  frontend deployed. Queries, internal functions, crons, and the Clerk and Polar
-  webhooks keep running, so provider events aren't lost and migrations can write.
-  `convex deploy` leaves this variable unchanged.
+After a successful build, `pnpm build:vercel` copies the value to the Convex
+production deployment, or removes it there. While it is set, every public mutation
+and action fails with the `MAINTENANCE_MODE` error code, including calls from tabs
+opened before the paused frontend deployed. Queries, internal functions, crons,
+and the Clerk and Polar webhooks keep running, so provider events aren't lost and
+migrations can write. Start the migration once the paused deployment is live.
 
-To pause, set the Vercel variable and redeploy, then run
-`pnpm exec convex env set MAINTENANCE_MODE 1 --prod` before the migration starts.
-To resume, run `pnpm exec convex env remove MAINTENANCE_MODE --prod` after the
-migration, then remove the Vercel variable and redeploy. In this order, visitors
-see the notice instead of failed saves.
+Vercel is the only switch. A value set by hand on Convex lasts until the next
+deployment of `main` replaces it with Vercel's.
 
 The app hides its sign-up form, but Clerk's hosted pages still accept new
 accounts, and the Clerk webhook records them. If no account may be created at
