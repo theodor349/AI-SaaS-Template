@@ -446,6 +446,13 @@ function modifiedAt(resource: { modified_at?: string | null; created_at: string 
   return timestamp(resource.modified_at ?? resource.created_at);
 }
 
+// Checkout doesn't accept discount codes, so only the operator can put a 100%
+// forever discount on a subscription. That makes it a deliberate comp.
+function comped({ discount }: PolarModels.Subscription) {
+  return discount?.type === "percentage" && "basis_points" in discount &&
+    discount.basis_points === 10000 && discount.duration === "forever";
+}
+
 function subscriptionSnapshot(s: PolarModels.Subscription) {
   const pendingModel = s.pending_update?.product_id ? productModel(s.pending_update.product_id) : undefined;
   const scheduledChange = s.pending_update && pendingModel && pendingModel !== "lifetime"
@@ -460,6 +467,7 @@ function subscriptionSnapshot(s: PolarModels.Subscription) {
     modifiedAt: modifiedAt(s),
     cancelAtPeriodEnd: s.cancel_at_period_end,
     scheduledChange,
+    comped: comped(s),
   };
 }
 
@@ -468,7 +476,10 @@ function orderSnapshot(o: PolarModels.Order & { product_id: string }) {
     id: o.id,
     productId: o.product_id,
     subscriptionId: o.subscription_id ?? undefined,
-    paid: o.paid && o.net_amount > 0,
+    // Polar also marks zero-cost plan switches and free orders paid. A purchase
+    // is one that charged money or redeemed a discount code, even a 100% one.
+    paid: o.paid && (o.net_amount > 0 || o.discount_amount > 0),
+    nothingCharged: o.net_amount <= 0,
     fullyRefunded: o.status === "refunded" || (o.net_amount > 0 && o.refunded_amount >= o.net_amount),
     createdAt: timestamp(o.created_at),
     modifiedAt: modifiedAt(o),

@@ -140,6 +140,27 @@ describe("prorated plan switches", () => {
   });
 });
 
+describe("comped subscriptions", () => {
+  // A yearly period that began with a zero-cost switch, so no paid order falls in it.
+  const switched = { productId: "yearly", periodStart: now - hour, paidThrough: now + 365 * day };
+  const zeroCost = order({ orderId: "switch", productId: "yearly", paid: false, createdAt: now - hour });
+
+  test("a 100% forever discount counts as paid through the period end", () => {
+    const decision = decide({ snapshot: [subscription({ ...switched, comped: true })], orders: [order(), zeroCost] });
+    expect(decision.entitlement).toMatchObject({ status: "active", model: "yearly", paidThrough: now + 365 * day });
+  });
+
+  test("without the comp, the same zero-cost period grants nothing", () => {
+    const decision = decide({ snapshot: [subscription({ ...switched, comped: false })], orders: [order(), zeroCost] });
+    expect(decision.entitlement.status).toBe("ended");
+  });
+
+  test.each(["past_due", "canceled"])("a %s comped subscription grants nothing", (status) => {
+    const decision = decide({ snapshot: [subscription({ comped: true, status })], orders: [] });
+    expect(decision.entitlement.status).not.toBe("active");
+  });
+});
+
 describe("refunds", () => {
   test("a full refund of the current period ends access and revokes the subscription", () => {
     const decision = decide({ orders: [order({ fullyRefunded: true })] });
