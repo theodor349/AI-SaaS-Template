@@ -436,3 +436,52 @@ test("repeated switches and cancellation cycles confirm reactive state; failures
     await expect(page.getByRole("button", { name: "Switch to monthly" })).toBeEnabled();
   } finally { release?.(); await page.unrouteAll({ behavior: "wait" }); await user.cleanup(); }
 });
+
+test("a confirmed switch stays settled when Pro later ends in the same page load", async ({ page }) => {
+  const user = await createClerkTestUser(local);
+  let requests = 0;
+  const sync = await interceptConvexSync(page);
+  sync.onAction("billing/polar:changeSubscription", (call) => {
+    requests++;
+    call.succeed(null);
+  });
+  try {
+    const fixture = await seedPaidTestUser(user, "monthly");
+    await page.clock.install();
+    await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email }); await page.goto("/billing");
+    await page.getByRole("button", { name: "Switch to yearly" }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Confirm switch" }).click();
+    await expect(page.getByRole("button", { name: "Confirming plan…" })).toBeDisabled();
+    await expect.poll(() => requests).toBe(1);
+
+    const now = Date.now();
+    const productId = local.env.POLAR_PRODUCT_YEARLY!;
+    await publishBillingSnapshot({
+      customerId: fixture.customerId, externalId: fixture.externalId,
+      subscriptions: [{ id: fixture.subscriptionId, productId, status: "active", start: now - 60_000,
+        end: now + 365 * 24 * 60 * 60_000, modifiedAt: now + 1000, cancelAtPeriodEnd: false }],
+      orders: [{ id: `fixture-switch-${user.id}`, productId, subscriptionId: fixture.subscriptionId,
+        paid: true, fullyRefunded: false, createdAt: now, modifiedAt: now }],
+    });
+    await expect(page.getByLabel("Plan", { exact: true })).toHaveValue("Yearly Pro");
+    await expect(page.getByRole("button", { name: "Confirming plan…" })).toHaveCount(0);
+
+    // Pro ends without a reload, as after a withdrawal. The confirmed switch no
+    // longer matches this state and must not count as pending again. Pausing the
+    // page clock keeps the 15-second unconfirmed timer from firing during the
+    // checks, which would otherwise re-enable the buttons and hide the bug.
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
+    await publishBillingSnapshot({ customerId: fixture.customerId, externalId: fixture.externalId,
+      subscriptions: [{ id: fixture.subscriptionId, productId, status: "canceled",
+        start: now - 60_000, end: Date.now() - 1, modifiedAt: now + 2000, cancelAtPeriodEnd: false }], orders: [] });
+    await expect(page.getByRole("heading", { name: "Restore Pro access" })).toBeVisible();
+    const plans = ["Choose monthly", "Choose yearly", "Get lifetime"];
+    for (const name of plans) await expect(page.getByRole("button", { name, exact: true })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Opening checkout…" })).toHaveCount(0);
+
+    await page.clock.runFor(16_000);
+    await expect(page.getByText("The change is still unconfirmed")).toHaveCount(0);
+    for (const name of plans) await expect(page.getByRole("button", { name, exact: true })).toBeEnabled();
+    expect(requests).toBe(1);
+  } finally { await user.cleanup(); }
+});
