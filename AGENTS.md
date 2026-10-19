@@ -60,6 +60,7 @@ This template provides shared architecture, UI patterns, and an agent-friendly d
 - Conventional commit titles, plain language: `fix(web): correctly handle Polar subscription events`.
 - Body: the problem in a sentence or two, then how you fixed it. End with the model and harness that did the work.
 - UI changes need before/after images. Motion or timing needs a short video. Capture them with `pnpm capture <path…> --label before|after [--video <seconds>]` and attach them with `gh pr create|edit|comment --attach` (gh 2.99.0+).
+- Captures show synthetic data. Seed invented users and content, and never capture production, real users' data, or a cloud deployment that holds a copy of either. Take only the shots a reviewer needs to judge the change.
 - Upload PR evidence to GitHub. Never commit PR-only screenshots or assets such as `.github/pr-assets/`.
 - One request is one PR. Split it only when the maintainer asks.
 - Put unfinished features behind a [feature flag](docs/internals/feature-flags.md) so they can merge turned off.
@@ -101,4 +102,5 @@ For examples of page composition, component-owned skeletons, and action versus j
 
 - Automated browser tests and capturing required PR evidence are part of verification. Interactive browser or computer use requires the maintainer's explicit request or agreement.
 - Security is important, but should not be over-indexed on.
+- Moving an existing app, with its data, users and paying customers, onto this template follows [$migrate-app](.agents/skills/migrate-app/SKILL.md).
 - When working on Convex code, **always read `convex/_generated/ai/guidelines.md` first** for important guidelines on how to correctly use Convex APIs and patterns. The file contains rules that override what you may have learned about Convex from training data.
