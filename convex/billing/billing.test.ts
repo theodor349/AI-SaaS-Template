@@ -34,11 +34,13 @@ function sub(product = "monthly", cancel = false) {
   return { id: "sub-a", customer_id: "customer-a", product_id: product, status: "active",
     current_period_start: new Date(start).toISOString(), current_period_end: new Date(end).toISOString(),
     created_at: new Date(start).toISOString(), modified_at: new Date().toISOString(), cancel_at_period_end: cancel,
-    pending_update: null as { product_id: string; applies_at: string } | null };
+    pending_update: null as { product_id: string; applies_at: string } | null,
+    discount: null as Discount | null };
 }
+type Discount = { type: string; duration: string; basis_points?: number; amount?: number };
 function order(product = "monthly", id = "order-a", subscription: string | null = "sub-a") {
   return { id, customer_id: "customer-a", product_id: product, subscription_id: subscription,
-    paid: true, status: "paid", net_amount: 1000, refunded_amount: 0,
+    paid: true, status: "paid", subtotal_amount: 1000, discount_amount: 0, net_amount: 1000, refunded_amount: 0,
     created_at: new Date(start + 10).toISOString(), modified_at: new Date().toISOString(), billing_reason: "subscription_create" };
 }
 async function* iterate<T>(items: T[]) { yield* items; }
@@ -613,6 +615,73 @@ test("zero-price paid flags cannot grant a first recurring or lifetime entitleme
     await reconcile(t);
     expect((await state(t))?.status).not.toBe("active");
   }
+});
+
+test.each([
+  ["covered by a 100% discount code", 5000, 0],
+  ["half covered by a discount code", 2500, 2500],
+])("a lifetime order %s grants lifetime Pro", async (_, discount, net) => {
+  const t = setup(); await provision(t); await link(t);
+  subscriptions = [];
+  orders = [{ ...order("lifetime", "lifetime", null), billing_reason: "purchase",
+    subtotal_amount: 5000, discount_amount: discount, net_amount: net }];
+  await reconcile(t);
+  expect(await state(t)).toMatchObject({ status: "active", model: "lifetime", lifetimeOrderId: "lifetime" });
+});
+
+test("an unpaid order with a discount grants nothing", async () => {
+  const t = setup(); await provision(t); await link(t);
+  subscriptions = [];
+  orders = [{ ...order("lifetime", "lifetime", null), billing_reason: "purchase", paid: false, status: "pending",
+    subtotal_amount: 5000, discount_amount: 2500, net_amount: 2500 }];
+  await reconcile(t);
+  expect((await state(t))?.status).not.toBe("active");
+});
+
+test("a lifetime order whose refund Polar reverses grants access again", async () => {
+  const t = setup(); await provision(t); await link(t);
+  subscriptions = [];
+  const lifetime = { ...order("lifetime", "lifetime", null), billing_reason: "purchase" };
+  orders = [lifetime];
+  await reconcile(t);
+  Object.assign(lifetime, { status: "refunded", refunded_amount: 1000, modified_at: new Date(Date.now() + 10).toISOString() });
+  await reconcile(t);
+  expect((await state(t))?.status).toBe("ended");
+  Object.assign(lifetime, { status: "paid", refunded_amount: 0, modified_at: new Date(Date.now() + 20).toISOString() });
+  await reconcile(t);
+  expect(await state(t)).toMatchObject({ status: "active", model: "lifetime", lifetimeOrderId: "lifetime" });
+});
+
+const fullForever: Discount = { type: "percentage", basis_points: 10000, duration: "forever" };
+// A subscriber who started monthly with a discount code and then switched to
+// yearly at no cost, so no order in the current period carries money or a discount.
+function discountedYearly(discount: Discount | null) {
+  subscriptions = [{ ...sub("yearly"), discount }];
+  orders = [
+    { ...order("monthly", "create"), created_at: new Date(start - 30 * 24 * 60 * 60_000).toISOString(),
+      subtotal_amount: 500, discount_amount: 500, net_amount: 0 },
+    { ...order("yearly", "switch"), billing_reason: "subscription_update",
+      subtotal_amount: 0, discount_amount: 0, net_amount: 0 },
+  ];
+}
+
+test("a subscription with a 100% forever discount grants Pro through its period end", async () => {
+  const t = setup(); await provision(t); await link(t);
+  discountedYearly(fullForever);
+  await reconcile(t);
+  expect(await state(t)).toMatchObject({ status: "active", model: "yearly", subscriptionId: "sub-a", paidThrough: end });
+});
+
+test.each([
+  ["no discount", null],
+  ["a 50% forever discount", { ...fullForever, basis_points: 5000 }],
+  ["a 100% one-time discount", { ...fullForever, duration: "once" }],
+  ["a forever fixed discount equal to the price", { type: "fixed", amount: 1000, duration: "forever" }],
+])("a zero-cost switch on a subscription with %s grants no paid time", async (_, discount) => {
+  const t = setup(); await provision(t); await link(t);
+  discountedYearly(discount);
+  await reconcile(t);
+  expect((await state(t))?.status).not.toBe("active");
 });
 
 test("an invalid unclaimed external identity can be repaired; a claimed customer's identity cannot change", async () => {
