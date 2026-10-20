@@ -54,7 +54,7 @@ export async function superviseWorktree(paths, controller, { intervalMs = 2000 }
   while (!signal.aborted) {
     const missing = paths.find((path) => !existsSync(path));
     if (missing) {
-      controller.abort(new Error(`The worktree was removed (${missing} is missing); stopping its services.`));
+      controller.abort(new Error(`Stopped because the worktree was removed (${missing} is missing).`));
       return;
     }
     await delay(intervalMs, undefined, { signal }).catch(() => {});
