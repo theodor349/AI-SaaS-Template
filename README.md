@@ -31,6 +31,7 @@ is needed. Agent guidance lives in [AGENTS.md](AGENTS.md).
 
 - `pnpm setup:check` - check prerequisites, credentials, Clerk/Polar setup, Tailscale, and gh.
 - `pnpm bootstrap` - run an isolated local environment for this worktree (`--local`, `--tailscale`, `--no-polar`).
+- `pnpm bootstrap --detach` - start it in the background, detached from the terminal; output goes to the log. It runs until `pnpm bootstrap:stop` or until the worktree is removed.
 - `pnpm bootstrap --print` - print the effective ports, URLs, and network mode without starting services.
 - `pnpm bootstrap:status` / `bootstrap:wait` / `bootstrap:stop` - inspect, wait for, or stop this worktree's bootstrap.
 - `pnpm bootstrap:tailscale` - same as `pnpm bootstrap --tailscale`.

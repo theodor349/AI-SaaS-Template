@@ -277,6 +277,53 @@ test("Next monitoring allows brief listener restarts and stops cleanly on shutdo
   }
 });
 
+test("removing the worktree or its Git admin directory stops a running bootstrap", async (t) => {
+  for (const removed of ["worktree", "admin"]) {
+    await t.test(removed, async () => {
+      const fixture = mkdtempSync(join(tmpdir(), "bootstrap worktree watch "));
+      const paths = [join(fixture, "worktree/.git"), join(fixture, "admin")];
+      mkdirSync(join(fixture, "worktree"));
+      writeFileSync(paths[0], "gitdir: ../admin\n");
+      mkdirSync(paths[1]);
+      const controller = new AbortController();
+      try {
+        const watching = bootstrap.superviseWorktree(paths, controller, { intervalMs: 10 });
+        await delay(50);
+        assert.equal(controller.signal.aborted, false);
+        rmSync(removed === "worktree" ? join(fixture, "worktree") : paths[1], { recursive: true });
+        await watching;
+        assert.equal(controller.signal.aborted, true);
+        assert.match(controller.signal.reason.message, /worktree was removed/);
+      } finally {
+        controller.abort();
+        rmSync(fixture, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
+test("worktree watching ends with the shutdown reason when bootstrap stops", async () => {
+  const fixture = mkdtempSync(join(tmpdir(), "bootstrap worktree watch "));
+  const controller = new AbortController();
+  const reason = new Error("Bootstrap stopped.");
+  try {
+    const watching = bootstrap.superviseWorktree([fixture], controller, { intervalMs: 60000 });
+    controller.abort(reason);
+    await watching;
+    assert.equal(controller.signal.reason, reason);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
+test("--detach is accepted alongside the network and Polar options", () => {
+  assert.deepEqual(bootstrap.parseArguments(["--detach", "--local", "--no-polar"]), {
+    help: false, local: true, tailscale: false, polar: false, print: false, detach: true,
+  });
+  assert.equal(bootstrap.parseArguments([]).detach, false);
+  assert.throws(() => bootstrap.parseArguments(["--detached"]), /Unknown argument: --detached/);
+});
+
 test("shutdown includes detached grandchildren and excludes unrelated agents", () => {
   const groups = descendantProcessGroups([10], `
     9 1 9

@@ -14,10 +14,18 @@ const realPs = execFileSync("sh", ["-c", "command -v ps"], { encoding: "utf8" })
 const script = (name) => fileURLToPath(new URL(name, import.meta.url));
 const processTable = () => execFileSync("ps", ["-eo", "pid=,ppid=,pgid="], { encoding: "utf8" });
 
-// Starts the real bootstrap against stand-in pnpm and ps commands in a fresh repository.
-async function startFixture(t) {
-  const fixture = await mkdtemp(join(tmpdir(), "bootstrap lifecycle with spaces "));
-  execFileSync("git", ["init", "--quiet", fixture]);
+// Prepares a fresh repository, or a linked worktree of one, where the real
+// bootstrap runs against stand-in pnpm and ps commands.
+async function prepareFixture(t, { linked = false } = {}) {
+  const base = await mkdtemp(join(tmpdir(), "bootstrap lifecycle with spaces "));
+  let fixture = base;
+  if (linked) {
+    const git = (...args) => execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", ...args]);
+    git("init", "--quiet", join(base, "main"));
+    git("-C", join(base, "main"), "commit", "--quiet", "--allow-empty", "-m", "Initial commit");
+    fixture = join(base, "worktree");
+    git("-C", join(base, "main"), "worktree", "add", "--quiet", "--detach", fixture);
+  } else execFileSync("git", ["init", "--quiet", fixture]);
   const root = realpathSync(execFileSync("git", ["-C", fixture, "rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim());
   const config = worktreeConfig(root);
   await assertPortsAvailable(config.ports);
@@ -91,20 +99,32 @@ async function startFixture(t) {
     }
   `, { mode: 0o700 });
   const env = { ...process.env, PATH: `${join(fixture, "bin")}:${process.env.PATH}` };
+  const gitPath = (name) => execFileSync("git", ["-C", root, "rev-parse", "--path-format=absolute", "--git-path", name], { encoding: "utf8" }).trim();
+  // Starters add process groups to signal and teardown steps before the fixture is removed.
+  const fixtureState = { fixture, root, config, env, groups: [], teardown: [],
+    statePath: gitPath("bootstrap-state.json"), logPath: gitPath("bootstrap.log") };
+  t.after(async () => {
+    for (const step of fixtureState.teardown) await step();
+    for (const group of new Set(fixtureState.groups)) signalProcessGroup(group, "SIGKILL");
+    await rm(base, { recursive: true, force: true });
+  });
+  return fixtureState;
+}
+
+async function startFixture(t) {
+  const fixtureState = await prepareFixture(t);
+  const { fixture, root, env } = fixtureState;
   const child = spawn(process.execPath, [join(root, "bootstrap.mjs"), "--local"], {
     cwd: fixture, detached: true, stdio: ["ignore", "pipe", "pipe"], env,
   });
   const closed = once(child, "close");
   let output = "";
   for (const stream of [child.stdout, child.stderr]) stream.on("data", (chunk) => { output += chunk; });
-  const gitPath = (name) => execFileSync("git", ["-C", root, "rev-parse", "--path-format=absolute", "--git-path", name], { encoding: "utf8" }).trim();
-  const fixtureState = { fixture, root, config, child, closed, env, output: () => output, groups: [],
-    statePath: gitPath("bootstrap-state.json"), logPath: gitPath("bootstrap.log") };
-  t.after(async () => {
-    const current = descendantProcessGroups([child.pid], processTable());
-    for (const group of new Set([...fixtureState.groups, ...current])) signalProcessGroup(group, "SIGKILL");
+  Object.assign(fixtureState, { child, closed, output: () => output });
+  fixtureState.teardown.push(async () => {
+    fixtureState.groups.push(...descendantProcessGroups([child.pid], processTable()));
+    for (const group of new Set(fixtureState.groups)) signalProcessGroup(group, "SIGKILL");
     await closed;
-    await rm(fixture, { recursive: true, force: true });
   });
   const deadline = Date.now() + 5000;
   while ((!output.includes("Ready:") || !existsSync(join(fixture, "polar.pid"))) && child.exitCode === null && Date.now() < deadline) await delay(25);
@@ -113,9 +133,34 @@ async function startFixture(t) {
   return fixtureState;
 }
 
-function control(fixture, args) {
+// Launches "pnpm bootstrap --detach" from a shell that keeps running afterwards,
+// like an agent's background task, so a test can kill that shell's process group.
+async function startDetachedFixture(t, options) {
+  const fixtureState = await prepareFixture(t, options);
+  const { fixture, root, env } = fixtureState;
+  const shell = spawn("sh", ["-c", '"$0" "$1" --detach --local && echo launcher-exited && sleep 60', process.execPath, join(root, "bootstrap.mjs")], {
+    cwd: fixture, detached: true, stdio: ["ignore", "pipe", "pipe"], env,
+  });
+  const shellClosed = once(shell, "close");
+  let output = "";
+  for (const stream of [shell.stdout, shell.stderr]) stream.on("data", (chunk) => { output += chunk; });
+  fixtureState.teardown.push(async () => {
+    signalProcessGroup(shell.pid, "SIGKILL");
+    await shellClosed;
+  });
+  const deadline = Date.now() + 5000;
+  while (!output.includes("launcher-exited") && shell.exitCode === null && Date.now() < deadline) await delay(25);
+  assert.match(output, /launcher-exited/, output);
+  const started = JSON.parse(await readFile(fixtureState.statePath, "utf8"));
+  // The supervisor leads its own process group, so teardown can reach it after the launcher exits.
+  fixtureState.groups.push(started.pid);
+  Object.assign(fixtureState, { shell, shellClosed, launcherOutput: () => output, supervisorPid: started.pid });
+  return fixtureState;
+}
+
+function control(fixture, args, script = "bootstrap-control.mjs") {
   return new Promise((resolveRun) => {
-    const child = spawn(process.execPath, [join(fixture.root, "bootstrap-control.mjs"), ...args], { cwd: fixture.root, env: fixture.env });
+    const child = spawn(process.execPath, [join(fixture.root, script), ...args], { cwd: fixture.root, env: fixture.env });
     let output = "";
     for (const stream of [child.stdout, child.stderr]) stream.on("data", (chunk) => { output += chunk; });
     child.once("close", (code) => resolveRun({ code, output }));
@@ -208,4 +253,60 @@ test("bootstrap:stop reclaims the services of a supervisor killed without its sh
   const reclaimed = JSON.parse(await readFile(fixture.statePath, "utf8"));
   assert.equal(reclaimed.status, "stopped");
   assert.ok(reclaimed.reclaimedAt);
+});
+
+async function exitedWithin(pid, ms) {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    try { process.kill(pid, 0); }
+    catch (error) { if (error.code === "ESRCH") return true; throw error; }
+    await delay(50);
+  }
+  return false;
+}
+
+test("a detached bootstrap outlives its launcher's process group and bootstrap:stop shuts it down", { timeout: 20000 }, async (t) => {
+  const fixture = await startDetachedFixture(t);
+  assert.match(fixture.launcherOutput(), /pnpm bootstrap:wait/);
+  assert.notEqual(fixture.supervisorPid, fixture.shell.pid);
+  // An agent harness ends a background task by killing its process group.
+  process.kill(-fixture.shell.pid, "SIGKILL");
+  await fixture.shellClosed;
+  const wait = await control(fixture, ["wait", "--timeout", "10"]);
+  assert.equal(wait.code, 0, `${wait.output}\n${await readFile(fixture.logPath, "utf8")}`);
+  assert.match(wait.output, new RegExp(`Ready: ${fixture.config.env.APP_URL}`));
+  const pgid = Number(execFileSync("ps", ["-o", "pgid=", "-p", String(fixture.supervisorPid)], { encoding: "utf8" }).trim());
+  assert.equal(pgid, fixture.supervisorPid, "The supervisor leads its own process group");
+  const ready = JSON.parse(await readFile(fixture.statePath, "utf8"));
+  assert.equal(ready.pid, fixture.supervisorPid);
+  fixture.groups.push(...ready.services.map(({ pgid: group }) => group));
+  const polarPid = Number(await readFile(join(fixture.root, "polar.pid"), "utf8"));
+  assert.match(await readFile(fixture.logPath, "utf8"), /Convex stand-in started[\s\S]*Ready:/);
+  const second = await control(fixture, ["--detach", "--local"], "bootstrap.mjs");
+  assert.equal(second.code, 1, second.output);
+  assert.match(second.output, new RegExp(`already ready in this worktree \\(pid ${fixture.supervisorPid}\\)`));
+
+  const stop = await control(fixture, ["stop", "--timeout", "10"]);
+  assert.equal(stop.code, 0, stop.output);
+  assert.ok(await exitedWithin(fixture.supervisorPid, 1000), "The supervisor exited");
+  assert.throws(() => process.kill(polarPid, 0), { code: "ESRCH" });
+  await assertPortsAvailable(fixture.config.ports);
+  assert.equal(JSON.parse(await readFile(fixture.statePath, "utf8")).status, "stopped");
+});
+
+test("a detached bootstrap stops its services when its worktree is removed", { timeout: 20000 }, async (t) => {
+  const fixture = await startDetachedFixture(t, { linked: true });
+  const wait = await control(fixture, ["wait", "--timeout", "10"]);
+  assert.equal(wait.code, 0, wait.output);
+  const ready = JSON.parse(await readFile(fixture.statePath, "utf8"));
+  fixture.groups.push(...ready.services.map(({ pgid }) => pgid));
+  const polarPid = Number(await readFile(join(fixture.root, "polar.pid"), "utf8"));
+  const nextPid = Number(await readFile(join(fixture.root, "next.pid"), "utf8"));
+  const mainRoot = join(fixture.root, "../main");
+  execFileSync("git", ["-C", mainRoot, "worktree", "remove", "--force", fixture.root]);
+  assert.equal(existsSync(fixture.statePath), false, "Removing the worktree also removes its Git admin directory");
+  assert.ok(await exitedWithin(fixture.supervisorPid, 8000), "The supervisor noticed the removal and exited");
+  assert.throws(() => process.kill(polarPid, 0), { code: "ESRCH" });
+  assert.equal(signalProcessGroup(nextPid, 0), false);
+  await assertPortsAvailable(fixture.config.ports);
 });

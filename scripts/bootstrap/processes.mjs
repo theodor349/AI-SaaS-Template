@@ -1,4 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { createConnection } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 import { basename } from "node:path";
@@ -42,6 +43,21 @@ export async function superviseNext(url, controller) {
       }
     }
     await delay(1000, undefined, { signal }).catch(() => {});
+  }
+}
+
+// Stops the stack once any of paths is gone, such as when T3 Code removes the
+// worktree. A detached bootstrap has no terminal to close, so this keeps it from
+// outliving its worktree.
+export async function superviseWorktree(paths, controller, { intervalMs = 2000 } = {}) {
+  const { signal } = controller;
+  while (!signal.aborted) {
+    const missing = paths.find((path) => !existsSync(path));
+    if (missing) {
+      controller.abort(new Error(`Stopped because the worktree was removed (${missing} is missing).`));
+      return;
+    }
+    await delay(intervalMs, undefined, { signal }).catch(() => {});
   }
 }
 

@@ -38,7 +38,7 @@ Merge the sync PR with a merge commit, `gh pr merge --merge`. A squash or rebase
 - Keep the app's side for what makes it this app: branding and `app.config.ts`, the app's domain code and pages, app copy, the landing page, the app's own sections of `AGENTS.md`, and deployment config and docs.
 - Take the template's side for fixes in shared code (accounts, billing, legal acceptance, data export and deletion, `components/ui`, `convex/lib`), rules in `AGENTS.md`, skills in `.agents/skills`, scripts, and test tooling. Where the app adapted shared code, keep the adaptation and apply the template's fix to it.
 - When the app moved or deleted something the template changed, Git may suggest moving new template files into the app's renamed folder. Follow the app's structure, not Git's guess. Rekura replaced the template's `/app` page with `/lists`.
-- Do not resolve generated files by hand. Resolve `package.json`, then run `pnpm install` to rewrite `pnpm-lock.yaml`. Take either side of `convex/_generated`, then run `pnpm bootstrap`, whose `convex dev` regenerates it.
+- Do not resolve generated files by hand. Resolve `package.json`, then run `pnpm install` to rewrite `pnpm-lock.yaml`. Take either side of `convex/_generated`, then run `pnpm bootstrap --detach` and `pnpm bootstrap:wait`; bootstrap's `convex dev` regenerates it.
 - Make follow-up changes the merge does not need, such as removing a template example, in separate commits after the merge, so a reviewer can tell resolution from new work.
 
 ## 3. Decisions for the maintainer
