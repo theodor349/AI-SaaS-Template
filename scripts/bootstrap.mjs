@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -8,7 +9,7 @@ import {
 } from "./bootstrap/config.mjs";
 import { assertPortsAvailable, waitForServer } from "./bootstrap/network.mjs";
 import { preflight } from "./doctor.mjs";
-import { createSupervisor, superviseConvex, superviseNext } from "./bootstrap/processes.mjs";
+import { createSupervisor, superviseConvex, superviseNext, superviseWorktree } from "./bootstrap/processes.mjs";
 import { reclaim } from "./bootstrap/reclaim.mjs";
 import { bootstrapPaths, createStateRecorder, inspectState, liveStatuses, openLog, readState } from "./bootstrap/state.mjs";
 import { chooseNetwork, cleanupProxies, readTailscaleStatus, serveWorktree, tailscaleConfig } from "./bootstrap/tailscale.mjs";
@@ -17,9 +18,11 @@ export {
   backendEnvKeys, childEnvironment, developmentCredentials, environmentFile, portBlockOverride, worktreeConfig, worktreeCredentials,
 } from "./bootstrap/config.mjs";
 export { assertPortsAvailable, waitForServer } from "./bootstrap/network.mjs";
-export { darwinGroupMembers, descendantProcessGroups, signalProcessGroup, superviseConvex, superviseNext } from "./bootstrap/processes.mjs";
+export {
+  darwinGroupMembers, descendantProcessGroups, signalProcessGroup, superviseConvex, superviseNext, superviseWorktree,
+} from "./bootstrap/processes.mjs";
 
-const usage = `pnpm bootstrap [--local | --tailscale] [--no-polar] [--print]
+const usage = `pnpm bootstrap [--local | --tailscale] [--no-polar] [--detach] [--print]
 
 Starts local Convex, Next.js, and Polar sandbox webhook forwarding for this worktree.
 Uses private Tailscale HTTPS URLs when Tailscale is connected with HTTPS certificates,
@@ -28,6 +31,9 @@ and loopback URLs otherwise or when CI is set.
 --local      Use loopback URLs without checking Tailscale.
 --tailscale  Require Tailscale HTTPS URLs.
 --no-polar   Start without billing credentials or webhook forwarding.
+--detach     Run in the background, detached from this terminal, and return once
+             the run has started. Output goes only to the log. Stop it with
+             pnpm bootstrap:stop; it also stops when the worktree is removed.
 --print      Print the effective configuration without changing anything.
 
 BOOTSTRAP_PORT_BLOCK=<0-11999> in this worktree's .env.bootstrap.local (or the
@@ -35,7 +41,7 @@ environment) moves the worktree to another port block when its ports collide.
 Use pnpm bootstrap:status, bootstrap:wait, and bootstrap:stop to control a run.`;
 
 export function parseArguments(argv) {
-  const known = ["--help", "--local", "--tailscale", "--no-polar", "--print"];
+  const known = ["--help", "--local", "--tailscale", "--no-polar", "--print", "--detach"];
   for (const arg of argv) {
     if (!known.includes(arg)) throw new Error(`Unknown argument: ${arg}`);
   }
@@ -45,6 +51,7 @@ export function parseArguments(argv) {
     tailscale: argv.includes("--tailscale"),
     polar: !argv.includes("--no-polar"),
     print: argv.includes("--print"),
+    detach: argv.includes("--detach"),
   };
 }
 
@@ -70,6 +77,36 @@ async function reclaimPreviousRun(stateFile) {
     assertNotRunning(inspectState(readState(stateFile)));
     throw new Error("The previous bootstrap left services or routes behind that could not be reclaimed.");
   }
+}
+
+// Starts the supervisor in its own session, with output only in the log, so it
+// outlives this command, its terminal, and an agent's background task limit. The
+// mode resolved here is passed on, so the supervisor uses the URLs reported now.
+// Returns once the new run has claimed the state file, so pnpm bootstrap:wait
+// waits for this run rather than reading an earlier one's final state.
+async function startDetached({ root, argv, network, paths, claimTimeoutMs = 60000 }) {
+  await reclaimPreviousRun(paths.state);
+  const args = [...argv.filter((arg) => !["--detach", "--local", "--tailscale"].includes(arg)), `--${network.mode}`];
+  const child = spawn(process.execPath, [fileURLToPath(import.meta.url), ...args], { cwd: root, detached: true, stdio: "ignore" });
+  let exit;
+  child.once("error", (error) => { exit = `could not start: ${error.message}`; });
+  child.once("exit", (code, signal) => { exit = signal ? `signal ${signal}` : `exit ${code}`; });
+  const deadline = Date.now() + claimTimeoutMs;
+  while (!child.pid || readState(paths.state)?.pid !== child.pid) {
+    if (exit) throw new Error(`The detached bootstrap stopped before it started (${exit}). Run pnpm bootstrap without --detach to see why.`);
+    if (Date.now() >= deadline) {
+      // Not yet reaped, so the PID is still this child's.
+      child.kill("SIGTERM");
+      throw new Error(`The detached bootstrap did not start within ${claimTimeoutMs / 1000}s; it was stopped.`);
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+  }
+  child.unref();
+  console.log([
+    `Bootstrap is starting in the background (pid ${child.pid}), detached from this terminal.`,
+    `Log: ${paths.log}`,
+    "Run pnpm bootstrap:wait to wait until it is ready. Stop it with pnpm bootstrap:stop before you finish.",
+  ].join("\n"));
 }
 
 // Child services must not inherit the terminal's signals or failed output streams.
@@ -128,8 +165,9 @@ async function runServices({ root, config, credentials, polar, browserEnv, env, 
   const tool = (name) => join(root, "node_modules/.bin", name);
   let configured = false;
   const restoreLocalSelection = () => {
-    // The self-hosted watcher removes this selector once during startup.
-    if (configured && !readEnvironment(localFile).CONVEX_DEPLOYMENT) {
+    // The self-hosted watcher removes this selector once during startup. A removed
+    // worktree has no file left to restore.
+    if (configured && existsSync(localFile) && !readEnvironment(localFile).CONVEX_DEPLOYMENT) {
       appendFileSync(localFile, '\nCONVEX_DEPLOYMENT="local:anonymous-agent"\n');
     }
   };
@@ -238,6 +276,11 @@ export async function bootstrap({ argv = process.argv.slice(2) } = {}) {
     return;
   }
   const paths = bootstrapPaths(root);
+  if (options.detach) {
+    if (network.note) console.log(network.note);
+    await startDetached({ root, argv, network, paths });
+    return;
+  }
   await reclaimPreviousRun(paths.state);
   const remote = network.remote;
   const urls = (env) => ({ app: env.APP_URL, convex: env.NEXT_PUBLIC_CONVEX_URL, site: env.NEXT_PUBLIC_CONVEX_SITE_URL });
@@ -256,6 +299,9 @@ export async function bootstrap({ argv = process.argv.slice(2) } = {}) {
   const controller = new AbortController();
   const removeStopListeners = listenForStop(controller);
   controller.signal.addEventListener("abort", () => state.update({ status: "stopping" }), { once: true });
+  // .git is a file in a linked worktree and a directory in the main checkout; the
+  // state file's directory is the worktree's Git admin directory.
+  const watchingWorktree = superviseWorktree([join(root, ".git"), dirname(paths.state)], controller);
   let failure;
   let cleanup;
   try {
@@ -293,6 +339,7 @@ export async function bootstrap({ argv = process.argv.slice(2) } = {}) {
     if (error.message !== "Bootstrap stopped.") failure = error;
   } finally {
     controller.abort(new Error("Bootstrap stopped."));
+    await watchingWorktree;
     if (cleanup && !cleanupProxies(cleanup)) failure ??= new Error("Tailscale proxy cleanup failed; check tailscale serve status.");
     state.update({ status: failure ? "failed" : "stopped", error: failure?.message });
     if (failure) say(`Bootstrap: ${failure.message}`, process.stderr);
