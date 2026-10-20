@@ -104,3 +104,4 @@ For examples of page composition, component-owned skeletons, and action versus j
 - Security is important, but should not be over-indexed on.
 - Moving an existing app, with its data, users and paying customers, onto this template follows [$migrate-app](.agents/skills/migrate-app/SKILL.md).
 - When working on Convex code, **always read `convex/_generated/ai/guidelines.md` first** for important guidelines on how to correctly use Convex APIs and patterns. The file contains rules that override what you may have learned about Convex from training data.
+- Bringing new template commits into an app built on this template follows [$sync-template](.agents/skills/sync-template/SKILL.md). An app fix that belongs in the template goes to the template as its own PR.
