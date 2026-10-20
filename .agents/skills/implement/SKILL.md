@@ -7,7 +7,7 @@ description: Implement a GitHub issue, bug fix, or feature in the current T3-ass
 
 Accept a GitHub issue number or URL, a problem description, or a feature request. For example: `$implement issue #123`, `$implement let users rename their projects`, or simply "let users rename their projects". Questions, research, plans, and reviews are not implementation requests.
 
-A maintainer request to implement something, with or without naming this skill, authorizes implementation followed by the [complete-worktree](../complete-worktree/SKILL.md) workflow: task commits, pushing, one PR, review commands and replies, merging after verification and bot review, deleting the task branch, and shutting down the task's services and terminals. Do not ask for these permissions again. Reading or editing this skill does not invoke it or authorize publishing the current changes. Production deployment and unrelated external actions remain outside this authorization.
+A maintainer request to implement something, with or without naming this skill, authorizes implementation followed by the [complete-worktree](../complete-worktree/SKILL.md) workflow: task commits, pushing, one PR, review commands and replies, merging after verification and the merge gates, deleting the task branch, and shutting down the task's services and terminals. Do not ask for these permissions again. Reading or editing this skill does not invoke it or authorize publishing the current changes. Production deployment and unrelated external actions remain outside this authorization.
 
 ## Establish the task
 
@@ -28,19 +28,19 @@ A maintainer request to implement something, with or without naming this skill, 
 
 ## Decide whether the maintainer needs to weigh in
 
-Always continue into completion, which opens the PR so CI and bot review run without waiting on the maintainer. Hold the merge for their feedback when:
+Always continue into completion, which opens the PR so CI runs without waiting on the maintainer. Hold the merge for their feedback when:
 
 - the maintainer asked to see the change before it merges;
 - an open question about scope or behavior would change what ships;
 - the result involves a visual or product choice they should judge rather than one the task already settles;
 - a blocker needs their input or an external change.
 
-Ordinary implementation choices, passing checks, and bot review findings are not reasons to hold. Skip the PR only when the maintainer asked you not to open one; then commit and report back.
+Ordinary implementation choices, passing checks, and review findings are not reasons to hold. Skip the PR only when the maintainer asked you not to open one; then commit and report back.
 
 ## Complete the worktree
 
 Read and execute [complete-worktree](../complete-worktree/SKILL.md) in this same session, passing along whether the merge is held for maintainer feedback and why. Pass along the task scope, issue, verified commit and check results, UI evidence, and resource inventory. This is an automatic continuation, not a handoff to the maintainer or a requirement to invoke a second command.
 
-That skill owns syncing fresh `main`, PR publication, bot review and fixes, the final merge, branch deletion, and resource cleanup. Reuse verification for an unchanged commit; rerun it when code or a merge changes the result. Do not duplicate the PR workflow here.
+That skill owns syncing fresh `main`, PR publication, CI and review fixes, the final merge, branch deletion, and resource cleanup. Reuse verification for an unchanged commit; rerun it when code or a merge changes the result. Do not duplicate the PR workflow here.
 
-Finish only when the PR is confirmed merged and cleanup is verified. If blocked, report the PR or branch, the unmet gate, and the precise input or external change needed. Preserve unmerged work and stop owned persistent services when ending the session as described in the cleanup reference, including `pnpm bootstrap:stop` unless the maintainer asked to keep the stack running.
+Finish only when the PR is confirmed merged and cleanup is verified. If blocked, report the PR or branch, the unmet gate, and the precise input or external change needed. Preserve unmerged work and stop owned persistent services when ending the session as described in the cleanup reference, including `pnpm bootstrap:stop` unless the maintainer asked to keep the stack running or you shared a review link with them.

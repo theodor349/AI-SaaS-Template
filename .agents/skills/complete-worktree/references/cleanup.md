@@ -35,7 +35,7 @@ In a fresh session, check each recorded PID against its start time; PIDs are reu
 
 ## End a session
 
-Before ending any session that started or used this worktree's bootstrap, run `pnpm bootstrap:stop` and confirm it reports the stack stopped, unless the maintainer asked you to keep the stack running, for example to inspect a review link. A detached run left behind keeps its services and Tailscale routes until someone stops it or the worktree is removed. When you keep it running at the maintainer's request, say so in your report.
+Before ending any session that started or used this worktree's bootstrap, run `pnpm bootstrap:stop` and confirm it reports the stack stopped. Leave the stack running only when the maintainer asked you to keep it running or you shared a `pnpm review-link` with them, since the link needs the running stack, and say so in your report. A stack left running keeps its services and Tailscale routes until complete-worktree cleanup runs `pnpm bootstrap:stop` or the worktree is removed.
 
 ## Close sessions and terminals
 

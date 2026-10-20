@@ -46,7 +46,7 @@ is needed. Agent guidance lives in [AGENTS.md](AGENTS.md).
 - `pnpm capture <path...>` - screenshot (and optionally record) pages for PR evidence, outside the worktree.
 - `pnpm review-link` - print a single-use signed-in link for maintainer review.
 - `pnpm clerk:sweep` - delete this worktree's leftover labeled Clerk test users (`--dry-run`, `--all-worktrees`).
-- `pnpm pr:gate [PR]` - summarize a PR's merge gates: heads, main ancestry, checks, CodeRabbit, open threads.
+- `pnpm pr:gate [PR]` - summarize a PR's merge gates: heads, main ancestry, mergeability, checks, open threads.
 - `pnpm polar:trigger` - send a labeled Polar sandbox sample event to organization listeners.
 - `pnpm dev` - start Convex and Next.js using the regular deployment setup.
 - `pnpm typecheck` - check TypeScript.
