@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sync with the template"
+  short_description: "Merge new template commits into this app as one PR"
+  default_prompt: "Use $sync-template to merge the template's new commits into this app in the current T3-assigned worktree, resolve the conflicts, list the decisions you need from me, and open one PR with $complete-worktree."
