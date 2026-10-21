@@ -3,7 +3,6 @@ import { env } from "../_generated/server";
 import { billingModels, type BillingModel } from "./plans";
 import { appError } from "../lib/errors";
 import type { QueryCtx } from "../lib/functions";
-import { hasAcceptedCurrent } from "../account/legalVersions";
 import { requireUser } from "../lib/users";
 
 // Failed reconciliations retry themselves this many times with backoff. Later
@@ -73,17 +72,13 @@ export async function operationForUser(ctx: Pick<QueryCtx, "db">, userId: Id<"us
 }
 
 // Paid queries use materialized expiry, maintained by a durable scheduled mutation.
-// Mutations/actions also verify the deadline at execution time. The paid product
-// also requires the current terms; account, billing, and deletion functions don't.
+// Mutations/actions also verify the deadline at execution time.
 export async function requirePro(ctx: QueryCtx, now?: number) {
   const user = await requireUser(ctx);
   const account = await accountForUser(ctx, user._id);
   const expired = now !== undefined && account?.paidThrough !== undefined && account.paidThrough <= now;
   if (account?.status !== "active" || expired) {
     throw appError("PAID_ACCESS_REQUIRED");
-  }
-  if (!hasAcceptedCurrent(user.legalAcceptance)) {
-    throw appError("LEGAL_ACCEPTANCE_REQUIRED");
   }
   return user;
 }

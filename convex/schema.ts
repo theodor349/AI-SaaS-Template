@@ -21,7 +21,8 @@ export default defineSchema(
       profileUpdatedAt: v.number(),
       profileEventAt: v.number(),
       lifecycle: v.union(v.literal("active"), v.literal("deletion_requested"), v.literal("deleted")),
-      // The terms and privacy notice versions the user last accepted, and when.
+      // Terms acceptance is no longer recorded. Kept so documents written before
+      // that still validate; account/users:clearLegalAcceptance empties it.
       legalAcceptance: v.optional(v.object({ terms: v.number(), privacy: v.number(), acceptedAt: v.number() })),
     }).index("by_tokenIdentifier", ["tokenIdentifier"])
       .index("by_clerkId", ["clerkId"]),
