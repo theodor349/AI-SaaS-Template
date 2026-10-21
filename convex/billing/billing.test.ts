@@ -7,12 +7,12 @@ import { api, internal } from "../_generated/api";
 import schema from "../schema";
 import { billingReturnUrl, externalCustomerId, externalIdTokenIdentifier } from "./lib";
 import { retryAfter } from "../lib/errors";
-import { legalVersions } from "../account/legalVersions";
 import { modules } from "../test.setup";
 
 const provider = vi.hoisted(() => ({
   customers: { get: vi.fn(), getExternal: vi.fn(), create: vi.fn(), delete: vi.fn() },
   products: { get: vi.fn() },
+  organizations: { get: vi.fn() },
   checkouts: { list: vi.fn(), create: vi.fn() },
   customerSessions: { create: vi.fn() },
   subscriptions: { list: vi.fn(), iterList: vi.fn(), get: vi.fn(), update: vi.fn(), revoke: vi.fn() },
@@ -54,8 +54,7 @@ function decisions(log: { mock: { calls: unknown[][] } }) {
 }
 async function provision(t: ReturnType<typeof setup>, identity = tokenIdentifier) {
   return t.run(ctx => ctx.db.insert("users", { tokenIdentifier: identity, clerkId: identity.split("|")[1],
-    email: "alice@example.com", displayName: "Alice", lifecycle: "active", profileUpdatedAt: 1, profileEventAt: 1,
-    legalAcceptance: { ...legalVersions, acceptedAt: 1 } }));
+    email: "alice@example.com", displayName: "Alice", lifecycle: "active", profileUpdatedAt: 1, profileEventAt: 1}));
 }
 function alice(t: ReturnType<typeof setup>) { return t.withIdentity({ tokenIdentifier, subject: "alice", name: "Alice" }); }
 async function reconcile(t: ReturnType<typeof setup>) {
@@ -93,7 +92,7 @@ beforeEach(() => {
   provider.customers.getExternal.mockImplementation(current);
   provider.customers.create.mockImplementation(async () => customer);
   provider.customers.delete.mockImplementation(async () => { customerDeleted = true; });
-  provider.products.get.mockImplementation(async (id: string) => ({ id, name: id, is_archived: false,
+  provider.products.get.mockImplementation(async (id: string) => ({ id, name: id, is_archived: false, organization_id: "org-a",
     is_recurring: id !== "lifetime", recurring_interval: id === "monthly" ? "month" : id === "yearly" ? "year" : null,
     recurring_interval_count: id === "lifetime" ? null : 1,
     prices: [{ amount_type: "fixed", price_amount: 1000, price_currency: "usd", is_archived: false, tax_behavior: "exclusive" }] }));
@@ -117,6 +116,7 @@ beforeEach(() => {
     current.modified_at = new Date(Math.max(Date.now() + orders.length, Date.parse(current.modified_at) + 1)).toISOString(); return current;
   });
   provider.subscriptions.revoke.mockImplementation(async (id: string) => { const current = subscriptions.find(s => s.id === id)!; current.status = "canceled"; return current; });
+  provider.organizations.get.mockResolvedValue({ id: "org-a", default_tax_behavior: "exclusive" });
   provider.checkouts.list.mockResolvedValue({ items: [] });
   provider.checkouts.create.mockResolvedValue({ id: "checkout-a", url: "https://sandbox.polar.sh/checkout/test", expires_at: new Date(end).toISOString() });
   provider.customerSessions.create.mockResolvedValue({ customer_portal_url: "https://sandbox.polar.sh/portal/test" });
@@ -134,6 +134,27 @@ test("anonymous and unpaid callers cannot invoke paid application queries; provi
   }
   await expect(t.action(api.billing.polar.checkout, { model: "monthly", returnUrl: "/billing" })).rejects.toThrow("UNAUTHENTICATED");
   expect(await t.query(api.billing.catalog.products, {})).toEqual([]);
+});
+
+// Polar leaves a price's tax_behavior null when it follows the organization's
+// default, so the catalog resolves it there for the pricing copy.
+test.each([
+  ["follow an inclusive organization default", null, "inclusive", "inclusive"],
+  ["follow an exclusive organization default", null, "exclusive", "exclusive"],
+  ["follow a location-based organization default", null, "location", "location"],
+  ["set their own tax behavior", "exclusive", "inclusive", "exclusive"],
+])("catalog prices that %s show that tax behavior", async (_label, priceTaxBehavior, organizationDefault, expected) => {
+  const t = setup();
+  const product = provider.products.get.getMockImplementation()!;
+  provider.products.get.mockImplementation(async (id: string) => {
+    const result = await product(id);
+    return { ...result, prices: result.prices.map((price: object) => ({ ...price, tax_behavior: priceTaxBehavior })) };
+  });
+  provider.organizations.get.mockResolvedValue({ id: "org-a", default_tax_behavior: organizationDefault });
+  await t.action(internal.billing.polar.syncCatalog, {});
+  const products = await t.query(api.billing.catalog.products, {});
+  expect(products.map(item => item.taxBehavior)).toEqual([expected, expected, expected]);
+  expect(provider.organizations.get).toHaveBeenCalledTimes(priceTaxBehavior ? 0 : 1);
 });
 
 test.each(["cancel", "reactivate"] as const)("repeating %s confirms provider state without issuing a rejected update", async operation => {

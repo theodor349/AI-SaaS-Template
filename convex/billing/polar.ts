@@ -184,7 +184,9 @@ async function validateProduct(p: Polar, model: BillingModel) {
     name: product.name,
     amount: price.price_amount,
     currency: price.price_currency,
-    taxBehavior: price.tax_behavior ?? "provider",
+    // Null when the price follows the organization's default tax behavior.
+    taxBehavior: price.tax_behavior,
+    organizationId: product.organization_id,
     syncedAt: Date.now(),
   };
 }
@@ -195,8 +197,16 @@ export const syncCatalog = internalAction({
   handler: (ctx) => withoutProviderDetails(ctx, async () => {
     const p = client();
     await spend(ctx, billingModels.length);
+    let organization: Promise<PolarModels.Organization> | undefined;
+    const defaultTaxBehavior = async (organizationId: string) => {
+      organization ??= spend(ctx, 1).then(() => retry(() => p.organizations.get(organizationId)));
+      return (await organization).default_tax_behavior;
+    };
     for (const model of billingModels) {
-      await ctx.runMutation(internal.billing.catalog.saveProduct, await validateProduct(p, model));
+      const { taxBehavior, organizationId, ...product } = await validateProduct(p, model);
+      await ctx.runMutation(internal.billing.catalog.saveProduct, {
+        ...product, taxBehavior: taxBehavior ?? await defaultTaxBehavior(organizationId),
+      });
     }
     return null;
   }),
@@ -208,7 +218,6 @@ export const checkout = action({
   handler: (ctx, { model, returnUrl }) => userFacing(ctx, async () => {
     ctx.log.set("model", model);
     const destination = billingReturnUrl(returnUrl);
-    await ctx.runQuery(internal.account.legal.requireAccepted, {});
     await ctx.runMutation(internal.rateLimits.admit, { action: "checkout" });
     const lease = await ctx.runMutation(internal.billing.state.beginOperation, {});
     try {
