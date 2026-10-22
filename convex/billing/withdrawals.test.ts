@@ -6,7 +6,6 @@ import { PolarServerError } from "@polar-sh/sdk";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { api, components, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { legalVersions } from "../account/legalVersions";
 import { withdrawalDeadline } from "./withdrawalPeriod";
 import schema from "../schema";
 import { modules } from "../test.setup";
@@ -53,8 +52,7 @@ const as = (t: Test, name: string) => t.withIdentity({ issuer, subject: name });
 
 async function provision(t: Test, name: string) {
   return t.run(ctx => ctx.db.insert("users", { tokenIdentifier: `${issuer}|${name}`, clerkId: name,
-    email: `${name}@example.com`, lifecycle: "active", profileUpdatedAt: 1, profileEventAt: 1,
-    legalAcceptance: { ...legalVersions, acceptedAt: 1 } }));
+    email: `${name}@example.com`, lifecycle: "active", profileUpdatedAt: 1, profileEventAt: 1 }));
 }
 // Alice buys `model` through the same reconciliation that publishes real purchases.
 // `comped` pays it entirely with a 100% forever discount code, so nothing is charged.

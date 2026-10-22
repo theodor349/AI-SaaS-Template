@@ -13,6 +13,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 import { Button, ButtonLabel } from "@/components/ui/button";
 import { SIGN_UP_PATH } from "@/lib/auth";
+import { taxDescription } from "@/lib/billing/tax";
 
 const labels = { monthly: "Monthly", yearly: "Yearly", lifetime: "Lifetime" };
 export const intervals = { monthly: " / month", yearly: " / year", lifetime: " once" };
@@ -27,12 +28,6 @@ type PricingActions = {
 export function formatPrice(amount: number, currency: string) {
   const formatter = new Intl.NumberFormat(undefined, { style: "currency", currency });
   return formatter.format(amount / 10 ** (formatter.resolvedOptions().maximumFractionDigits ?? 2));
-}
-
-export function taxDescription(taxBehavior: string) {
-  if (taxBehavior === "inclusive") return "Tax included";
-  if (taxBehavior === "exclusive") return "Tax added at checkout";
-  return "Final tax calculated at checkout";
 }
 
 export function Pricing({ onboarding = false, disabled = false, pendingPlan = null, onSelect }: PricingActions) {
@@ -89,7 +84,7 @@ export function PricingSkeleton() {
         {billingModels.map((model) => (
           <PlanCard
             key={model}
-            product={{ model, name: labels[model], amount: 0, currency: "USD", taxBehavior: "provider" }}
+            product={{ model, name: labels[model], amount: 0, currency: "USD", taxBehavior: "location" }}
             disabled
             loading
           />

@@ -6,7 +6,6 @@ import { fetchClerkUser } from "./clerkApi";
 import { appError } from "../lib/errors";
 import { action, internalMutation, internalQuery, query } from "../lib/functions";
 import { getDisplayName } from "../lib/profile";
-import { legalVersions } from "./legalVersions";
 import { currentUserResult, getCurrentUser, readiness, userByClerkId, userByTokenIdentifier } from "../lib/users";
 
 export const current = query({
@@ -55,10 +54,8 @@ export const syncProfile = internalMutation({
       ctx.log.decision("profile", { result: "updated", edited: user.profileEdited ?? false });
       return readiness(await ctx.db.get("users", user._id));
     }
-    // Creating an account accepts the current terms; the sign-up page says so.
     const id = await ctx.db.insert("users", {
       ...fields, clerkId: profile.clerkId, tokenIdentifier, lifecycle: "active",
-      legalAcceptance: { ...legalVersions, acceptedAt: Date.now() },
     });
     ctx.log.setUser(id);
     ctx.log.decision("profile", { result: "created" });
@@ -103,4 +100,23 @@ export const ensureCurrentUser = action({
 export const lookupCurrent = internalQuery({
   args: { tokenIdentifier: v.string() }, returns: currentUserResult,
   handler: async (ctx, { tokenIdentifier }) => readiness(await userByTokenIdentifier(ctx, tokenIdentifier)),
+});
+
+// One-off cleanup after terms acceptance stopped being recorded: empties the
+// legacy legalAcceptance field, 100 users per transaction. Run once per
+// deployment with `npx convex run account/users:clearLegalAcceptance`; running
+// it again is harmless.
+export const clearLegalAcceptance = internalMutation({
+  args: { cursor: v.optional(v.string()) },
+  returns: v.null(),
+  handler: async (ctx, { cursor }) => {
+    const { page, isDone, continueCursor } = await ctx.db.query("users").paginate({ cursor: cursor ?? null, numItems: 100 });
+    const recorded = page.filter((user) => user.legalAcceptance !== undefined);
+    for (const user of recorded) {
+      await ctx.db.patch("users", user._id, { legalAcceptance: undefined });
+    }
+    ctx.log.decision("legal_cleanup", { cleared: recorded.length, done: isDone });
+    if (!isDone) await ctx.scheduler.runAfter(0, internal.account.users.clearLegalAcceptance, { cursor: continueCursor });
+    return null;
+  },
 });

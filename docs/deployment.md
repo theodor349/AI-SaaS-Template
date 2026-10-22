@@ -91,8 +91,10 @@ On the Convex project's **production deployment**, set:
 
 The three products must be distinct, unarchived, and have positive fixed prices;
 the recurring products must use a single-month and single-year interval. Make each
-price tax-inclusive: prices shown to EU consumers must include VAT, and the pricing
-cards then say "Tax included" instead of adding tax at checkout. Reuse
+price tax-inclusive, because prices shown to EU consumers must include VAT. Set it on
+each price or as the organization's default tax behavior, which a price without its
+own setting follows. The pricing cards say "Tax included" for tax-inclusive prices and
+that tax is added at checkout otherwise. Reuse
 the local sandbox products. If local credentials omit their IDs, select or create
 the three products in the sandbox dashboard.
 

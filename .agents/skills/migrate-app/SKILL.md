@@ -20,7 +20,7 @@ Each of these facts reached Rekura's agents late and caused rework or an inciden
 1. **Who uses production.** How many active users, and are they strangers or people the maintainer knows? This sets how much downtime is acceptable and how much ceremony fits. Approving production writes one at a time made sense for no one when production held six family accounts.
 2. **Who pays, and how.** Every product, price and plan in use, and whether anyone paid with a discount code, a 100% code, or got Pro by hand. Rekura's four paying customers had all used 100% codes, and the cutover found it.
 3. **What the old app promised.** Pricing page claims such as "unlimited lists" rule out limits the template's patterns might suggest.
-4. **Which features are app features.** The template owns accounts, billing, checkout, legal acceptance, data export and deletion. Port only the app's own features. Ask which old features to drop.
+4. **Which features are app features.** The template owns accounts, billing, checkout, legal documents, data export and deletion. Port only the app's own features. Ask which old features to drop.
 5. **The paid model.** Free tier or not, and whether shared data needs each member to pay.
 6. **Users who can't be matched.** For example, rows without a Clerk account that haven't signed in for months: keep, recreate or drop.
 7. **The rehearsal strategy.** Rehearse on the cloud dev deployment with a copy of production before production. Rekura's plan was rewritten twice because this came after the first draft.
