@@ -55,9 +55,9 @@ export async function seedPaidTestUser(user, model = "lifetime", paid = true, { 
   await publishBillingSnapshot({
     customerId, externalId,
     subscriptions: model === "lifetime" ? [] : [{ id: subscriptionId, productId, status: "active",
-      start: now - 1000, end: now + periodMs, modifiedAt: now, cancelAtPeriodEnd: false }],
+      start: now - 1000, end: now + periodMs, modifiedAt: now, cancelAtPeriodEnd: false, comped: false }],
     orders: [{ id: `fixture-order-${user.id}-${model}`, productId, ...(model === "lifetime" ? {} : { subscriptionId }),
-      paid, fullyRefunded: false, createdAt: purchasedAt, modifiedAt: now }],
+      paid, nothingCharged: false, fullyRefunded: false, createdAt: purchasedAt, modifiedAt: now }],
   }, client);
   // Provider lookups for synthetic IDs cannot alter live sandbox resources;
   // paid expiry continues through its scheduled mutation.
