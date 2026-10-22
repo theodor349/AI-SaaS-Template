@@ -58,6 +58,8 @@ If `pr:gate` reports a merge queue, enter it and wait for GitHub to confirm the 
 
 Run `pnpm pr:gate <url>` again to confirm `MERGED` with its merge commit. Save the PR URL, merged head, merge commit, branch name, head remote, and incorporated `main` SHA in the resource inventory before cleanup.
 
+After the merge, check the E2E run that the push to `main` starts (`gh run list --workflow e2e.yml --branch main --commit <merge commit> --limit 1`). If it fails, say so in your report, even when the failure isn't from your change.
+
 ## 6. Shut down resources and delete the task branch
 
 Execute [resource cleanup](references/cleanup.md), including its session and terminal-panel rules and task-file removal, even if a later branch-deletion step fails. Unverified process or service shutdown remains a cleanup blocker.
