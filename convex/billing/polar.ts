@@ -8,6 +8,7 @@ import {
   billingReturnUrl,
   configuredProduct,
   externalCustomerId,
+  isFixtureCustomer,
   isWorktreeExternalId,
   productModel,
   timestamp,
@@ -184,7 +185,9 @@ async function validateProduct(p: Polar, model: BillingModel) {
     name: product.name,
     amount: price.price_amount,
     currency: price.price_currency,
-    taxBehavior: price.tax_behavior ?? "provider",
+    // Null when the price follows the organization's default tax behavior.
+    taxBehavior: price.tax_behavior,
+    organizationId: product.organization_id,
     syncedAt: Date.now(),
   };
 }
@@ -195,8 +198,16 @@ export const syncCatalog = internalAction({
   handler: (ctx) => withoutProviderDetails(ctx, async () => {
     const p = client();
     await spend(ctx, billingModels.length);
+    let organization: Promise<PolarModels.Organization> | undefined;
+    const defaultTaxBehavior = async (organizationId: string) => {
+      organization ??= spend(ctx, 1).then(() => retry(() => p.organizations.get(organizationId)));
+      return (await organization).default_tax_behavior;
+    };
     for (const model of billingModels) {
-      await ctx.runMutation(internal.billing.catalog.saveProduct, await validateProduct(p, model));
+      const { taxBehavior, organizationId, ...product } = await validateProduct(p, model);
+      await ctx.runMutation(internal.billing.catalog.saveProduct, {
+        ...product, taxBehavior: taxBehavior ?? await defaultTaxBehavior(organizationId),
+      });
     }
     return null;
   }),
@@ -208,7 +219,6 @@ export const checkout = action({
   handler: (ctx, { model, returnUrl }) => userFacing(ctx, async () => {
     ctx.log.set("model", model);
     const destination = billingReturnUrl(returnUrl);
-    await ctx.runQuery(internal.account.legal.requireAccepted, {});
     await ctx.runMutation(internal.rateLimits.admit, { action: "checkout" });
     const lease = await ctx.runMutation(internal.billing.state.beginOperation, {});
     try {
@@ -446,6 +456,13 @@ function modifiedAt(resource: { modified_at?: string | null; created_at: string 
   return timestamp(resource.modified_at ?? resource.created_at);
 }
 
+// Checkout doesn't accept discount codes, so only the operator can put a 100%
+// forever discount on a subscription. That makes it a deliberate comp.
+function comped({ discount }: PolarModels.Subscription) {
+  return discount?.type === "percentage" && "basis_points" in discount &&
+    discount.basis_points === 10000 && discount.duration === "forever";
+}
+
 function subscriptionSnapshot(s: PolarModels.Subscription) {
   const pendingModel = s.pending_update?.product_id ? productModel(s.pending_update.product_id) : undefined;
   const scheduledChange = s.pending_update && pendingModel && pendingModel !== "lifetime"
@@ -460,6 +477,7 @@ function subscriptionSnapshot(s: PolarModels.Subscription) {
     modifiedAt: modifiedAt(s),
     cancelAtPeriodEnd: s.cancel_at_period_end,
     scheduledChange,
+    comped: comped(s),
   };
 }
 
@@ -468,7 +486,10 @@ function orderSnapshot(o: PolarModels.Order & { product_id: string }) {
     id: o.id,
     productId: o.product_id,
     subscriptionId: o.subscription_id ?? undefined,
-    paid: o.paid && o.net_amount > 0,
+    // Polar also marks zero-cost plan switches and free orders paid. A purchase
+    // is one that charged money or redeemed a discount code, even a 100% one.
+    paid: o.paid && (o.net_amount > 0 || o.discount_amount > 0),
+    nothingCharged: o.net_amount <= 0,
     fullyRefunded: o.status === "refunded" || (o.net_amount > 0 && o.refunded_amount >= o.net_amount),
     createdAt: timestamp(o.created_at),
     modifiedAt: modifiedAt(o),
@@ -484,6 +505,13 @@ function configuredOrder(o: PolarModels.Order): o is PolarModels.Order & { produ
 // is picked up when the running worker finishes.
 async function reconcile(ctx: ActionCtx, customerId: string) {
   ctx.log.setCustomer(customerId);
+  // Without this, every fixture fails with a 422 and its retries drain the
+  // shared Polar budget until checkout is rate limited. Skipping before the
+  // lease keeps the sync state a test set, such as a failure, unchanged.
+  if (isFixtureCustomer(customerId)) {
+    ctx.log.decision("reconciliation", { result: "skipped", reason: "fixture" });
+    return;
+  }
   const lease = await ctx.runMutation(internal.billing.state.lease, { customerId });
   if (!lease) {
     ctx.log.decision("reconciliation", { result: "skipped" });

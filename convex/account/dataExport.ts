@@ -10,7 +10,6 @@ import type { Exporter } from "../lib/dataExport";
 import { appError } from "../lib/errors";
 import { action, internalQuery } from "../lib/functions";
 import { requireOwner } from "../lib/users";
-import { legalExport } from "./legal";
 import { profileExport } from "./profile";
 import { withdrawalsExport } from "../billing/withdrawals";
 import { notesExport } from "../notes/notes";
@@ -21,13 +20,12 @@ const exporters: Record<string, Exporter> = {
   profile: profileExport,
   billing: billingExport,
   accountLifecycle: accountLifecycleExport,
-  legal: legalExport,
   withdrawals: withdrawalsExport,
   notes: notesExport,
 };
 
 // Bump when an exported shape changes incompatibly.
-const formatVersion = 1;
+const formatVersion = 2;
 // Each page is its own query, so a page must fit one transaction's read limit.
 const pageOptions = { numItems: 100, maximumBytesRead: 4 * 1024 * 1024 };
 // Leaves headroom under Convex's 16 MiB function result limit.

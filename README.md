@@ -31,6 +31,7 @@ is needed. Agent guidance lives in [AGENTS.md](AGENTS.md).
 
 - `pnpm setup:check` - check prerequisites, credentials, Clerk/Polar setup, Tailscale, and gh.
 - `pnpm bootstrap` - run an isolated local environment for this worktree (`--local`, `--tailscale`, `--no-polar`).
+- `pnpm bootstrap --detach` - start it in the background, detached from the terminal; output goes to the log. It runs until `pnpm bootstrap:stop` or until the worktree is removed.
 - `pnpm bootstrap --print` - print the effective ports, URLs, and network mode without starting services.
 - `pnpm bootstrap:status` / `bootstrap:wait` / `bootstrap:stop` - inspect, wait for, or stop this worktree's bootstrap.
 - `pnpm bootstrap:tailscale` - same as `pnpm bootstrap --tailscale`.
@@ -45,7 +46,7 @@ is needed. Agent guidance lives in [AGENTS.md](AGENTS.md).
 - `pnpm capture <path...>` - screenshot (and optionally record) pages for PR evidence, outside the worktree.
 - `pnpm review-link` - print a single-use signed-in link for maintainer review.
 - `pnpm clerk:sweep` - delete this worktree's leftover labeled Clerk test users (`--dry-run`, `--all-worktrees`).
-- `pnpm pr:gate [PR]` - summarize a PR's merge gates: heads, main ancestry, checks, CodeRabbit, open threads.
+- `pnpm pr:gate [PR]` - summarize a PR's merge gates: heads, main ancestry, mergeability, checks, open threads.
 - `pnpm polar:trigger` - send a labeled Polar sandbox sample event to organization listeners.
 - `pnpm dev` - start Convex and Next.js using the regular deployment setup.
 - `pnpm typecheck` - check TypeScript.
