@@ -12,8 +12,6 @@ import type * as account_clerk from "../account/clerk.js";
 import type * as account_clerkApi from "../account/clerkApi.js";
 import type * as account_clerkWebhooks from "../account/clerkWebhooks.js";
 import type * as account_dataExport from "../account/dataExport.js";
-import type * as account_legal from "../account/legal.js";
-import type * as account_legalVersions from "../account/legalVersions.js";
 import type * as account_lifecycle from "../account/lifecycle.js";
 import type * as account_profile from "../account/profile.js";
 import type * as account_users from "../account/users.js";
@@ -57,8 +55,6 @@ declare const fullApi: ApiFromModules<{
   "account/clerkApi": typeof account_clerkApi;
   "account/clerkWebhooks": typeof account_clerkWebhooks;
   "account/dataExport": typeof account_dataExport;
-  "account/legal": typeof account_legal;
-  "account/legalVersions": typeof account_legalVersions;
   "account/lifecycle": typeof account_lifecycle;
   "account/profile": typeof account_profile;
   "account/users": typeof account_users;

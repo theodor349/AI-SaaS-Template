@@ -1,4 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { createConnection } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 import { basename } from "node:path";
@@ -42,6 +43,57 @@ export async function superviseNext(url, controller) {
       }
     }
     await delay(1000, undefined, { signal }).catch(() => {});
+  }
+}
+
+// convex dev retries a push that failed on the network, but after a typecheck,
+// bundling, or deployment error it waits for a file change, so the app never
+// starts. Pass its output to write() until the app is ready. A failure line
+// (✖ from the CLI, ✘ [ERROR] from esbuild) that no retry or new push follows
+// within quietMs stops the stack; the error names that line, and the CLI's
+// output above it in the log has the details. A spinner line such as
+// "- Collecting TypeScript errors" means the CLI is still printing them.
+export function watchConvexPush(controller, { quietMs = 2000 } = {}) {
+  let partial = "";
+  let lastLine = "";
+  let failure;
+  let timer;
+  let stopped = false;
+  const report = () => controller.abort(new Error(
+    `convex dev could not push the Convex functions: ${failure} Fix the error shown in its output and start bootstrap again.`,
+  ));
+  return {
+    write(chunk) {
+      if (stopped) return;
+      const lines = (partial + stripVTControlCharacters(chunk)).split("\n");
+      partial = lines.pop();
+      for (const line of lines.map((text) => text.trim())) {
+        if (/retrying|Preparing Convex functions|Convex functions ready/.test(line)) failure = undefined;
+        else if (!failure && /^(✖|✘ \[ERROR\])/.test(line)) failure = line.replace(/^(✖|✘ \[ERROR\])\s*/, "");
+        if (line) lastLine = line;
+      }
+      clearTimeout(timer);
+      if (failure && !lastLine.startsWith("- ")) timer = setTimeout(report, quietMs);
+    },
+    stop() {
+      stopped = true;
+      clearTimeout(timer);
+    },
+  };
+}
+
+// Stops the stack once any of paths is gone, such as when T3 Code removes the
+// worktree. A detached bootstrap has no terminal to close, so this keeps it from
+// outliving its worktree.
+export async function superviseWorktree(paths, controller, { intervalMs = 2000 } = {}) {
+  const { signal } = controller;
+  while (!signal.aborted) {
+    const missing = paths.find((path) => !existsSync(path));
+    if (missing) {
+      controller.abort(new Error(`Stopped because the worktree was removed (${missing} is missing).`));
+      return;
+    }
+    await delay(intervalMs, undefined, { signal }).catch(() => {});
   }
 }
 
@@ -136,7 +188,7 @@ export function createSupervisor({ root, env, controller, log }) {
   let serviceGroups = [];
   let stopping = false;
 
-  function start(command, args, { persistent = false, capture = false, terminal = true } = {}) {
+  function start(command, args, { persistent = false, capture = false, terminal = true, onOutput } = {}) {
     controller.signal.throwIfAborted();
     // Polar prints its signing secret during startup. Capture only --print-secret;
     // discard other Polar output, including stderr, to keep credentials private.
@@ -155,6 +207,7 @@ export function createSupervisor({ root, env, controller, log }) {
           if (terminal) writeIfOpen(destination, chunk);
           else output += chunk;
           writeIfOpen(log, stripVTControlCharacters(chunk));
+          onOutput?.(chunk);
         });
       }
     }

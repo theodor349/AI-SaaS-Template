@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { appConfig } from "@/app.config";
-import { BackLink } from "@/components/layout/back-link";
 import { Link } from "@/components/typography/link";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { loadLegalDocument, type LegalSlug } from "@/lib/legal/documents";
@@ -22,7 +21,6 @@ export function LegalDocument({ slug, children }: { slug: LegalSlug; children?: 
   return (
     <article className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
-        <BackLink href="/" label="Home" />
         <h1 className="text-3xl font-bold">{document.title}</h1>
         <p className="text-sm text-muted-foreground">Effective {document.effectiveDate} · Version {document.version}</p>
         <CompanyDetails />
