@@ -6,7 +6,7 @@ import test from "node:test";
 import { waitDecision } from "./bootstrap-control.mjs";
 import { groupMembers, processStart } from "./bootstrap/processes.mjs";
 import { reclaim, reclaimStaleRun } from "./bootstrap/reclaim.mjs";
-import { createStateRecorder, inspectState, isVerifiedSupervisor, readState, writeState } from "./bootstrap/state.mjs";
+import { createStateRecorder, inspectState, isVerifiedSupervisor, readCurrentState, readState, writeState } from "./bootstrap/state.mjs";
 import { resetTargets } from "./db-reset.mjs";
 
 const temporary = (t, name) => {
@@ -26,6 +26,21 @@ test("a live status is trusted only while the PID keeps its recorded start time"
   assert.equal(isVerifiedSupervisor(state, () => "Tue Oct 13 11:00:00 2026"), false);
   assert.equal(isVerifiedSupervisor({ ...state, pid: process.pid }, () => state.processStart), false);
   assert.equal(isVerifiedSupervisor({ ...state, pid: 1 }, () => state.processStart), false);
+});
+
+test("a run that finishes between reading its state and checking its PID is not reported as stale", (t) => {
+  const file = join(temporary(t, "bootstrap state "), "bootstrap-state.json");
+  const state = { version: 1, pid: 4242, processStart: "Tue Oct 13 10:00:00 2026", status: "stopping" };
+  writeState(file, state);
+  // The supervisor records its final status and exits just after the first read.
+  const exitAfterRead = () => {
+    writeState(file, { ...state, status: "failed", error: "Example failure." });
+    return null;
+  };
+  assert.deepEqual(readCurrentState(file, exitAfterRead), { ...state, status: "failed", error: "Example failure." });
+  assert.equal(readCurrentState(file, () => null).status, "failed");
+  writeState(file, state);
+  assert.equal(readCurrentState(file, () => null).status, "stale");
 });
 
 test("the state file is private, versioned, and never overwritten by another run", (t) => {
