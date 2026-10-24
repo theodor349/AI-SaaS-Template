@@ -48,6 +48,13 @@ export function useBillingActions() {
   const fulfilled = matchesExpectation(status, expectation);
   const pending = expectation !== null && !fulfilled;
 
+  // Forget a confirmed change. Kept, it would count as pending again once later
+  // billing state, such as Pro ending, stops matching it.
+  if (fulfilled) {
+    setExpectation(null);
+    setTimedOut(false);
+  }
+
   // Restore portal controls after Back returns a cached page. Subscription
   // expectations still wait for confirmed provider state.
   useEffect(() => {
