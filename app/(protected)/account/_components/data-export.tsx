@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useConvex, useQuery } from "convex/react";
 import { AlertCircleIcon } from "lucide-react";
 import { useState } from "react";
 import { appConfig } from "@/app.config";
@@ -54,10 +54,18 @@ function DataExportSkeleton() {
   );
 }
 
-// Saves the export through a temporary object URL, so the file name is ours.
-// Some browsers read the URL after click() returns, so it's revoked later.
-function saveFile(json: string) {
-  const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
+// Fetches the generated export file and saves it through a temporary object
+// URL, so the file name is ours. The storage URL is on another origin, where a
+// link's download attribute is ignored. Some browsers read the object URL
+// after click() returns, so it's revoked later.
+async function saveFile(fileUrl: string, convexUrl: string) {
+  // A local backend puts its loopback origin in storage URLs, which HTTPS pages
+  // and other devices can't reach, so the file comes from the Convex URL this
+  // client already uses. In production the two origins are the same.
+  const { pathname, search } = new URL(fileUrl);
+  const response = await fetch(new URL(pathname + search, convexUrl));
+  if (!response.ok) throw new Error(`Export download failed with status ${response.status}`);
+  const url = URL.createObjectURL(await response.blob());
   const link = document.createElement("a");
   const slug = appConfig.appName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   link.href = url;
@@ -67,6 +75,7 @@ function saveFile(json: string) {
 }
 
 function DataExportContent() {
+  const convex = useConvex();
   const current = useQuery(api.account.users.current);
   const download = useAction(api.account.dataExport.download);
   const [isExporting, setIsExporting] = useState(false);
@@ -77,7 +86,7 @@ function DataExportContent() {
     setError(null);
 
     try {
-      saveFile(await download({}));
+      await saveFile(await download({}), convex.url);
     } catch (failure) {
       if (hasErrorCode(failure, "EXPORT_TOO_LARGE")) {
         setError(`Your data is too large to download here. Contact ${appConfig.supportEmail} for a copy.`);
