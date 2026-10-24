@@ -1,6 +1,5 @@
 import { SignUp } from "@clerk/nextjs";
 import type { Metadata } from "next";
-import { BackLink } from "@/components/layout/back-link";
 import { isBillingModel } from "@/convex/billing/plans";
 import { maintenanceMode } from "@/lib/maintenance";
 import { noIndex } from "@/lib/seo";
@@ -28,7 +27,6 @@ export default async function SignUpPage({ searchParams }: {
   const plan = chosenPlan((await searchParams).redirect_url);
   return (
     <main className="flex min-h-screen flex-col gap-6">
-      {plan ? <BackLink href="/#pricing" label="Plans" /> : <BackLink href="/" label="Home" />}
       <div className="flex flex-1 flex-col items-center justify-center gap-4">
         {plan && <div className="w-full max-w-100"><SelectedPlan plan={plan} /></div>}
         <SignUp />
