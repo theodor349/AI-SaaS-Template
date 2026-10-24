@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { BackLink } from "@/components/layout/back-link";
 import { isBillingModel } from "@/convex/billing/plans";
 import { PaymentRedirect } from "./_components/payment-redirect";
 
@@ -15,7 +14,6 @@ export default async function CheckoutPage({ searchParams }: {
 
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-6 pb-16">
-      <BackLink href="/billing" label="Billing" />
       <PaymentRedirect plan={plan} />
     </div>
   );
