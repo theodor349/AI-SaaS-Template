@@ -8,6 +8,7 @@ import {
   billingReturnUrl,
   configuredProduct,
   externalCustomerId,
+  isFixtureCustomer,
   isWorktreeExternalId,
   productModel,
   timestamp,
@@ -504,6 +505,13 @@ function configuredOrder(o: PolarModels.Order): o is PolarModels.Order & { produ
 // is picked up when the running worker finishes.
 async function reconcile(ctx: ActionCtx, customerId: string) {
   ctx.log.setCustomer(customerId);
+  // Without this, every fixture fails with a 422 and its retries drain the
+  // shared Polar budget until checkout is rate limited. Skipping before the
+  // lease keeps the sync state a test set, such as a failure, unchanged.
+  if (isFixtureCustomer(customerId)) {
+    ctx.log.decision("reconciliation", { result: "skipped", reason: "fixture" });
+    return;
+  }
   const lease = await ctx.runMutation(internal.billing.state.lease, { customerId });
   if (!lease) {
     ctx.log.decision("reconciliation", { result: "skipped" });

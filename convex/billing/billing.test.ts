@@ -1025,3 +1025,44 @@ test("user actions leave half of the Polar budget to reconciliation and refunds"
   vi.setSystemTime(Date.now() + 60_000);
   await alice(t).action(api.billing.polar.recover, {});
 });
+
+// scripts/billing-test-fixtures.mjs publishes made-up customers that Polar
+// doesn't have. Their failed reconciliations and retries used up the shared
+// Polar budget until E2E checkouts were rate limited.
+test("sandbox fixture customers skip reconciliation and leave the Polar budget to checkout", async () => {
+  const t = setup(); await provision(t);
+  subscriptions = []; orders = [];
+  for (let i = 0; i < 30; i++) {
+    await t.mutation(internal.billing.state.enqueue, { customerId: `fixture-wt-test-user_${i}` });
+  }
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(providerCalls()).toBe(0);
+
+  await expect(alice(t).action(api.billing.polar.checkout, { model: "monthly", returnUrl: "/billing" }))
+    .resolves.toBe("https://sandbox.polar.sh/checkout/test");
+});
+
+test("a fixture customer keeps the reconciliation failure a test set", async () => {
+  const t = setup();
+  const customerId = "fixture-wt-test-user_failed";
+  await t.mutation(internal.billing.state.enqueue, { customerId });
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const lease = (await t.mutation(internal.billing.state.lease, { customerId }))!;
+  await t.mutation(internal.billing.state.finish, { customerId, version: lease.version, failed: true });
+
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(await t.query(internal.billing.state.getSync, { customerId }))
+    .toMatchObject({ failureCode: "RECONCILIATION_FAILED", attempts: 1 });
+});
+
+test.each([
+  ["production", "wt-test"],
+  ["sandbox", "wt-other"],
+])("%s reconciles a fixture-shaped customer of worktree %s with Polar", async (environment, worktree) => {
+  vi.stubEnv("POLAR_ENVIRONMENT", environment);
+  const t = setup();
+  const customerId = `fixture-${worktree}-user_a`;
+  await t.mutation(internal.billing.state.enqueue, { customerId });
+  await t.action(internal.billing.polar.reconcileCustomer, { customerId });
+  expect(provider.customers.get).toHaveBeenCalledWith(customerId);
+});
