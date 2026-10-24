@@ -1,4 +1,4 @@
 interface:
   display_name: "Complete worktree"
   short_description: "Review and merge a PR, then clean up the worktree"
-  default_prompt: "Use $complete-worktree to finish the current worktree changes: sync main, publish or resume the PR, handle bot review, merge, delete the task branch, and close owned services and terminals."
+  default_prompt: "Use $complete-worktree to finish the current worktree changes: sync main, publish or resume the PR, handle CI and review comments, merge, delete the task branch, and close owned services and terminals."

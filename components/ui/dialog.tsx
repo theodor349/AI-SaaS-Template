@@ -56,9 +56,15 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  keepOpenForPopovers = false,
+  onInteractOutside,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
+  // For dialogs that open a popover, such as a date picker. Radix dismisses
+  // every open layer on a click outside them, so without this a click outside
+  // both closes the dialog along with the popover. With it, only the popover closes.
+  keepOpenForPopovers?: boolean
 }) {
   return (
     <DialogPortal>
@@ -69,6 +75,13 @@ function DialogContent({
           "fixed top-4 left-1/2 z-50 grid max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 gap-4 overflow-y-auto sm:top-1/2 sm:-translate-y-1/2 rounded-none bg-popover p-4 text-xs/relaxed text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className
         )}
+        onInteractOutside={(event) => {
+          if (keepOpenForPopovers && document.querySelector('[data-radix-popper-content-wrapper] [data-state="open"]')) {
+            event.preventDefault()
+            return
+          }
+          onInteractOutside?.(event)
+        }}
         {...props}
       >
         {children}

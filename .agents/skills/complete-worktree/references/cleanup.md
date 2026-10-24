@@ -6,8 +6,10 @@ Read this before starting persistent commands and again when completing a worktr
 
 `pnpm bootstrap` writes this worktree's ownership record to `$(git rev-parse --path-format=absolute --git-path bootstrap-state.json)`: supervisor PID and start time, status, mode, ports, URLs, service process groups with their members' start times, created and preserved Tailscale routes, and the log path (`--git-path bootstrap.log`). It lives in the worktree's Git admin directory, outside tracked source, and survives the session.
 
+Agents start bootstrap with `pnpm bootstrap --detach`. The supervisor then runs in its own session, outside any terminal or harness task, so ending the session does not stop it. It stops on `pnpm bootstrap:stop`, when a service fails, or when T3 Code removes the worktree: the supervisor checks every few seconds that the worktree and its Git admin directory exist, and shuts its stack down when either is gone.
+
 - `pnpm bootstrap:status` shows status, URLs, mode, PID, and log path; `--json` for scripts. A recorded PID that is gone or has a different start time is reported as `stale`: the supervisor was killed without its own shutdown.
-- `pnpm bootstrap:wait [--timeout <seconds>]` exits 0 once ready and prints the log tail on failure. Use it after starting bootstrap in the background.
+- `pnpm bootstrap:wait [--timeout <seconds>]` exits 0 once ready and prints the log tail on failure. Use it after `pnpm bootstrap --detach`.
 - `pnpm bootstrap:stop [--timeout <seconds>]` rechecks PID and start time, sends SIGINT to the supervisor only, then waits for exit and for this worktree's ports to be free. If it does not exit, it sends SIGTERM to the same verified supervisor once. Bootstrap's own shutdown stops Convex, Next, and Polar and removes only Tailscale routes that run created. For a `stale` run it reclaims instead: it signals only recorded process groups that still contain a recorded member with its recorded start time, and removes recorded routes that still point only to their original target with no listener. The next `pnpm bootstrap` in the worktree does the same before starting. If a group survives or a route's target still has a listener, the run stays `stale` and the command reports what remains.
 
 Do not copy bootstrap PIDs into another inventory. If `bootstrap:stop` reports a failure, read the log and the reported survivors; do not signal anything it did not verify.
@@ -27,9 +29,13 @@ In a fresh session, check each recorded PID against its start time; PIDs are reu
 ## Stop services
 
 1. Finish checks and evidence capture.
-2. Run `pnpm bootstrap:stop`. It works from any session and is equivalent to Ctrl+C in bootstrap's terminal, and it reclaims a `stale` run. Confirm it reports the stack stopped and ports free; `pnpm bootstrap:status` should then show `stopped`.
+2. Run `pnpm bootstrap:stop`. It works from any session, including for a detached run an earlier session started. It is equivalent to Ctrl+C in a foreground run's terminal, and it reclaims a `stale` run. Confirm it reports the stack stopped and ports free; `pnpm bootstrap:status` should then show `stopped`.
 3. Stop other task commands through their owning terminals or verified supervisors and wait for exit. For a manual fallback, establish the exact descendants belonging to that launch, recheck identity, and terminate gracefully before escalating only verified survivors after a bounded wait.
 4. Never use `pkill`/`killall`, kill-by-search pipelines, port-based killing, or Tailscale-wide resets. Do not signal the agent/harness or unrelated/shared services. An occupied port held by an unrelated process is not permission to stop it.
+
+## End a session
+
+Before ending any session that started or used this worktree's bootstrap, run `pnpm bootstrap:stop` and confirm it reports the stack stopped. Leave the stack running only when the maintainer asked you to keep it running or you shared a `pnpm review-link` with them, since the link needs the running stack, and say so in your report. A stack left running keeps its services and Tailscale routes until complete-worktree cleanup runs `pnpm bootstrap:stop` or the worktree is removed.
 
 ## Close sessions and terminals
 

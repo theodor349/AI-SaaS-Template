@@ -158,7 +158,7 @@ test("expiry removes paid pages reactively while billing and account controls re
     // reconciliation. No browser-side success flags or mocked auth are involved.
     await publishBillingSnapshot({ customerId: fixture.customerId, externalId: fixture.externalId,
       subscriptions: [{ id: fixture.subscriptionId, productId: local.env.POLAR_PRODUCT_MONTHLY!, status: "canceled",
-        start: Date.now() - 1000, end: Date.now() - 1, modifiedAt: Date.now() + 1000, cancelAtPeriodEnd: false }], orders: [] });
+        start: Date.now() - 1000, end: Date.now() - 1, modifiedAt: Date.now() + 1000, cancelAtPeriodEnd: false, comped: false }], orders: [] });
     await expect(page).toHaveURL(`${local.config.env.APP_URL}/billing`);
     await expect(page.getByRole("heading", { name: "Restore Pro access" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Customer portal" })).toBeVisible();
@@ -238,10 +238,10 @@ test("yearly-to-monthly requires confirmation and shows the scheduled plan witho
     await publishBillingSnapshot({
       customerId: fixture.customerId, externalId: fixture.externalId,
       subscriptions: [{ id: fixture.subscriptionId, productId: local.env.POLAR_PRODUCT_YEARLY!, status: "active",
-        start: now - 60_000, end: account.paidThrough!, modifiedAt: now + 1000, cancelAtPeriodEnd: false,
+        start: now - 60_000, end: account.paidThrough!, modifiedAt: now + 1000, cancelAtPeriodEnd: false, comped: false,
         scheduledChange: { model: "monthly", at: account.paidThrough! } }],
       orders: [{ id: `fixture-scheduled-${user.id}`, productId: local.env.POLAR_PRODUCT_YEARLY!,
-        subscriptionId: fixture.subscriptionId, paid: true, fullyRefunded: false, createdAt: now, modifiedAt: now }],
+        subscriptionId: fixture.subscriptionId, paid: true, nothingCharged: false, fullyRefunded: false, createdAt: now, modifiedAt: now }],
     });
     await expect(page.getByLabel("Plan", { exact: true })).toHaveValue("Yearly Pro");
     await expect(page.getByLabel("Next plan", { exact: true })).toHaveValue(/^Monthly Pro from /);
@@ -275,9 +275,9 @@ for (const model of ["monthly", "yearly"] as const) {
       await publishBillingSnapshot({
         customerId: fixture.customerId, externalId: fixture.externalId,
         subscriptions: [{ id: fixture.subscriptionId, productId, status: "active", start: now - 1000,
-          end: account.paidThrough!, modifiedAt: now, cancelAtPeriodEnd: true }],
+          end: account.paidThrough!, modifiedAt: now, cancelAtPeriodEnd: true, comped: false }],
         orders: [{ id: `fixture-canceled-${user.id}`, productId, subscriptionId: fixture.subscriptionId,
-          paid: true, fullyRefunded: false, createdAt: now, modifiedAt: now }],
+          paid: true, nothingCharged: false, fullyRefunded: false, createdAt: now, modifiedAt: now }],
       });
       await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email });
       await page.goto(`/billing?plan=${target}`);
@@ -301,7 +301,7 @@ for (const model of ["monthly", "yearly"] as const) {
       await publishBillingSnapshot({
         customerId: fixture.customerId, externalId: fixture.externalId,
         subscriptions: [{ id: fixture.subscriptionId, productId, status: "active", start: renewedAt - 1000,
-          end: account.paidThrough!, modifiedAt: renewedAt, cancelAtPeriodEnd: false }], orders: [],
+          end: account.paidThrough!, modifiedAt: renewedAt, cancelAtPeriodEnd: false, comped: false }], orders: [],
       });
       await expect(page.getByRole("button", { name: `Switch to ${target}` })).toBeEnabled();
       await expect(page.getByRole("alertdialog")).toBeVisible();
@@ -330,9 +330,9 @@ test("billing retries show progress until a yearly payment is confirmed", async 
     await publishBillingSnapshot({
       customerId: fixture.customerId, externalId: fixture.externalId,
       subscriptions: [{ id: fixture.subscriptionId, productId, status: "active", start: now - 1000,
-        end: now + 365 * 24 * 60 * 60_000, modifiedAt: now, cancelAtPeriodEnd: false }],
+        end: now + 365 * 24 * 60 * 60_000, modifiedAt: now, cancelAtPeriodEnd: false, comped: false }],
       orders: [{ id: `fixture-confirmed-${user.id}`, productId, subscriptionId: fixture.subscriptionId,
-        paid: true, fullyRefunded: false, createdAt: now, modifiedAt: now }],
+        paid: true, nothingCharged: false, fullyRefunded: false, createdAt: now, modifiedAt: now }],
     });
     await expect(page.getByLabel("Plan", { exact: true })).toHaveValue("Yearly Pro");
     await expect(page.getByText("Confirming your billing details", { exact: true })).toHaveCount(0);
@@ -378,9 +378,9 @@ test("repeated switches and cancellation cycles confirm reactive state; failures
       await publishBillingSnapshot({
         customerId: fixture.customerId, externalId: fixture.externalId,
         subscriptions: [{ id: fixture.subscriptionId, productId, status: "active", start: now - 60_000,
-          end: now + 60 * 60_000, modifiedAt: now, cancelAtPeriodEnd: cancel }],
+          end: now + 60 * 60_000, modifiedAt: now, cancelAtPeriodEnd: cancel, comped: false }],
         orders: [{ id: `fixture-switch-${user.id}-${sequence}`, productId, subscriptionId: fixture.subscriptionId,
-          paid: true, fullyRefunded: false, createdAt: now, modifiedAt: now }],
+          paid: true, nothingCharged: false, fullyRefunded: false, createdAt: now, modifiedAt: now }],
       });
     });
     await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email }); await page.goto("/billing");
@@ -435,4 +435,53 @@ test("repeated switches and cancellation cycles confirm reactive state; failures
     await expect(warning).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Switch to monthly" })).toBeEnabled();
   } finally { release?.(); await page.unrouteAll({ behavior: "wait" }); await user.cleanup(); }
+});
+
+test("a confirmed switch stays settled when Pro later ends in the same page load", async ({ page }) => {
+  const user = await createClerkTestUser(local);
+  let requests = 0;
+  const sync = await interceptConvexSync(page);
+  sync.onAction("billing/polar:changeSubscription", (call) => {
+    requests++;
+    call.succeed(null);
+  });
+  try {
+    const fixture = await seedPaidTestUser(user, "monthly");
+    await page.clock.install();
+    await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email }); await page.goto("/billing");
+    await page.getByRole("button", { name: "Switch to yearly" }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Confirm switch" }).click();
+    await expect(page.getByRole("button", { name: "Confirming plan…" })).toBeDisabled();
+    await expect.poll(() => requests).toBe(1);
+
+    const now = Date.now();
+    const productId = local.env.POLAR_PRODUCT_YEARLY!;
+    await publishBillingSnapshot({
+      customerId: fixture.customerId, externalId: fixture.externalId,
+      subscriptions: [{ id: fixture.subscriptionId, productId, status: "active", start: now - 60_000,
+        end: now + 365 * 24 * 60 * 60_000, modifiedAt: now + 1000, cancelAtPeriodEnd: false, comped: false }],
+      orders: [{ id: `fixture-switch-${user.id}`, productId, subscriptionId: fixture.subscriptionId,
+        paid: true, nothingCharged: false, fullyRefunded: false, createdAt: now, modifiedAt: now }],
+    });
+    await expect(page.getByLabel("Plan", { exact: true })).toHaveValue("Yearly Pro");
+    await expect(page.getByRole("button", { name: "Confirming plan…" })).toHaveCount(0);
+
+    // Pro ends without a reload, as after a withdrawal. The confirmed switch no
+    // longer matches this state and must not count as pending again. Pausing the
+    // page clock keeps the 15-second unconfirmed timer from firing during the
+    // checks, which would otherwise re-enable the buttons and hide the bug.
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
+    await publishBillingSnapshot({ customerId: fixture.customerId, externalId: fixture.externalId,
+      subscriptions: [{ id: fixture.subscriptionId, productId, status: "canceled",
+        start: now - 60_000, end: Date.now() - 1, modifiedAt: now + 2000, cancelAtPeriodEnd: false, comped: false }], orders: [] });
+    await expect(page.getByRole("heading", { name: "Restore Pro access" })).toBeVisible();
+    const plans = ["Choose monthly", "Choose yearly", "Get lifetime"];
+    for (const name of plans) await expect(page.getByRole("button", { name, exact: true })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Opening checkout…" })).toHaveCount(0);
+
+    await page.clock.runFor(16_000);
+    await expect(page.getByText("The change is still unconfirmed")).toHaveCount(0);
+    for (const name of plans) await expect(page.getByRole("button", { name, exact: true })).toBeEnabled();
+    expect(requests).toBe(1);
+  } finally { await user.cleanup(); }
 });

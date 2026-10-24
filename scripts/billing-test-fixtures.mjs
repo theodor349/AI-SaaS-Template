@@ -40,13 +40,11 @@ export async function publishBillingSnapshot(snapshot, client = billingTestAdmin
   await client.mutation(internal.billing.state.finish, { customerId: snapshot.customerId, version: lease.version, failed: false });
 }
 
-// New users accept the current terms; `outdatedTerms` makes them predate a material change.
 // `purchasedAt` backdates the order, which starts the withdrawal period.
-export async function seedPaidTestUser(user, model = "lifetime", paid = true, { periodMs = 60 * 60_000, outdatedTerms = false, purchasedAt = Date.now() } = {}) {
+export async function seedPaidTestUser(user, model = "lifetime", paid = true, { periodMs = 60 * 60_000, purchasedAt = Date.now() } = {}) {
   const { local, client } = billingTestAdmin();
   await client.mutation(internal.account.users.syncProfile, { profile: { clerkId: user.id, email: user.email,
     firstName: user.name, updatedAt: Date.now() }, eventAt: Date.now() });
-  if (outdatedTerms) await client.mutation(internal.account.legal.outdateForClerkUser, { clerkId: user.id });
   const customerId = `fixture-${local.config.id}-${user.id}`;
   const externalId = testExternalCustomerId(local, user.id);
   await client.mutation(internal.billing.state.enqueue, { customerId, externalId });
@@ -57,9 +55,9 @@ export async function seedPaidTestUser(user, model = "lifetime", paid = true, { 
   await publishBillingSnapshot({
     customerId, externalId,
     subscriptions: model === "lifetime" ? [] : [{ id: subscriptionId, productId, status: "active",
-      start: now - 1000, end: now + periodMs, modifiedAt: now, cancelAtPeriodEnd: false }],
+      start: now - 1000, end: now + periodMs, modifiedAt: now, cancelAtPeriodEnd: false, comped: false }],
     orders: [{ id: `fixture-order-${user.id}-${model}`, productId, ...(model === "lifetime" ? {} : { subscriptionId }),
-      paid, fullyRefunded: false, createdAt: purchasedAt, modifiedAt: now }],
+      paid, nothingCharged: false, fullyRefunded: false, createdAt: purchasedAt, modifiedAt: now }],
   }, client);
   // Provider lookups for synthetic IDs cannot alter live sandbox resources;
   // paid expiry continues through its scheduled mutation.

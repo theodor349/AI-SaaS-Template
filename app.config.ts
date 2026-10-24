@@ -19,6 +19,8 @@ export type AppConfig = {
   socialProfiles: `https://${string}`[];
   // The X account credited on link previews, or null.
   xHandle: `@${string}` | null;
+  // Search terms for the keywords meta tag, or leave it out. Google ignores this tag.
+  keywords?: string[];
   // The Open Graph image, app icon, and install screenshot colors, as hex. Match app/icon.svg.
   brandColors: { background: `#${string}`; foreground: `#${string}`; muted: `#${string}` };
 };

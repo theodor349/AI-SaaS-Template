@@ -277,6 +277,112 @@ test("Next monitoring allows brief listener restarts and stops cleanly on shutdo
   }
 });
 
+test("removing the worktree or its Git admin directory stops a running bootstrap", async (t) => {
+  for (const removed of ["worktree", "admin"]) {
+    await t.test(removed, async () => {
+      const fixture = mkdtempSync(join(tmpdir(), "bootstrap worktree watch "));
+      const paths = [join(fixture, "worktree/.git"), join(fixture, "admin")];
+      mkdirSync(join(fixture, "worktree"));
+      writeFileSync(paths[0], "gitdir: ../admin\n");
+      mkdirSync(paths[1]);
+      const controller = new AbortController();
+      try {
+        const watching = bootstrap.superviseWorktree(paths, controller, { intervalMs: 10 });
+        await delay(50);
+        assert.equal(controller.signal.aborted, false);
+        rmSync(removed === "worktree" ? join(fixture, "worktree") : paths[1], { recursive: true });
+        await watching;
+        assert.equal(controller.signal.aborted, true);
+        assert.match(controller.signal.reason.message, /worktree was removed/);
+      } finally {
+        controller.abort();
+        rmSync(fixture, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
+test("worktree watching ends with the shutdown reason when bootstrap stops", async () => {
+  const fixture = mkdtempSync(join(tmpdir(), "bootstrap worktree watch "));
+  const controller = new AbortController();
+  const reason = new Error("Bootstrap stopped.");
+  try {
+    const watching = bootstrap.superviseWorktree([fixture], controller, { intervalMs: 60000 });
+    controller.abort(reason);
+    await watching;
+    assert.equal(controller.signal.reason, reason);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
+// Output captured from convex dev 1.47 in this template, as bootstrap's pipe receives it.
+const typecheckFailure = [
+  "- Preparing Convex functions...\n\n",
+  "\u001b[31m✖\u001b[39m TypeScript typecheck via `tsc` failed.\n",
+  "\u001b[90mTo ignore failing typecheck, use `--typecheck=disable`.\u001b[39m\n",
+  "- Collecting TypeScript errors\n\n",
+];
+const typecheckErrors = [
+  "convex/notes/notes.test.ts:42:55 - error TS2339: Property 'removedList' does not exist on type '{ list: ... }'.\n\n",
+  "42   const { page } = await caller.query(api.notes.notes.removedList, { paginationOpts: firstPage });\n",
+  "                                                         ~~~~~~~~~~~\n\nFound 1 error in convex/notes/notes.test.ts",
+  ":42\n\n",
+];
+const bundleFailure = [
+  "- Preparing Convex functions...\n\n",
+  "✘ [ERROR] Could not resolve \"./doesNotExist\"\n\n    convex/notes/notes.ts:1:7:\n      1 │ import \"./doesNotExist\";\n",
+];
+
+function pushWatch(quietMs = 50) {
+  const controller = new AbortController();
+  return { controller, watch: bootstrap.watchConvexPush(controller, { quietMs }) };
+}
+
+test("a typecheck error stops startup once convex dev has printed the errors and waits for a change", async () => {
+  const { controller, watch } = pushWatch();
+  for (const chunk of typecheckFailure) watch.write(chunk);
+  // convex dev prints the errors only after a second tsc run.
+  await delay(150);
+  assert.equal(controller.signal.aborted, false);
+  for (const chunk of typecheckErrors) watch.write(chunk);
+  await once(controller.signal, "abort");
+  assert.equal(controller.signal.reason.message,
+    "convex dev could not push the Convex functions: TypeScript typecheck via `tsc` failed. Fix the error shown in its output and start bootstrap again.");
+});
+
+test("a bundling error stops startup with esbuild's message", async () => {
+  const { controller, watch } = pushWatch();
+  for (const chunk of bundleFailure) watch.write(chunk);
+  await once(controller.signal, "abort");
+  assert.match(controller.signal.reason.message, /could not push the Convex functions: Could not resolve "\.\/doesNotExist" Fix/);
+});
+
+test("push failures convex dev retries by itself and successful pushes do not stop startup", async () => {
+  const { controller, watch } = pushWatch();
+  watch.write("- Preparing Convex functions...\n\n");
+  watch.write("✖ Schema or environment variables changed during push\nFailed due to network error, retrying in 500ms...\n");
+  watch.write("- Preparing Convex functions...\n\n✔ 08:13:03 Convex functions ready! (1.2s)\n");
+  await delay(150);
+  assert.equal(controller.signal.aborted, false);
+});
+
+test("push watching ignores failures after it is stopped", async () => {
+  const { controller, watch } = pushWatch();
+  for (const chunk of bundleFailure) watch.write(chunk);
+  watch.stop();
+  await delay(150);
+  assert.equal(controller.signal.aborted, false);
+});
+
+test("--detach is accepted alongside the network and Polar options", () => {
+  assert.deepEqual(bootstrap.parseArguments(["--detach", "--local", "--no-polar"]), {
+    help: false, local: true, tailscale: false, polar: false, print: false, detach: true,
+  });
+  assert.equal(bootstrap.parseArguments([]).detach, false);
+  assert.throws(() => bootstrap.parseArguments(["--detached"]), /Unknown argument: --detached/);
+});
+
 test("shutdown includes detached grandchildren and excludes unrelated agents", () => {
   const groups = descendantProcessGroups([10], `
     9 1 9

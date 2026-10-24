@@ -2,7 +2,6 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { legalVersions } from "../account/legalVersions";
 import schema from "../schema";
 import { modules } from "../test.setup";
 import { noteLimits } from "./validation";
@@ -20,12 +19,12 @@ afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); vi.restoreAllMocks(); 
 
 type Test = ReturnType<typeof convexTest>;
 
-// A signed-in user with accepted terms and, unless `paid` is false, lifetime Pro.
+// A signed-in user and, unless `paid` is false, lifetime Pro.
 async function user(t: Test, name: string, { paid = true } = {}) {
   const userId = await t.run(async (ctx) => {
     const id = await ctx.db.insert("users", {
       tokenIdentifier: `${issuer}|${name}`, clerkId: name, email: `${name}@example.com`, lifecycle: "active",
-      profileUpdatedAt: 1, profileEventAt: 1, legalAcceptance: { ...legalVersions, acceptedAt: 1 },
+      profileUpdatedAt: 1, profileEventAt: 1,
     });
     if (paid) {
       await ctx.db.insert("billingAccounts", {
