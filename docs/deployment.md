@@ -190,7 +190,7 @@ GitHub Actions repository secrets, using the same values as a local
 | --- | --- |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Clerk development publishable key (`pk_test_...`). |
 | `CLERK_SECRET_KEY` | Matching Clerk development secret key (`sk_test_...`). |
-| `POLAR_ACCESS_TOKEN` | Sandbox organization access token, including the `refunds:read` and `refunds:write` scopes. |
+| `POLAR_ACCESS_TOKEN` | Sandbox organization access token, including the `refunds:read` and `refunds:write` scopes. The discount-code test also needs `discounts:read` and `discounts:write` to create its own code, and skips without them. |
 | `POLAR_ORGANIZATION_ID` | Optional; needed when the token can access several organizations. |
 | `POLAR_PRODUCT_MONTHLY`, `POLAR_PRODUCT_YEARLY`, `POLAR_PRODUCT_LIFETIME` | The sandbox product IDs. |
 
