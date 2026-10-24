@@ -25,6 +25,9 @@ coverage/
 .playwright/
 *.log
 
+# Worktrees that Claude Code subagents create inside the repo
+.claude/worktrees/
+
 # OS metadata
 .DS_Store
 Thumbs.db

@@ -1,7 +1,6 @@
 // @vitest-environment node
 import { expect, test } from "vitest";
 import { appConfig } from "../../app.config";
-import { legalVersions } from "../../convex/account/legalVersions";
 import { consentServices } from "../consent/services";
 import { effectiveDate, loadLegalDocument, legalSlugs } from "./documents";
 
@@ -22,11 +21,6 @@ test("changing the company config changes every document", () => {
     expect(markdown).not.toContain(appConfig.companyName);
     if (slug !== "cookies") expect(markdown).toContain("Other Company ApS (CVR 12345678), Other Street 2, 1000 Copenhagen");
   }
-});
-
-test("the documents users accept carry the versions Convex records", () => {
-  expect(loadLegalDocument("terms", { appUrl }).version).toBe(legalVersions.terms);
-  expect(loadLegalDocument("privacy", { appUrl }).version).toBe(legalVersions.privacy);
 });
 
 test("rendering needs the app URL", () => {

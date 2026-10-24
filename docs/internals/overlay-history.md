@@ -11,3 +11,7 @@ Browsers behave the same way, so desktop back also closes the top overlay first.
 - **A navigation while an overlay is still open replaces the overlay's entries** and closes the overlay, so back from the new page returns to the old one in a single step. A same-URL `replaceState`, such as the router's refresh, keeps the overlay's marker in the state it writes.
 
 Forward after closing an overlay with back lands on that overlay's old entry, which shows the same page. That entry can't be removed without adding another, so it is left in place.
+
+## Popovers inside a dialog
+
+A Radix popover, such as a date picker, is not modal. A click outside both it and the dialog around it dismisses every open layer, so the dialog closes with the popover and the user loses what they entered. Pass `keepOpenForPopovers` to [DialogContent](../../components/ui/dialog.tsx) when the dialog contains one; the click then closes only the popover.

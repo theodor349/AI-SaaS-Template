@@ -3,7 +3,8 @@
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { planLabels, type BillingModel } from "@/convex/billing/plans";
-import { formatPrice, intervals, taxDescription } from "@/components/billing/pricing";
+import { formatPrice, intervals } from "@/components/billing/pricing";
+import { taxDescription } from "@/lib/billing/tax";
 import { ContentSkeleton } from "@/components/loading/content-skeleton";
 import { Link } from "@/components/typography/link";
 import { Card, CardAction, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";

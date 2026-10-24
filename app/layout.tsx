@@ -12,7 +12,7 @@ import { SiteNavigation } from "@/components/layout/site-navigation";
 import { PageContent } from "@/components/layout/page-content";
 import { ConnectionStatus } from "@/components/layout/connection-status";
 import navigationStyles from "@/components/layout/site-navigation.module.css";
-import { appConfig } from "@/app.config";
+import { appConfig, type AppConfig } from "@/app.config";
 import { throwIfE2ECrashRequested } from "@/lib/e2e-crash";
 import { openGraphDefaults, siteUrl } from "@/lib/seo";
 import { ConsentProvider } from "@/components/consent/consent-provider";
@@ -37,11 +37,14 @@ export const viewport: Viewport = {
 };
 
 const title = { default: appConfig.appName, template: `%s — ${appConfig.appName}` };
+// Read through AppConfig: an optional field left out of appConfig is missing from its inferred type.
+const { keywords }: AppConfig = appConfig;
 
 export const metadata: Metadata = {
   metadataBase: siteUrl(),
   title,
   description: appConfig.description,
+  keywords,
   openGraph: { ...openGraphDefaults, title, description: appConfig.description },
   twitter: { card: "summary_large_image", site: appConfig.xHandle ?? undefined },
 };

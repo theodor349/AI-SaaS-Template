@@ -41,6 +41,13 @@ export function inspectState(state, startOf = processStart) {
   return state;
 }
 
+// A run can record its final status and exit between reading the file and
+// checking its PID, so a stale result is checked again against a fresh read.
+export function readCurrentState(file, startOf = processStart) {
+  const current = inspectState(readState(file), startOf);
+  return current.status === "stale" ? inspectState(readState(file), startOf) : current;
+}
+
 export function isVerifiedSupervisor(state, startOf = processStart) {
   return Number.isInteger(state?.pid) && state.pid > 1 && state.pid !== process.pid &&
     Boolean(state.processStart) && startOf(state.pid) === state.processStart;

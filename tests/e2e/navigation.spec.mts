@@ -49,7 +49,7 @@ for (const width of [1280, 390]) {
       await page.goBack();
       await expect(menu).toHaveCount(0);
       await expect(page).toHaveURL(/\/account$/);
-      await page.getByRole("link", { name: "Back to Dashboard" }).click();
+      await page.getByRole("link", { name: "Dashboard", exact: true }).click();
       await expect(page).toHaveURL(/\/app$/);
       await page.goto("/billing");
       await trigger.click();
