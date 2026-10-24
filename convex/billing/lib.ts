@@ -42,6 +42,13 @@ export function isWorktreeExternalId(externalId: string | null | undefined) {
   return externalId?.startsWith(externalIdPrefix()) === true;
 }
 
+// Made-up sandbox customers that scripts/billing-test-fixtures.mjs publishes
+// straight into billing state for E2E tests, captures and review links. Polar
+// has no such customer, so reconciliation leaves them as published.
+export function isFixtureCustomer(customerId: string) {
+  return env.POLAR_ENVIRONMENT === "sandbox" && customerId.startsWith(`fixture-${env.WORKTREE_ID}-`);
+}
+
 // The owner's tokenIdentifier, or null for another worktree's or a foreign ID.
 export function externalIdTokenIdentifier(externalId: string | null | undefined) {
   return externalId && isWorktreeExternalId(externalId) ? externalId.slice(externalIdPrefix().length) : null;
