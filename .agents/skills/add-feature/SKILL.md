@@ -36,13 +36,14 @@ Notes is the reference feature: [convex/notes](../../../convex/notes/notes.ts), 
 
 # Remove Notes
 
-Removing Notes leaves `/app` with its heading and welcome line.
+Removing Notes leaves `/app` with its heading and welcome line. In an app that replaced `/app` with its own page, as Rekura did with `/lists`, the page and its welcome line go too; see step 2.
 
 1. Delete `convex/notes/`, `tests/e2e/notes.spec.mts`, and `app/(protected)/app/_components/note-*.tsx`.
-2. In `app/(protected)/app/page.tsx`, remove `NoteComposer` and `NoteList`, and rename the heading and `metadata.title`. Update the `"Notes"` heading in `tests/e2e/*.spec.mts` to match.
+2. In `app/(protected)/app/page.tsx`, remove `NoteComposer` and `NoteList`, and rename the heading and `metadata.title`. Update the `"Notes"` heading in `tests/e2e/*.spec.mts` to match. If the app has no `/app` page, skip the page edits and delete `note-*.tsx` and `welcome.tsx` wherever they ended up. A template sync can move them into the app's renamed folder, such as `app/(protected)/lists/_components`. Keep the app's own heading in the E2E specs.
 3. Remove the `notes` table from `convex/schema.ts`, and the `INVALID_NOTE_BODY`, `INVALID_NOTE_TITLE`, and `NOTE_NOT_FOUND` codes from `convex/lib/errors.ts`.
 4. In `convex/account/lifecycle.ts`, remove the `eraseNotes` import and its block in `erase`.
 5. In `convex/account/dataExport.ts`, remove `notesExport`. In `convex/account/dataExport.test.ts`, remove the seeded note and the expected `notes` section. Drop "notes" from the description in `app/(protected)/account/_components/data-export.tsx`.
-6. Remove `notePinning` from `convex/lib/featureFlags.ts`. `convex/featureFlags.test.ts` and the commands in `docs/internals/feature-flags.md` need a flag that is off by default: use another flag, or add `exampleFeature: { default: false, description: "Template example. Replace it with your first real flag." }`, and point them at it.
-7. In every deployment that has Notes data, clear the `notes` table and delete the `notePinning` row from `featureFlags`. Dropping the table from the schema does not delete its documents.
-8. Run `pnpm test:unit`, `pnpm lint`, and `pnpm build`.
+6. Remove `notePinning` from `convex/lib/featureFlags.ts`. `convex/featureFlags.test.ts`, `convex/maintenance.test.ts`, and the commands in `docs/internals/feature-flags.md` need a flag that is off by default: use another flag, or add `exampleFeature: { default: false, description: "Template example. Replace it with your first real flag." }`, and point them at it.
+7. This skill uses Notes as its reference, so delete `.agents/skills/add-feature/`, its `.claude/skills/add-feature` link, and its line in `AGENTS.md`. The migrate-app and sync-template skills link here; change those links to say to read the template's copy with `git show template/main:.agents/skills/add-feature/SKILL.md`. To keep the checklist instead, point its links at the app's own first feature.
+8. In every deployment that has Notes data, clear the `notes` table and delete the `notePinning` row from `featureFlags`. Dropping the table from the schema does not delete its documents.
+9. Run `pnpm test:unit`, `pnpm lint`, and `pnpm build`, then search the repo for `notes`, `notePinning`, and `add-feature` to catch anything left behind.

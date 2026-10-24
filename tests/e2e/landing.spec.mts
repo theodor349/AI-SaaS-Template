@@ -114,9 +114,7 @@ test("a new visitor creates an account and reaches Polar sandbox checkout for th
     await page.goto("/");
     await page.getByRole("link", { name: "Choose yearly" }).click();
     await expect(page.getByRole("heading", { name: "Create your account" })).toBeVisible();
-    // Signing up records acceptance of the terms, so the page names them and the chosen plan.
     await expect(page.getByLabel("Selected plan").getByRole("heading", { name: "Yearly Pro" })).toBeVisible();
-    await expect(page.getByText(/By creating an account, you agree to the Terms of Service/)).toBeVisible();
     expect(checkoutModels).toEqual([]);
     await page.getByLabel("Email address", { exact: true }).fill(email);
     for (const [label, value] of [["First name", "Landing"], ["Last name", "Test"], ["Password", `Landing-${randomUUID()}!`]]) {

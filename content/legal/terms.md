@@ -2,7 +2,7 @@
 title: Terms of Service
 description: The terms for using and buying {{APP_NAME}}, provided by {{COMPANY_NAME}}.
 version: 1
-effective: 2026-10-15
+effective: 2026-10-21
 ---
 
 These terms are the agreement between you and {{COMPANY_NAME}} (CVR {{COMPANY_CVR}}), {{COMPANY_ADDRESS}}, for using {{APP_NAME}} at {{APP_URL}}. You accept them when you start using {{APP_NAME}}. The [Privacy Policy](/privacy) and [Cookie Policy](/cookies) explain how we handle your data.
@@ -59,7 +59,7 @@ We're liable under Danish law for loss we cause through negligence. We're not li
 
 ## 11. Changes to these terms
 
-If we change these terms in a way that matters to you, we publish a new version and ask you to accept it the next time you use {{APP_NAME}}. Until you accept, you can still use your account settings, billing, data export, and account deletion, but not the rest of {{APP_NAME}}, and you can't buy a new plan. If you don't want to accept, you can cancel your subscription. Contact us and we'll refund the prepaid subscription time you couldn't use. Smaller changes, such as corrections, only update the effective date.
+If we change these terms in a way that matters to you, we publish a new version and tell you about it by email or in {{APP_NAME}} before it applies. If you don't want to continue under the new terms, you can cancel your subscription. Contact us and we'll refund the prepaid subscription time you can't use. Smaller changes, such as corrections, only update the effective date.
 
 ## 12. Law and disputes
 

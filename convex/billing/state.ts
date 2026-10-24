@@ -39,12 +39,14 @@ const subscription = v.object({
   modifiedAt: v.number(),
   cancelAtPeriodEnd: v.boolean(),
   scheduledChange: v.optional(scheduledPlanChange),
+  comped: v.boolean(),
 });
 const order = v.object({
   id: v.string(),
   productId: v.string(),
   subscriptionId: v.optional(v.string()),
   paid: v.boolean(),
+  nothingCharged: v.boolean(),
   fullyRefunded: v.boolean(),
   createdAt: v.number(),
   modifiedAt: v.number(),
@@ -276,7 +278,11 @@ async function saveOrder(ctx: MutationCtx, customerId: string, item: SnapshotOrd
     productId: item.productId,
     subscriptionId: item.subscriptionId,
     paid: item.paid,
-    fullyRefunded: item.fullyRefunded,
+    nothingCharged: item.nothingCharged,
+    // Polar's refund state decides, except that a completed withdrawal stays
+    // refunded. A purchase paid entirely with a discount has nothing for
+    // Polar to refund, so Polar keeps showing it paid.
+    fullyRefunded: item.fullyRefunded || !!old?.withdrawn,
     createdAt: item.createdAt,
     modifiedAt: item.modifiedAt,
   };
@@ -297,6 +303,7 @@ function subscriptionSnapshot(item: SnapshotSubscription) {
     cancelAtPeriodEnd: item.cancelAtPeriodEnd,
     modifiedAt: item.modifiedAt,
     scheduledChange: item.scheduledChange,
+    comped: item.comped,
   };
 }
 

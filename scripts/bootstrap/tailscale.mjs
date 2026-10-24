@@ -104,9 +104,9 @@ export function cleanupProxies(cleanup) {
 
 // Returns a cleanup function that removes only routes this run created.
 // Its created/preserved lists are recorded in the bootstrap state file.
-export async function serveWorktree(config, remote, command = tailscaleCommand) {
+export async function serveWorktree(config, remote, { command = tailscaleCommand, portsAvailable = assertPortsAvailable } = {}) {
   const plans = plannedProxies(config, remote, JSON.parse(command(["serve", "status", "--json"])));
-  await assertPortsAvailable(Object.fromEntries(plans.filter(p => p.create).map(p => [`tailscale-${p.port}`, p.port])));
+  await portsAvailable(Object.fromEntries(plans.filter(p => p.create).map(p => [`tailscale-${p.port}`, p.port])));
   const created = [];
   const preserved = plans.filter(p => !p.create).map(({ port, target }) => ({ port, target }));
   const cleanup = () => {

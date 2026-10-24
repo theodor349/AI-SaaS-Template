@@ -7,12 +7,12 @@ import { api, internal } from "../_generated/api";
 import schema from "../schema";
 import { billingReturnUrl, externalCustomerId, externalIdTokenIdentifier } from "./lib";
 import { retryAfter } from "../lib/errors";
-import { legalVersions } from "../account/legalVersions";
 import { modules } from "../test.setup";
 
 const provider = vi.hoisted(() => ({
   customers: { get: vi.fn(), getExternal: vi.fn(), create: vi.fn(), delete: vi.fn() },
   products: { get: vi.fn() },
+  organizations: { get: vi.fn() },
   checkouts: { list: vi.fn(), create: vi.fn() },
   customerSessions: { create: vi.fn() },
   subscriptions: { list: vi.fn(), iterList: vi.fn(), get: vi.fn(), update: vi.fn(), revoke: vi.fn() },
@@ -34,11 +34,13 @@ function sub(product = "monthly", cancel = false) {
   return { id: "sub-a", customer_id: "customer-a", product_id: product, status: "active",
     current_period_start: new Date(start).toISOString(), current_period_end: new Date(end).toISOString(),
     created_at: new Date(start).toISOString(), modified_at: new Date().toISOString(), cancel_at_period_end: cancel,
-    pending_update: null as { product_id: string; applies_at: string } | null };
+    pending_update: null as { product_id: string; applies_at: string } | null,
+    discount: null as Discount | null };
 }
+type Discount = { type: string; duration: string; basis_points?: number; amount?: number };
 function order(product = "monthly", id = "order-a", subscription: string | null = "sub-a") {
   return { id, customer_id: "customer-a", product_id: product, subscription_id: subscription,
-    paid: true, status: "paid", net_amount: 1000, refunded_amount: 0,
+    paid: true, status: "paid", subtotal_amount: 1000, discount_amount: 0, net_amount: 1000, refunded_amount: 0,
     created_at: new Date(start + 10).toISOString(), modified_at: new Date().toISOString(), billing_reason: "subscription_create" };
 }
 async function* iterate<T>(items: T[]) { yield* items; }
@@ -52,8 +54,7 @@ function decisions(log: { mock: { calls: unknown[][] } }) {
 }
 async function provision(t: ReturnType<typeof setup>, identity = tokenIdentifier) {
   return t.run(ctx => ctx.db.insert("users", { tokenIdentifier: identity, clerkId: identity.split("|")[1],
-    email: "alice@example.com", displayName: "Alice", lifecycle: "active", profileUpdatedAt: 1, profileEventAt: 1,
-    legalAcceptance: { ...legalVersions, acceptedAt: 1 } }));
+    email: "alice@example.com", displayName: "Alice", lifecycle: "active", profileUpdatedAt: 1, profileEventAt: 1}));
 }
 function alice(t: ReturnType<typeof setup>) { return t.withIdentity({ tokenIdentifier, subject: "alice", name: "Alice" }); }
 async function reconcile(t: ReturnType<typeof setup>) {
@@ -91,7 +92,7 @@ beforeEach(() => {
   provider.customers.getExternal.mockImplementation(current);
   provider.customers.create.mockImplementation(async () => customer);
   provider.customers.delete.mockImplementation(async () => { customerDeleted = true; });
-  provider.products.get.mockImplementation(async (id: string) => ({ id, name: id, is_archived: false,
+  provider.products.get.mockImplementation(async (id: string) => ({ id, name: id, is_archived: false, organization_id: "org-a",
     is_recurring: id !== "lifetime", recurring_interval: id === "monthly" ? "month" : id === "yearly" ? "year" : null,
     recurring_interval_count: id === "lifetime" ? null : 1,
     prices: [{ amount_type: "fixed", price_amount: 1000, price_currency: "usd", is_archived: false, tax_behavior: "exclusive" }] }));
@@ -115,6 +116,7 @@ beforeEach(() => {
     current.modified_at = new Date(Math.max(Date.now() + orders.length, Date.parse(current.modified_at) + 1)).toISOString(); return current;
   });
   provider.subscriptions.revoke.mockImplementation(async (id: string) => { const current = subscriptions.find(s => s.id === id)!; current.status = "canceled"; return current; });
+  provider.organizations.get.mockResolvedValue({ id: "org-a", default_tax_behavior: "exclusive" });
   provider.checkouts.list.mockResolvedValue({ items: [] });
   provider.checkouts.create.mockResolvedValue({ id: "checkout-a", url: "https://sandbox.polar.sh/checkout/test", expires_at: new Date(end).toISOString() });
   provider.customerSessions.create.mockResolvedValue({ customer_portal_url: "https://sandbox.polar.sh/portal/test" });
@@ -132,6 +134,27 @@ test("anonymous and unpaid callers cannot invoke paid application queries; provi
   }
   await expect(t.action(api.billing.polar.checkout, { model: "monthly", returnUrl: "/billing" })).rejects.toThrow("UNAUTHENTICATED");
   expect(await t.query(api.billing.catalog.products, {})).toEqual([]);
+});
+
+// Polar leaves a price's tax_behavior null when it follows the organization's
+// default, so the catalog resolves it there for the pricing copy.
+test.each([
+  ["follow an inclusive organization default", null, "inclusive", "inclusive"],
+  ["follow an exclusive organization default", null, "exclusive", "exclusive"],
+  ["follow a location-based organization default", null, "location", "location"],
+  ["set their own tax behavior", "exclusive", "inclusive", "exclusive"],
+])("catalog prices that %s show that tax behavior", async (_label, priceTaxBehavior, organizationDefault, expected) => {
+  const t = setup();
+  const product = provider.products.get.getMockImplementation()!;
+  provider.products.get.mockImplementation(async (id: string) => {
+    const result = await product(id);
+    return { ...result, prices: result.prices.map((price: object) => ({ ...price, tax_behavior: priceTaxBehavior })) };
+  });
+  provider.organizations.get.mockResolvedValue({ id: "org-a", default_tax_behavior: organizationDefault });
+  await t.action(internal.billing.polar.syncCatalog, {});
+  const products = await t.query(api.billing.catalog.products, {});
+  expect(products.map(item => item.taxBehavior)).toEqual([expected, expected, expected]);
+  expect(provider.organizations.get).toHaveBeenCalledTimes(priceTaxBehavior ? 0 : 1);
 });
 
 test.each(["cancel", "reactivate"] as const)("repeating %s confirms provider state without issuing a rejected update", async operation => {
@@ -615,6 +638,73 @@ test("zero-price paid flags cannot grant a first recurring or lifetime entitleme
   }
 });
 
+test.each([
+  ["covered by a 100% discount code", 5000, 0],
+  ["half covered by a discount code", 2500, 2500],
+])("a lifetime order %s grants lifetime Pro", async (_, discount, net) => {
+  const t = setup(); await provision(t); await link(t);
+  subscriptions = [];
+  orders = [{ ...order("lifetime", "lifetime", null), billing_reason: "purchase",
+    subtotal_amount: 5000, discount_amount: discount, net_amount: net }];
+  await reconcile(t);
+  expect(await state(t)).toMatchObject({ status: "active", model: "lifetime", lifetimeOrderId: "lifetime" });
+});
+
+test("an unpaid order with a discount grants nothing", async () => {
+  const t = setup(); await provision(t); await link(t);
+  subscriptions = [];
+  orders = [{ ...order("lifetime", "lifetime", null), billing_reason: "purchase", paid: false, status: "pending",
+    subtotal_amount: 5000, discount_amount: 2500, net_amount: 2500 }];
+  await reconcile(t);
+  expect((await state(t))?.status).not.toBe("active");
+});
+
+test("a lifetime order whose refund Polar reverses grants access again", async () => {
+  const t = setup(); await provision(t); await link(t);
+  subscriptions = [];
+  const lifetime = { ...order("lifetime", "lifetime", null), billing_reason: "purchase" };
+  orders = [lifetime];
+  await reconcile(t);
+  Object.assign(lifetime, { status: "refunded", refunded_amount: 1000, modified_at: new Date(Date.now() + 10).toISOString() });
+  await reconcile(t);
+  expect((await state(t))?.status).toBe("ended");
+  Object.assign(lifetime, { status: "paid", refunded_amount: 0, modified_at: new Date(Date.now() + 20).toISOString() });
+  await reconcile(t);
+  expect(await state(t)).toMatchObject({ status: "active", model: "lifetime", lifetimeOrderId: "lifetime" });
+});
+
+const fullForever: Discount = { type: "percentage", basis_points: 10000, duration: "forever" };
+// A subscriber who started monthly with a discount code and then switched to
+// yearly at no cost, so no order in the current period carries money or a discount.
+function discountedYearly(discount: Discount | null) {
+  subscriptions = [{ ...sub("yearly"), discount }];
+  orders = [
+    { ...order("monthly", "create"), created_at: new Date(start - 30 * 24 * 60 * 60_000).toISOString(),
+      subtotal_amount: 500, discount_amount: 500, net_amount: 0 },
+    { ...order("yearly", "switch"), billing_reason: "subscription_update",
+      subtotal_amount: 0, discount_amount: 0, net_amount: 0 },
+  ];
+}
+
+test("a subscription with a 100% forever discount grants Pro through its period end", async () => {
+  const t = setup(); await provision(t); await link(t);
+  discountedYearly(fullForever);
+  await reconcile(t);
+  expect(await state(t)).toMatchObject({ status: "active", model: "yearly", subscriptionId: "sub-a", paidThrough: end });
+});
+
+test.each([
+  ["no discount", null],
+  ["a 50% forever discount", { ...fullForever, basis_points: 5000 }],
+  ["a 100% one-time discount", { ...fullForever, duration: "once" }],
+  ["a forever fixed discount equal to the price", { type: "fixed", amount: 1000, duration: "forever" }],
+])("a zero-cost switch on a subscription with %s grants no paid time", async (_, discount) => {
+  const t = setup(); await provision(t); await link(t);
+  discountedYearly(discount);
+  await reconcile(t);
+  expect((await state(t))?.status).not.toBe("active");
+});
+
 test("an invalid unclaimed external identity can be repaired; a claimed customer's identity cannot change", async () => {
   const t = setup(); await provision(t);
   customer.external_id = "invalid-legacy-id";
@@ -934,4 +1024,45 @@ test("user actions leave half of the Polar budget to reconciliation and refunds"
 
   vi.setSystemTime(Date.now() + 60_000);
   await alice(t).action(api.billing.polar.recover, {});
+});
+
+// scripts/billing-test-fixtures.mjs publishes made-up customers that Polar
+// doesn't have. Their failed reconciliations and retries used up the shared
+// Polar budget until E2E checkouts were rate limited.
+test("sandbox fixture customers skip reconciliation and leave the Polar budget to checkout", async () => {
+  const t = setup(); await provision(t);
+  subscriptions = []; orders = [];
+  for (let i = 0; i < 30; i++) {
+    await t.mutation(internal.billing.state.enqueue, { customerId: `fixture-wt-test-user_${i}` });
+  }
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(providerCalls()).toBe(0);
+
+  await expect(alice(t).action(api.billing.polar.checkout, { model: "monthly", returnUrl: "/billing" }))
+    .resolves.toBe("https://sandbox.polar.sh/checkout/test");
+});
+
+test("a fixture customer keeps the reconciliation failure a test set", async () => {
+  const t = setup();
+  const customerId = "fixture-wt-test-user_failed";
+  await t.mutation(internal.billing.state.enqueue, { customerId });
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const lease = (await t.mutation(internal.billing.state.lease, { customerId }))!;
+  await t.mutation(internal.billing.state.finish, { customerId, version: lease.version, failed: true });
+
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(await t.query(internal.billing.state.getSync, { customerId }))
+    .toMatchObject({ failureCode: "RECONCILIATION_FAILED", attempts: 1 });
+});
+
+test.each([
+  ["production", "wt-test"],
+  ["sandbox", "wt-other"],
+])("%s reconciles a fixture-shaped customer of worktree %s with Polar", async (environment, worktree) => {
+  vi.stubEnv("POLAR_ENVIRONMENT", environment);
+  const t = setup();
+  const customerId = `fixture-${worktree}-user_a`;
+  await t.mutation(internal.billing.state.enqueue, { customerId });
+  await t.action(internal.billing.polar.reconcileCustomer, { customerId });
+  expect(provider.customers.get).toHaveBeenCalledWith(customerId);
 });
