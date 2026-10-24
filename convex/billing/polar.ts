@@ -250,7 +250,7 @@ export const checkout = action({
         // Pre-fills the cardholder name.
         customer_name: getDisplayName(user) ?? null,
         allow_trial: false,
-        allow_discount_codes: false,
+        allow_discount_codes: true,
         metadata: { worktree_id: env.WORKTREE_ID },
         customer_metadata: { worktree_id: env.WORKTREE_ID },
         // Billing waits for this plan's confirmation, then opens the product.
@@ -456,8 +456,10 @@ function modifiedAt(resource: { modified_at?: string | null; created_at: string 
   return timestamp(resource.modified_at ?? resource.created_at);
 }
 
-// Checkout doesn't accept discount codes, so only the operator can put a 100%
-// forever discount on a subscription. That makes it a deliberate comp.
+// The operator creates every discount, so a 100% forever one is a deliberate
+// comp, whether the operator attached it or the customer redeemed its code at
+// checkout. Renewals carry the discount anyway; this also covers zero-cost
+// plan switches, whose orders carry neither money nor a discount.
 function comped({ discount }: PolarModels.Subscription) {
   return discount?.type === "percentage" && "basis_points" in discount &&
     discount.basis_points === 10000 && discount.duration === "forever";

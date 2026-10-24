@@ -24,7 +24,7 @@ export type SubscriptionRecord = {
   modifiedAt: number;
   superseded: boolean;
   scheduledChange?: PlanChange;
-  // Carries a 100% forever discount, which only the operator can grant.
+  // Carries a 100% forever discount, which only the operator can create.
   comped?: boolean;
 };
 

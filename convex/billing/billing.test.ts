@@ -475,6 +475,7 @@ test("checkout accepts unpaid owners, validates products and return URLs, and po
   await expect(alice(t).action(api.billing.polar.checkout, { model: "monthly", returnUrl: "https://evil.example/billing" })).rejects.toThrow("INVALID_RETURN_URL");
   expect(await alice(t).action(api.billing.polar.checkout, { model: "monthly", returnUrl: "/billing" })).toContain("checkout");
   expect(provider.checkouts.create).toHaveBeenCalledWith(expect.objectContaining({ products: ["monthly"], customer_id: "customer-a", allow_trial: false,
+    allow_discount_codes: true,
     customer_name: "Alice", success_url: "http://127.0.0.1:3000/billing?confirmation=monthly" }));
   provider.checkouts.list.mockResolvedValue({ items: [{ status: "open", expires_at: new Date(end).toISOString(), url: "https://sandbox.polar.sh/recovered", metadata: { worktree_id: "wt-test" } }] });
   expect(await alice(t).action(api.billing.polar.checkout, { model: "monthly", returnUrl: "/billing" })).toContain("recovered");
@@ -668,6 +669,18 @@ test.each([
     subtotal_amount: 5000, discount_amount: discount, net_amount: net }];
   await reconcile(t);
   expect(await state(t)).toMatchObject({ status: "active", model: "lifetime", lifetimeOrderId: "lifetime" });
+});
+
+test.each([
+  ["a 100% forever code", 1000, 0, { type: "percentage", basis_points: 10000, duration: "forever" }],
+  ["a 100% one-time code", 1000, 0, { type: "percentage", basis_points: 10000, duration: "once" }],
+  ["a 50% forever code", 500, 500, { type: "percentage", basis_points: 5000, duration: "forever" }],
+])("a subscription bought at checkout with %s grants Pro through its period end", async (_, discount, net, code) => {
+  const t = setup(); await provision(t); await link(t);
+  subscriptions = [{ ...sub("monthly"), discount: code }];
+  orders = [{ ...order("monthly"), discount_amount: discount, net_amount: net }];
+  await reconcile(t);
+  expect(await state(t)).toMatchObject({ status: "active", model: "monthly", subscriptionId: "sub-a", paidThrough: end });
 });
 
 test("an unpaid order with a discount grants nothing", async () => {
