@@ -26,11 +26,9 @@ export default async function SignUpPage({ searchParams }: {
   if (maintenanceMode) return <MaintenanceNotice />;
   const plan = chosenPlan((await searchParams).redirect_url);
   return (
-    <main className="flex min-h-screen flex-col gap-6">
-      <div className="flex flex-1 flex-col items-center justify-center gap-4">
-        {plan && <div className="w-full max-w-100"><SelectedPlan plan={plan} /></div>}
-        <SignUp />
-      </div>
-    </main>
+    <div className="flex flex-col items-center gap-4">
+      {plan && <div className="w-full max-w-100"><SelectedPlan plan={plan} /></div>}
+      <SignUp />
+    </div>
   );
 }
