@@ -56,4 +56,6 @@ Only after the PR is confirmed merged and `pnpm bootstrap:status` shows `stopped
 
 Remove these exact paths only, never by pattern. Keep them while the merge is held or blocked.
 
+Print the scratch and evidence paths first, with `git rev-parse` and `pnpm bootstrap:status` on their own, then pass the printed absolute paths to `rm`. Claude Code asks the maintainer to approve an `rm` whose target is command output, such as `rm -rf "$(git rev-parse --path-format=absolute --git-path agent-scratch)"`, or a variable set from command output in the same command, even in bypass mode.
+
 Continue cleaning independently verified resources if another item fails. Clean Git status does not require removing ignored `.convex`, generated environment files, or the bootstrap state and log. Preserve the worktree directory and database. Delete the inventory after its items are verified complete; on a blocker, mark completed items and keep the unresolved ones.
