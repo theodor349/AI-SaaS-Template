@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { accountForUser, operationForUser, syncForCustomer } from "../billing/lib";
 import { clerkTokenIdentifier } from "./clerk";
+import { eraseDataExportFiles } from "./dataExportFiles";
 import { exportMany, exportTime } from "../lib/dataExport";
 import { deleteClerkUser } from "./clerkApi";
 import { appError } from "../lib/errors";
@@ -198,6 +199,10 @@ export const erase = internalMutation({
     }
     if (!await eraseNotes(ctx, user._id)) {
       ctx.log.decision("erase", { result: "batch", table: "notes" });
+      return false;
+    }
+    if (!await eraseDataExportFiles(ctx, user._id)) {
+      ctx.log.decision("erase", { result: "batch", table: "dataExportFiles" });
       return false;
     }
     await ctx.db.patch("users", user._id, { lifecycle: "deleted", email: undefined, displayName: undefined, firstName: undefined, lastName: undefined, profileEdited: undefined, legalAcceptance: undefined, profileUpdatedAt: 0, profileEventAt: 0 });

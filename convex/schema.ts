@@ -175,6 +175,12 @@ export default defineSchema(
       updatedAt: v.number(),
     }).index("by_userId_and_updatedAt", ["userId", "updatedAt"])
       .index("by_userId_and_pinned_and_updatedAt", ["userId", "pinned", "updatedAt"]),
+    // Generated export files awaiting deletion. A storage URL works for anyone
+    // who has it, so deleting the file is its only expiry.
+    dataExportFiles: defineTable({
+      userId: v.id("users"),
+      storageId: v.id("_storage"),
+    }).index("by_userId", ["userId"]),
     // Per-deployment state for flags declared in lib/featureFlags.ts. A flag
     // without a row uses its default; rows for removed flags are ignored.
     featureFlags: defineTable({
