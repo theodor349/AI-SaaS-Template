@@ -40,7 +40,15 @@ test("users download their data from the account page, including a pending delet
     await expect(page.getByRole("alert").filter({ hasText: "Couldn’t export your data" })).toBeVisible();
     await captureEvidence(page, "data-export-error");
 
+    // A file that is gone by the time the browser fetches it reports the same failure.
     sync.onAction("account/dataExport:download", (held) => held.forward());
+    let fetched = false;
+    await page.route("**/api/storage/**", (route) => { fetched = true; return route.fulfill({ status: 404 }); }, { times: 1 });
+    await page.getByRole("button", { name: "Export data" }).click();
+    await expect.poll(() => fetched).toBe(true);
+    await expect(page.getByRole("button", { name: "Export data" })).toBeEnabled();
+    await expect(page.getByRole("alert").filter({ hasText: "Couldn’t export your data" })).toBeVisible();
+
     const exported = await exportData(page);
     await expect(page.getByRole("alert").filter({ hasText: "Couldn’t export your data" })).toHaveCount(0);
     expect(exported).toMatchObject({
