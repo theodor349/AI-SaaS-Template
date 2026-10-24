@@ -55,13 +55,14 @@ async function provision(t: Test, name: string) {
     email: `${name}@example.com`, lifecycle: "active", profileUpdatedAt: 1, profileEventAt: 1 }));
 }
 // Alice buys `model` through the same reconciliation that publishes real purchases.
-// `comped` pays it entirely with a 100% forever discount code, so nothing is charged.
-async function purchase(t: Test, model: "monthly" | "yearly" | "lifetime", comped = false) {
+// `discount` is the part of the 1000 price a forever discount code covered at
+// checkout; 1000 is a 100% code, so nothing is charged.
+async function purchase(t: Test, model: "monthly" | "yearly" | "lifetime", discount = 0) {
   orders = [providerOrder(model)];
   subscriptions = model === "lifetime" ? [] : [providerSubscription(model)];
-  if (comped) {
-    Object.assign(orders[0], { discount_amount: 1000, net_amount: 0, refundable_amount: 0 });
-    subscriptions.forEach(s => { s.discount = { type: "percentage", basis_points: 10000, duration: "forever" }; });
+  if (discount) {
+    Object.assign(orders[0], { discount_amount: discount, net_amount: 1000 - discount, refundable_amount: 1000 - discount });
+    subscriptions.forEach(s => { s.discount = { type: "percentage", basis_points: discount * 10, duration: "forever" }; });
   }
   const userId = await provision(t, "alice");
   await t.mutation(internal.billing.state.enqueue, { customerId: "customer-a", externalId: `wt-test:${issuer}|alice` });
@@ -136,9 +137,25 @@ test.each(["monthly", "yearly", "lifetime"] as const)("withdrawing %s refunds th
   expect((await as(t, "alice").query(api.billing.withdrawals.purchases, {}))[0].withdrawal).toMatchObject({ status: "refunded" });
 });
 
-test.each(["monthly", "lifetime"] as const)("withdrawing a comped %s purchase ends paid access without a refund", async (model) => {
+test.each(["monthly", "yearly", "lifetime"] as const)("withdrawing a %s purchase bought with a partial code refunds what was charged", async (model) => {
   const t = setup();
-  const userId = await purchase(t, model, true);
+  const userId = await purchase(t, model, 400);
+  expect(await accountState(t)).toBe("active");
+
+  await as(t, "alice").mutation(api.billing.withdrawals.request, { orderId: "order-a" });
+  const [received] = await withdrawalsOf(t, userId);
+  expect(received).toMatchObject({ refundOrderIds: ["order-a"], nothingCharged: false });
+
+  await t.action(internal.billing.polar.withdraw, { withdrawalId: received._id });
+  expect(provider.refunds.create).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ order_id: "order-a", amount: 600 }));
+  expect(provider.subscriptions.revoke).toHaveBeenCalledTimes(model === "lifetime" ? 0 : 1);
+  await t.action(internal.billing.polar.reconcileCustomer, { customerId: "customer-a" });
+  expect(await accountState(t)).toBe("ended");
+});
+
+test.each(["monthly", "yearly", "lifetime"] as const)("withdrawing a %s purchase bought with a 100% code ends paid access without a refund", async (model) => {
+  const t = setup();
+  const userId = await purchase(t, model, 1000);
   expect(await accountState(t)).toBe("active");
 
   await as(t, "alice").mutation(api.billing.withdrawals.request, { orderId: "order-a" });
@@ -267,7 +284,7 @@ test("the owner is emailed once the refund is made", async () => {
 test("a comped purchase's emails say nothing was charged instead of promising a refund", async () => {
   vi.stubEnv("RESEND_API_KEY", "re_test"); vi.stubEnv("EMAIL_FROM", "App <receipts@example.com>");
   const t = setup();
-  const userId = await purchase(t, "monthly", true);
+  const userId = await purchase(t, "monthly", 1000);
   await as(t, "alice").mutation(api.billing.withdrawals.request, { orderId: "order-a" });
   const [received] = await withdrawalsOf(t, userId);
   await t.action(internal.billing.polar.withdraw, { withdrawalId: received._id });

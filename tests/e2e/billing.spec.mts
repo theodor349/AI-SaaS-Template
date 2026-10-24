@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { clerk } from "@clerk/testing/playwright";
 import { expect, test } from "@playwright/test";
 import { ConvexHttpClient } from "convex/browser";
@@ -204,6 +205,53 @@ test("sandbox checkout and recovery work when another customer uses the sign-in 
   } finally {
     try {
       if (collisionCustomerId) await polar.customers.delete(collisionCustomerId);
+    } finally {
+      await user.cleanup();
+    }
+  }
+});
+
+// Creates its own code, so the token needs the discounts:read and
+// discounts:write scopes. Projects whose token lacks them skip this test.
+test("a 100% discount code on the lifetime product grants lifetime Pro through sandbox checkout", async ({ page }) => {
+  const polar = createPolar({ accessToken: local.env.POLAR_ACCESS_TOKEN, environment: "sandbox", organizationId: local.env.POLAR_ORGANIZATION_ID });
+  const canCreateCodes = await polar.discounts.list({ limit: 1 }).then(() => true, (error: { statusCode?: number }) => {
+    if (error.statusCode === 403) return false;
+    throw error;
+  });
+  test.skip(!canCreateCodes, "POLAR_ACCESS_TOKEN lacks the discounts:read and discounts:write scopes.");
+  const code = `FIXTURE${randomUUID().slice(0, 8).toUpperCase()}`;
+  const discount = await polar.discounts.create({
+    type: "percentage", basis_points: 10000, duration: "once", code, max_redemptions: 1,
+    name: `fixture-${local.config.id} lifetime`, products: [local.env.POLAR_PRODUCT_LIFETIME],
+  });
+  const user = await createClerkTestUser(local);
+  try {
+    await page.goto("/billing"); await clerk.signIn({ page, emailAddress: user.email });
+    await page.getByRole("button", { name: "Get lifetime" }).click();
+    await expect(page).toHaveURL(/https:\/\/sandbox\.polar\.sh\/checkout\//);
+    // Polar's button ignores clicks until its page has hydrated.
+    const codeField = page.getByRole("textbox", { name: "Discount code" });
+    await expect(async () => {
+      await page.getByRole("button", { name: "Add discount code" }).click();
+      await expect(codeField).toBeVisible({ timeout: 1000 });
+    }).toPass();
+    await codeField.fill(code);
+    await page.getByRole("button", { name: "Apply" }).click();
+    await page.getByRole("button", { name: "Get for free" }).click();
+    await page.waitForURL(url => url.href.startsWith(`${local.config.env.APP_URL}/billing?confirmation=lifetime`));
+    // Webhook forwarding may be off, so ask for reconciliation as the billing page's recovery does.
+    await page.waitForFunction(() => !!window.Clerk?.session);
+    const token = await page.evaluate(() => window.Clerk.session!.getToken({ template: "convex" }));
+    const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
+    client.setAuth(token!);
+    await client.action(api.billing.polar.recover, {});
+    await expect(page).toHaveURL(`${local.config.env.APP_URL}/app`);
+    await page.goto("/billing");
+    await expect(page.getByText("You have lifetime access.")).toBeVisible();
+  } finally {
+    try {
+      await polar.discounts.delete(discount.id);
     } finally {
       await user.cleanup();
     }
