@@ -9,7 +9,7 @@ import {
 } from "./bootstrap/config.mjs";
 import { assertPortsAvailable, waitForServer } from "./bootstrap/network.mjs";
 import { preflight } from "./doctor.mjs";
-import { createSupervisor, superviseConvex, superviseNext, superviseWorktree } from "./bootstrap/processes.mjs";
+import { createSupervisor, superviseConvex, superviseNext, superviseWorktree, watchConvexPush } from "./bootstrap/processes.mjs";
 import { reclaim } from "./bootstrap/reclaim.mjs";
 import { bootstrapPaths, createStateRecorder, inspectState, liveStatuses, openLog, readState } from "./bootstrap/state.mjs";
 import { chooseNetwork, cleanupProxies, readTailscaleStatus, serveWorktree, tailscaleConfig } from "./bootstrap/tailscale.mjs";
@@ -19,7 +19,7 @@ export {
 } from "./bootstrap/config.mjs";
 export { assertPortsAvailable, waitForServer } from "./bootstrap/network.mjs";
 export {
-  darwinGroupMembers, descendantProcessGroups, signalProcessGroup, superviseConvex, superviseNext, superviseWorktree,
+  darwinGroupMembers, descendantProcessGroups, signalProcessGroup, superviseConvex, superviseNext, superviseWorktree, watchConvexPush,
 } from "./bootstrap/processes.mjs";
 
 const usage = `pnpm bootstrap [--local | --tailscale] [--no-polar] [--detach] [--print]
@@ -164,6 +164,7 @@ async function runServices({ root, config, credentials, polar, browserEnv, env, 
   // the CLI starts, and a relative path loads the admin key into every nested process.
   const tool = (name) => join(root, "node_modules/.bin", name);
   let configured = false;
+  const convexPush = watchConvexPush(controller);
   const restoreLocalSelection = () => {
     // The self-hosted watcher removes this selector once during startup. A removed
     // worktree has no file left to restore.
@@ -227,7 +228,7 @@ async function runServices({ root, config, credentials, polar, browserEnv, env, 
     const watchCommand = `./node_modules/.bin/convex dev --env-file .env.convex-watch.local --start "./node_modules/.bin/next dev --hostname 127.0.0.1 --port ${config.ports.next}"`;
     // Each persistent service is recorded as it starts and again once its children
     // exist, so a supervisor killed during a readiness wait can still be reclaimed.
-    supervisor.start(tool("convex"), hostArgs(watchCommand), { persistent: true });
+    supervisor.start(tool("convex"), hostArgs(watchCommand), { persistent: true, onOutput: convexPush.write });
     onServices(await supervisor.recordServiceGroups());
     await waitForServer(backendHealthUrl, controller.signal);
     onServices(await supervisor.recordServiceGroups());
@@ -241,6 +242,8 @@ async function runServices({ root, config, credentials, polar, browserEnv, env, 
     }
     // Next starts only after the initial Convex push, so its readiness also proves functions exist.
     await waitForServer(config.env.APP_URL, controller.signal);
+    // Push failures from here on happen during development and leave the stack running.
+    convexPush.stop();
     if (polar) await supervisor.run(["run", "--env-file", watchEnvFile, "billing/polar:syncCatalog", "{}"], { command: tool("convex") });
     onServices(await supervisor.recordServiceGroups());
     supervisor.supervise(superviseNext(config.env.APP_URL, controller));
@@ -256,6 +259,7 @@ async function runServices({ root, config, credentials, polar, browserEnv, env, 
   } catch (error) {
     throw controller.signal.aborted ? controller.signal.reason : error;
   } finally {
+    convexPush.stop();
     await supervisor.stop();
     restoreLocalSelection();
   }

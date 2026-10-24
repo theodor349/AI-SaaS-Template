@@ -16,7 +16,7 @@ const processTable = () => execFileSync("ps", ["-eo", "pid=,ppid=,pgid="], { enc
 
 // Prepares a fresh repository, or a linked worktree of one, where the real
 // bootstrap runs against stand-in pnpm and ps commands.
-async function prepareFixture(t, { linked = false } = {}) {
+async function prepareFixture(t, { linked = false, typecheckError = false } = {}) {
   const base = await mkdtemp(join(tmpdir(), "bootstrap lifecycle with spaces "));
   let fixture = base;
   if (linked) {
@@ -30,6 +30,7 @@ async function prepareFixture(t, { linked = false } = {}) {
   const config = worktreeConfig(root);
   await assertPortsAvailable(config.ports);
   await mkdir(join(fixture, "bin"));
+  if (typecheckError) await writeFile(join(fixture, "typecheck-error"), "yes");
   for (const name of ["bootstrap.mjs", "bootstrap-output-guard.mjs", "bootstrap-control.mjs", "doctor.mjs"]) await copyFile(script(`./${name}`), join(fixture, name));
   await cp(script("./bootstrap"), join(fixture, "bootstrap"), { recursive: true });
   // A previous run's derived issuer must not block a different app's key override.
@@ -74,6 +75,12 @@ async function prepareFixture(t, { linked = false } = {}) {
       createServer((req, res) => res.writeHead(404).end()).listen(Number(process.env.PORT) + 2, "127.0.0.1");
       // The first push beats a later env upload, and the CLI may never retry it.
       if (!require("node:fs").existsSync(".convex/local/default/env-set")) console.error("CLERK_JWT_ISSUER_DOMAIN was not set.");
+      // The real CLI keeps watching for a file change after a failed typecheck,
+      // and prints the errors from a second tsc run.
+      else if (require("node:fs").existsSync("typecheck-error")) {
+        console.error(${JSON.stringify("✖ TypeScript typecheck via `tsc` failed.\n- Collecting TypeScript errors\n")});
+        setTimeout(() => console.log(${JSON.stringify("convex/notes/notes.test.ts:42:55 - error TS2339: Property 'removedList' does not exist.\n\nFound 1 error.")}), 500);
+      }
       else if (args[args.indexOf("--start") + 1].includes("next dev")) setTimeout(() => {
         const listener = spawn(process.execPath, ["-e", 'require("node:http").createServer((req, res) => res.end("app")).listen(Number(process.env.PORT), "127.0.0.1")'], { detached: true, stdio: "ignore" });
         writeFileSync("next.pid", String(listener.pid));
@@ -292,6 +299,19 @@ test("a detached bootstrap outlives its launcher's process group and bootstrap:s
   assert.throws(() => process.kill(polarPid, 0), { code: "ESRCH" });
   await assertPortsAvailable(fixture.config.ports);
   assert.equal(JSON.parse(await readFile(fixture.statePath, "utf8")).status, "stopped");
+});
+
+test("a detached bootstrap reports a typecheck error from the first push without waiting for the app", { timeout: 20000 }, async (t) => {
+  const fixture = await startDetachedFixture(t, { typecheckError: true });
+  const started = Date.now();
+  const wait = await control(fixture, ["wait", "--timeout", "15"]);
+  assert.equal(wait.code, 1, wait.output);
+  assert.ok(Date.now() - started < 10000, `bootstrap:wait took ${Date.now() - started}ms`);
+  assert.match(wait.output, /Bootstrap: failed[\s\S]*Error: convex dev could not push the Convex functions: TypeScript typecheck via `tsc` failed\./);
+  assert.match(wait.output, /Last log lines:[\s\S]*error TS2339: Property 'removedList'/);
+  assert.ok(await exitedWithin(fixture.supervisorPid, 5000), "The supervisor stopped its services and exited");
+  await assertPortsAvailable(fixture.config.ports);
+  assert.equal(existsSync(join(fixture.root, "next.pid")), false);
 });
 
 test("a detached bootstrap stops its services when its worktree is removed", { timeout: 20000 }, async (t) => {
