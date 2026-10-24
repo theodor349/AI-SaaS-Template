@@ -459,9 +459,9 @@ test("a confirmed switch stays settled when Pro later ends in the same page load
     await publishBillingSnapshot({
       customerId: fixture.customerId, externalId: fixture.externalId,
       subscriptions: [{ id: fixture.subscriptionId, productId, status: "active", start: now - 60_000,
-        end: now + 365 * 24 * 60 * 60_000, modifiedAt: now + 1000, cancelAtPeriodEnd: false }],
+        end: now + 365 * 24 * 60 * 60_000, modifiedAt: now + 1000, cancelAtPeriodEnd: false, comped: false }],
       orders: [{ id: `fixture-switch-${user.id}`, productId, subscriptionId: fixture.subscriptionId,
-        paid: true, fullyRefunded: false, createdAt: now, modifiedAt: now }],
+        paid: true, nothingCharged: false, fullyRefunded: false, createdAt: now, modifiedAt: now }],
     });
     await expect(page.getByLabel("Plan", { exact: true })).toHaveValue("Yearly Pro");
     await expect(page.getByRole("button", { name: "Confirming plan…" })).toHaveCount(0);
@@ -473,7 +473,7 @@ test("a confirmed switch stays settled when Pro later ends in the same page load
     await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
     await publishBillingSnapshot({ customerId: fixture.customerId, externalId: fixture.externalId,
       subscriptions: [{ id: fixture.subscriptionId, productId, status: "canceled",
-        start: now - 60_000, end: Date.now() - 1, modifiedAt: now + 2000, cancelAtPeriodEnd: false }], orders: [] });
+        start: now - 60_000, end: Date.now() - 1, modifiedAt: now + 2000, cancelAtPeriodEnd: false, comped: false }], orders: [] });
     await expect(page.getByRole("heading", { name: "Restore Pro access" })).toBeVisible();
     const plans = ["Choose monthly", "Choose yearly", "Get lifetime"];
     for (const name of plans) await expect(page.getByRole("button", { name, exact: true })).toBeEnabled();
