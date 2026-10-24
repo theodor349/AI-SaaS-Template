@@ -19,6 +19,8 @@ export type Purchase = {
   withdrawUntil: number;
   // Paid orders that are not yet fully refunded.
   refundOrderIds: string[];
+  // None of those orders charged money, so there is nothing to refund.
+  nothingCharged: boolean;
 };
 
 function danishTime(timestamp: number) {
@@ -75,8 +77,11 @@ export function withdrawalDeadline(purchasedAt: number) {
 // The owner's purchases, oldest first. A lifetime order is one purchase; a
 // subscription is one purchase from its first paid order, and its renewals and
 // plan switches belong to it. Withdrawing refunds all of its paid orders.
-export function purchases(orders: OrderRecord[], modelOf: (productId: string) => BillingModel | undefined): Purchase[] {
-  const groups = new Map<string, OrderRecord[]>();
+// `nothingCharged` is absent on orders stored before it was recorded, which were all charged.
+type StoredOrder = OrderRecord & { nothingCharged?: boolean };
+
+export function purchases(orders: StoredOrder[], modelOf: (productId: string) => BillingModel | undefined): Purchase[] {
+  const groups = new Map<string, StoredOrder[]>();
   const paid = orders.filter((o) => o.paid && modelOf(o.productId)).sort((a, b) => a.createdAt - b.createdAt);
   for (const order of paid) {
     const recurring = modelOf(order.productId) !== "lifetime" && order.subscriptionId;
@@ -86,13 +91,15 @@ export function purchases(orders: OrderRecord[], modelOf: (productId: string) =>
   return [...groups.values()].map((group) => {
     const first = group[0];
     const model = modelOf(group[group.length - 1].productId)!;
+    const refundable = group.filter((o) => !o.fullyRefunded);
     return {
       orderId: first.orderId,
       subscriptionId: model === "lifetime" ? undefined : first.subscriptionId,
       model,
       purchasedAt: first.createdAt,
       withdrawUntil: withdrawalDeadline(first.createdAt),
-      refundOrderIds: group.filter((o) => !o.fullyRefunded).map((o) => o.orderId),
+      refundOrderIds: refundable.map((o) => o.orderId),
+      nothingCharged: refundable.every((o) => o.nothingCharged === true),
     };
   });
 }

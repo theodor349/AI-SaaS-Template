@@ -45,7 +45,7 @@ test("users download their data from the account page, including a pending delet
     await expect(page.getByRole("alert").filter({ hasText: "Couldn’t export your data" })).toHaveCount(0);
     expect(exported).toMatchObject({
       app: appConfig.appName,
-      formatVersion: 1,
+      formatVersion: 2,
       sections: {
         profile: { account: { email: user.email } },
         billing: { plan: null, subscriptions: [], orders: [] },
