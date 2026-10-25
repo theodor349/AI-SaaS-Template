@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import { clerk, setupClerkTestingToken } from "@clerk/testing/playwright";
 import { expect, test } from "@playwright/test";
 import { ConvexHttpClient } from "convex/browser";
+import { appConfig } from "../../app.config";
 import { createPolar } from "@polar-sh/sdk/2026-10";
 import { api, internal } from "../../convex/_generated/api";
 import { adminQuery } from "../../scripts/billing-test-admin";
@@ -24,7 +25,7 @@ for (const width of [1280, 390]) {
     expect(products).toHaveLength(3);
 
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: "Your next idea starts here." })).toBeVisible();
+    await expect(page.getByRole("heading", { name: `${appConfig.tagline}.` })).toBeVisible();
     await expect(page.getByRole("link", { name: "Choose monthly" })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await captureEvidence(page, `landing-${width}`);
