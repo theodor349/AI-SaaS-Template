@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { appConfig } from "../../app.config";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 import { captureEvidence } from "./evidence.mjs";
 
@@ -21,7 +22,7 @@ for (const width of [1280, 390]) {
   test(`going offline shows the indicator after a grace period and reconnecting hides it at ${width}px`, async ({ page, context }) => {
     await page.setViewportSize({ width, height: 900 });
     await openConnected(page);
-    const heading = page.getByRole("heading", { name: "Your next idea starts here." });
+    const heading = page.getByRole("heading", { name: `${appConfig.tagline}.` });
     const before = await heading.boundingBox();
 
     const wentOffline = Date.now();
