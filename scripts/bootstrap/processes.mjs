@@ -5,17 +5,27 @@ import { setTimeout as delay } from "node:timers/promises";
 import { basename } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 
-export async function superviseConvex(url, controller) {
+// Stops the stack once the backend has failed every health check for unavailableMs.
+// A large import or query can keep /version from answering for a few seconds.
+export async function superviseConvex(url, controller, { unavailableMs = 10_000 } = {}) {
   const { signal } = controller;
-  try {
-    while (!signal.aborted) {
+  let unavailableSince;
+  while (!signal.aborted) {
+    const checkedAt = Date.now();
+    try {
       const response = await fetch(url, { signal: AbortSignal.any([signal, AbortSignal.timeout(2000)]) });
       await response.body?.cancel();
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      await delay(1000, undefined, { signal });
+      unavailableSince = undefined;
+    } catch (error) {
+      if (signal.aborted) return;
+      unavailableSince ??= checkedAt;
+      if (Date.now() - unavailableSince >= unavailableMs) {
+        controller.abort(new Error(`Convex backend is unavailable at ${url}: ${error.message}`, { cause: error }));
+        return;
+      }
     }
-  } catch (error) {
-    if (!signal.aborted) controller.abort(new Error(`Convex backend is unavailable at ${url}: ${error.message}`, { cause: error }));
+    await delay(1000, undefined, { signal }).catch(() => {});
   }
 }
 
