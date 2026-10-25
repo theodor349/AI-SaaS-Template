@@ -20,7 +20,7 @@ A maintainer request to run this workflow authorizes task commits, pushing, open
 ## 2. Verify, commit, and merge fresh main
 
 1. Inspect the full task diff against the base. Run focused checks, then `pnpm test:unit` and `pnpm lint`, plus the relevant integration or E2E checks for backend/browser changes against this worktree's bootstrap (start it with `pnpm bootstrap --detach` if it is not running; `pnpm bootstrap:wait` blocks until it is ready). Existing results can be reused only for the same unchanged commit and environment.
-2. UI changes need before/after images, and motion or timing needs a short video. Capture with `pnpm capture <path...> --label before|after` (`--plan`, `--signed-out`, `--video <seconds>` as needed); files land outside the worktree in `$TMPDIR/pr-evidence/<worktreeId>/<label>`. If standalone completion lacks a before image, recover the pre-change UI in this same worktree without losing task changes; do not invent evidence or silently omit it.
+2. UI changes need before/after images, and motion or timing needs a short video. Capture with `pnpm capture <path...> --label before|after` (`--plan`, `--signed-out`, `--user <test email>`, `--video <seconds>` as needed); files land outside the worktree in `$TMPDIR/pr-evidence/<worktreeId>/<label>`. If standalone completion lacks a before image, recover the pre-change UI in this same worktree without losing task changes; do not invent evidence or silently omit it.
 3. Commit scoped task changes with conventional commit titles. Unrelated dirty files that prevent safe syncing or branch cleanup are a blocker, not permission to stash or discard them.
 4. Fetch the base remote's `main` and check `git merge-base --is-ancestor origin/main HEAD`. Exit code 1 means a merge is needed; other errors are blockers. Merge the fetched ref into the task branch, resolve conflicts according to the task's behavior, inspect the result, and rerun required verification. Use a merge rather than rebase or force push. Repeat until a fresh fetch shows `main` included, and record the incorporated `main` SHA and verified head.
 
@@ -58,7 +58,7 @@ If `pr:gate` reports a merge queue, enter it and wait for GitHub to confirm the 
 
 Run `pnpm pr:gate <url>` again to confirm `MERGED` with its merge commit. Save the PR URL, merged head, merge commit, branch name, head remote, and incorporated `main` SHA in the resource inventory before cleanup.
 
-After the merge, check the E2E run that the push to `main` starts (`gh run list --workflow e2e.yml --branch main --commit <merge commit> --limit 1`). If it fails, say so in your report, even when the failure isn't from your change.
+After the merge, check `main`'s E2E for your merge commit. Use the newest finished run on `main` whose commit contains it (`gh run list --workflow e2e.yml --branch main --limit 5`, then `git merge-base --is-ancestor <merge commit> <run commit>`). A run that a later push cancelled doesn't count, so wait for the newer one. If that run fails, rerun its failed jobs once with `gh run rerun <run id> --failed`. If it fails again, say so in your report, even when the failure isn't from your change. Don't call a failure a flake without that rerun.
 
 ## 6. Shut down resources and delete the task branch
 

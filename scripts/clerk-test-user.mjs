@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { setTimeout as delay } from "node:timers/promises";
+import { parseTestUserEmail } from "./agent-cli.mjs";
 
 // Next's server export needs CommonJS when used directly by a Node script.
 const { createClerkClient } = createRequire(import.meta.url)("@clerk/nextjs/server");
@@ -63,6 +64,36 @@ export async function createClerkTestUser({ config, env }, { purpose = "local-ag
         await withProviderRetry(() => client.users.deleteUser(user.id));
       } catch {
         throw new Error(`Clerk test-user cleanup failed. Remove only user ${user.id} (${email}) from the development instance.`);
+      }
+    },
+  };
+}
+
+// An existing development user, such as one seeded with a large synthetic dataset.
+// The caller never deletes it. Every address on the account must be a +clerk_test
+// address, so a real account that also carries a test address is refused.
+export async function findClerkTestUser({ env }, email, client = clerkBackend(env)) {
+  if (!env.CLERK_SECRET_KEY?.startsWith("sk_test_")) throw new Error("Existing test users can only be used on the Clerk development instance.");
+  parseTestUserEmail(email);
+  const { data } = await withProviderRetry(() => client.users.getUserList({ emailAddress: [email] }));
+  const matches = data.filter((user) => user.emailAddresses.some(({ emailAddress }) => emailAddress.toLowerCase() === email.toLowerCase()));
+  if (matches.length !== 1) {
+    throw new Error(matches.length ? `${matches.length} Clerk development users have the address ${email}.` : `No Clerk development user has the address ${email}.`);
+  }
+  const [user] = matches;
+  if (!user.emailAddresses.every(({ emailAddress }) => /\+clerk_test@/i.test(emailAddress))) {
+    throw new Error(`Clerk user ${user.id} also has an address without +clerk_test, so it is refused.`);
+  }
+  return {
+    id: user.id,
+    email,
+    name: [user.firstName, user.lastName].filter(Boolean).join(" ") || email,
+    // Ends only the session this run created; other sign-ins of the user stay.
+    async revokeSession(sessionId) {
+      try {
+        await withProviderRetry(() => client.sessions.revokeSession(sessionId));
+      } catch {
+        throw new Error(`Could not end session ${sessionId} of Clerk user ${user.id}; revoke it in the development instance.`);
       }
     },
   };

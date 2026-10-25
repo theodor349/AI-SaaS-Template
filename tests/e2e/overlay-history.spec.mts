@@ -23,3 +23,24 @@ test("history back closes a dialog and keeps the page, without leaving entries b
   await page.goForward();
   await expect(page).toHaveURL(/\/cookies$/);
 });
+
+test("history back closes a popover and keeps the page", async ({ page }) => {
+  await page.goto("/");
+  await page.goto("/e2e/popover");
+  const button = page.getByRole("button", { name: "Open popover" });
+  const popover = page.getByRole("dialog", { name: "Test popover" });
+
+  await button.click();
+  await expect(popover).toBeVisible();
+  await page.goBack();
+  await expect(popover).toHaveCount(0);
+  await expect(page).toHaveURL(/\/e2e\/popover$/);
+
+  // A popover closed in the page removes its entry, so one back leaves the page.
+  await button.click();
+  await expect(popover).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(popover).toHaveCount(0);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/$/);
+});
