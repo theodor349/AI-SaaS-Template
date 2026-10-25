@@ -58,7 +58,7 @@ If `pr:gate` reports a merge queue, enter it and wait for GitHub to confirm the 
 
 Run `pnpm pr:gate <url>` again to confirm `MERGED` with its merge commit. Save the PR URL, merged head, merge commit, branch name, head remote, and incorporated `main` SHA in the resource inventory before cleanup.
 
-After the merge, check the E2E run that the push to `main` starts (`gh run list --workflow e2e.yml --branch main --commit <merge commit> --limit 1`). If it fails, say so in your report, even when the failure isn't from your change.
+After the merge, check `main`'s E2E for your merge commit. Use the newest finished run on `main` whose commit contains it (`gh run list --workflow e2e.yml --branch main --limit 5`, then `git merge-base --is-ancestor <merge commit> <run commit>`). A run that a later push cancelled doesn't count, so wait for the newer one. If that run fails, rerun its failed jobs once with `gh run rerun <run id> --failed`. If it fails again, say so in your report, even when the failure isn't from your change. Don't call a failure a flake without that rerun.
 
 ## 6. Shut down resources and delete the task branch
 
