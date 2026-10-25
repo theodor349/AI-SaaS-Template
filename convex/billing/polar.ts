@@ -116,13 +116,27 @@ function customerEmail(email: string) {
   return `${email.slice(0, separator)}+${env.WORKTREE_ID}${email.slice(separator)}`;
 }
 
+// Returns the customer with exactly this external ID, or null. Our external IDs
+// contain the Clerk issuer URL, and Polar's router decodes %2F before routing,
+// so customers.getExternal answers 404 for every one of them. Search matches
+// substrings and other fields, so only an exact external_id match counts.
+async function customerByExternalId(p: Polar, externalId: string) {
+  const { items, pagination } = await retry(() => p.customers.list({ query: externalId, limit: 10 }));
+  const matches = items.filter((customer) => customer.external_id === externalId);
+  if (matches.length > 1) {
+    throw new Error("Several customers share one external ID");
+  }
+  // The exact match could be on a later page, so none on this one proves nothing.
+  if (!matches.length && pagination.total_count > items.length) {
+    throw new Error("Customer search results truncated");
+  }
+  return matches[0] ?? null;
+}
+
 async function findOrCreateCustomer(p: Polar, email: string, externalId: string) {
-  try {
-    return await retry(() => p.customers.getExternal(externalId));
-  } catch (error) {
-    if (!notFound(error)) {
-      throw error;
-    }
+  const existing = await customerByExternalId(p, externalId);
+  if (existing) {
+    return existing;
   }
   // Stable external ID makes a lost create response recoverable by lookup.
   try {
@@ -132,11 +146,11 @@ async function findOrCreateCustomer(p: Polar, email: string, externalId: string)
       metadata: { worktree_id: env.WORKTREE_ID },
     });
   } catch (creationError) {
-    try {
-      return await retry(() => p.customers.getExternal(externalId));
-    } catch {
+    const created = await customerByExternalId(p, externalId).catch(() => null);
+    if (!created) {
       throw creationError;
     }
+    return created;
   }
 }
 
@@ -619,13 +633,13 @@ export const cleanupAccount = internalAction({
     await spend(ctx, 5);
     const externalId = externalCustomerId(user.tokenIdentifier);
     const cancelling = user.lifecycle === "active";
-    let customer: PolarModels.Customer;
-    try {
-      customer = await retry(() => account ? p.customers.get(account.customerId) : p.customers.getExternal(externalId));
-    } catch (error) {
-      if (!notFound(error)) {
+    const customer = account
+      ? await retry(() => p.customers.get(account.customerId)).catch((error: unknown) => {
+        if (notFound(error)) return null;
         throw error;
-      }
+      })
+      : await customerByExternalId(p, externalId);
+    if (!customer) {
       // Either there never was a customer, or an earlier attempt deleted it.
       ctx.log.decision("cleanup", { result: "no_customer" });
       if (account && !cancelling) {
