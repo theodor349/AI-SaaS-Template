@@ -10,7 +10,7 @@ import { retryAfter } from "../lib/errors";
 import { modules } from "../test.setup";
 
 const provider = vi.hoisted(() => ({
-  customers: { get: vi.fn(), getExternal: vi.fn(), create: vi.fn(), delete: vi.fn() },
+  customers: { get: vi.fn(), list: vi.fn(), create: vi.fn(), delete: vi.fn() },
   products: { get: vi.fn() },
   organizations: { get: vi.fn() },
   checkouts: { list: vi.fn(), create: vi.fn() },
@@ -26,8 +26,12 @@ const tokenIdentifier = "https://clerk.example|alice";
 const externalId = `wt-test:${tokenIdentifier}`;
 let subscriptions: ReturnType<typeof sub>[];
 let orders: ReturnType<typeof order>[];
-let customer: { id: string; external_id: string | null; metadata: { worktree_id: string } };
+type Customer = { id: string; external_id: string | null; metadata: { worktree_id: string } };
+let customer: Customer;
+let customerExists: boolean;
 let customerDeleted: boolean;
+// Other Polar customers that a search can also return.
+let otherCustomers: Customer[];
 const start = Date.now() - 1000;
 const end = Date.now() + 30 * 24 * 60 * 60_000;
 function sub(product = "monthly", cancel = false) {
@@ -83,14 +87,27 @@ beforeEach(() => {
   subscriptions = [sub()]; orders = [order()];
   customer = { id: "customer-a", external_id: externalId, metadata: { worktree_id: "wt-test" } };
   // Polar answers 404 for a deleted customer.
-  customerDeleted = false;
+  customerExists = true; customerDeleted = false; otherCustomers = [];
   const current = async () => {
     if (customerDeleted) throw new PolarClientError(404, { detail: "Not Found" });
     return customer;
   };
   provider.customers.get.mockImplementation(current);
-  provider.customers.getExternal.mockImplementation(current);
-  provider.customers.create.mockImplementation(async () => customer);
+  // Polar's search matches substrings, so it can return near matches too.
+  provider.customers.list.mockImplementation(async ({ query, limit }: { query: string; limit: number }) => {
+    const all = [...(customerExists && !customerDeleted ? [customer] : []), ...otherCustomers];
+    const matching = all.filter(c => c.external_id?.includes(query));
+    return { items: matching.slice(0, limit), pagination: { total_count: matching.length, max_page: Math.ceil(matching.length / limit) } };
+  });
+  provider.customers.create.mockImplementation(async (body: { external_id: string }) => {
+    if (body.external_id === customer.external_id) {
+      if (customerExists && !customerDeleted) {
+        throw new PolarClientError(422, { detail: [{ loc: ["body", "external_id"], msg: "External ID already exists" }] });
+      }
+      customerExists = true; customerDeleted = false;
+    }
+    return customer;
+  });
   provider.customers.delete.mockImplementation(async () => { customerDeleted = true; });
   provider.products.get.mockImplementation(async (id: string) => ({ id, name: id, is_archived: false, organization_id: "org-a",
     is_recurring: id !== "lifetime", recurring_interval: id === "monthly" ? "month" : id === "yearly" ? "year" : null,
@@ -486,8 +503,7 @@ test("checkout accepts unpaid owners, validates products and return URLs, and po
 });
 
 test("sandbox checkout and recovery can create isolated customers when the sign-in email is already used", async () => {
-  subscriptions = []; orders = [];
-  provider.customers.getExternal.mockRejectedValue(new PolarClientError(404, { detail: "Not Found" }));
+  subscriptions = []; orders = []; customerExists = false;
   provider.customers.create.mockImplementation(async (body: { email: string }) => {
     if (body.email === "alice@example.com") {
       throw new PolarClientError(422, { detail: [{ loc: ["body", "email"], msg: "Email already exists" }] });
@@ -512,11 +528,11 @@ test("sandbox checkout and recovery can create isolated customers when the sign-
 
 test("separate sandbox worktrees use distinct emails for the same sign-in identity", async () => {
   subscriptions = []; orders = [];
-  provider.customers.getExternal.mockRejectedValue(new PolarClientError(404, { detail: "Not Found" }));
 
   for (const worktree of ["wt-test", "wt-other"]) {
     vi.stubEnv("WORKTREE_ID", worktree);
     customer = { id: "customer-a", external_id: `${worktree}:${tokenIdentifier}`, metadata: { worktree_id: worktree } };
+    customerExists = false;
     const t = setup(); await provision(t);
     await alice(t).action(api.billing.polar.recover, {});
     expect(provider.customers.create).toHaveBeenLastCalledWith({
@@ -528,8 +544,7 @@ test("separate sandbox worktrees use distinct emails for the same sign-in identi
 
 test("production customer creation preserves the sign-in email", async () => {
   vi.stubEnv("POLAR_ENVIRONMENT", "production");
-  subscriptions = []; orders = [];
-  provider.customers.getExternal.mockRejectedValue(new PolarClientError(404, { detail: "Not Found" }));
+  subscriptions = []; orders = []; customerExists = false;
   const t = setup(); await provision(t);
   await alice(t).action(api.billing.polar.recover, {});
   expect(provider.customers.create).toHaveBeenCalledWith({
@@ -538,21 +553,80 @@ test("production customer creation preserves the sign-in email", async () => {
 });
 
 test("an ambiguous customer create is recovered by external identity", async () => {
-  subscriptions = []; orders = [];
-  provider.customers.getExternal
-    .mockRejectedValueOnce(new PolarClientError(404, { detail: "Not Found" }))
-    .mockResolvedValueOnce(customer);
-  provider.customers.create.mockRejectedValueOnce(new PolarNetworkError("response lost"));
+  subscriptions = []; orders = []; customerExists = false;
+  provider.customers.create.mockImplementationOnce(async () => {
+    customerExists = true;
+    throw new PolarNetworkError("response lost");
+  });
   const t = setup(); await provision(t);
   await alice(t).action(api.billing.polar.recover, {});
-  expect(provider.customers.getExternal).toHaveBeenLastCalledWith(externalId);
+  expect(provider.customers.list).toHaveBeenLastCalledWith({ query: externalId, limit: 10 });
   expect((await state(t))?.userId).toBeDefined();
+});
+
+// Imports such as a migration with --replace-all leave the Polar customer
+// without its billingAccounts row, so these actions must find it again.
+test.each(["checkout", "changeSubscription", "recover"] as const)("%s finds and links an existing customer whose billing account row is gone", async operation => {
+  if (operation === "checkout") { subscriptions = []; orders = []; }
+  const t = setup(); await provision(t);
+  if (operation === "checkout") {
+    expect(await alice(t).action(api.billing.polar.checkout, { model: "monthly", returnUrl: "/billing" })).toContain("checkout");
+    expect(provider.checkouts.create).toHaveBeenCalledWith(expect.objectContaining({ customer_id: "customer-a" }));
+  } else if (operation === "changeSubscription") {
+    await alice(t).action(api.billing.polar.changeSubscription, { operation: "cancel" });
+    expect(subscriptions[0].cancel_at_period_end).toBe(true);
+  } else {
+    await alice(t).action(api.billing.polar.recover, {});
+    expect((await alice(t).query(api.billing.account.status, {})).state).toBe("active");
+  }
+  expect(provider.customers.create).not.toHaveBeenCalled();
+  expect(await state(t)).toMatchObject({ customerId: "customer-a", externalId, userId: expect.anything() });
+});
+
+test("a customer search ignores near matches with a different external ID", async () => {
+  subscriptions = []; orders = []; customerExists = false;
+  otherCustomers = [{ id: "customer-near", external_id: `${externalId}2`, metadata: { worktree_id: "wt-test" } }];
+  // Account deletion finds no customer and leaves the near match alone.
+  const deleting = setup(); const userId = await provision(deleting);
+  await deleting.run(ctx => ctx.db.patch("users", userId, { lifecycle: "deletion_requested" }));
+  expect(await deleting.action(internal.billing.polar.cleanupAccount, { userId })).toEqual({ complete: true });
+  expect(provider.subscriptions.list).not.toHaveBeenCalled();
+  expect(provider.customers.delete).not.toHaveBeenCalled();
+
+  // Recovery creates the user's own customer instead of linking the near match.
+  const t = setup(); await provision(t);
+  await alice(t).action(api.billing.polar.recover, {});
+  expect(provider.customers.create).toHaveBeenCalledTimes(1);
+  expect(await state(t)).toMatchObject({ customerId: "customer-a", externalId });
+  expect(await t.run(ctx => ctx.db.query("billingAccounts").take(10))).toHaveLength(1);
+});
+
+test("a customer search fails rather than guess between duplicates or past a truncated page", async () => {
+  const logging = vi.spyOn(console, "error").mockImplementation(() => {});
+  const near = (n: number) => ({ id: `customer-near-${n}`, external_id: `${externalId}${n}`, metadata: { worktree_id: "wt-test" } });
+  const cases = [
+    { others: [{ ...customer, id: "customer-duplicate" }], error: "Several customers share one external ID" },
+    { others: Array.from({ length: 11 }, (_, n) => near(n)), error: "Customer search results truncated" },
+  ];
+  for (const { others, error } of cases) {
+    // Truncation only matters when the exact match could be on a later page.
+    customerExists = others.length === 1;
+    otherCustomers = others;
+    const t = setup(); const userId = await provision(t);
+    await expect(alice(t).action(api.billing.polar.recover, {})).rejects.toThrow("BILLING_REQUEST_FAILED");
+    await t.run(ctx => ctx.db.patch("users", userId, { lifecycle: "deletion_requested" }));
+    await expect(t.action(internal.billing.polar.cleanupAccount, { userId })).rejects.toThrow(error);
+  }
+  expect(decisions(logging)).toContainEqual({ decision: "customer_search", result: "duplicates", matches: 2 });
+  expect(decisions(logging)).toContainEqual({ decision: "customer_search", result: "truncated", total: 11 });
+  expect(provider.customers.create).not.toHaveBeenCalled();
+  expect(provider.customers.delete).not.toHaveBeenCalled();
 });
 
 test("failed customer creation retains the provider failure without logging email or credentials", async () => {
   const logging = vi.spyOn(console, "error").mockImplementation(() => {});
   const validation = new PolarClientError(422, { detail: [{ loc: ["body", "email"], input: "alice@example.com" }] });
-  provider.customers.getExternal.mockRejectedValue(new PolarClientError(404, { detail: "Not Found" }));
+  customerExists = false;
   provider.customers.create.mockRejectedValueOnce(validation);
   const t = setup(); await provision(t);
   await expect(alice(t).action(api.billing.polar.recover, {})).rejects.toThrow("BILLING_REQUEST_FAILED");
@@ -636,6 +710,7 @@ test("account cleanup reconciles a customer even when its creation delivery or l
   expect(await t.action(internal.billing.polar.cleanupAccount, { userId })).toMatchObject({ complete: false });
   expect(provider.subscriptions.revoke).toHaveBeenCalledWith("sub-a");
   expect(await t.action(internal.billing.polar.cleanupAccount, { userId })).toEqual({ complete: true });
+  expect(provider.customers.delete).toHaveBeenCalledWith("customer-a", { anonymize: true });
 });
 
 test("an expired reconciliation worker cannot release its replacement's lease", async () => {
