@@ -1,6 +1,6 @@
 # Overlay history
 
-An installed app has no browser back button, and Android's back gesture is a history back. So that the gesture closes an open dialog or menu instead of leaving the page, each open overlay owns one history entry above the page's entry ([lib/overlay-history.ts](../../lib/overlay-history.ts)). The shared `Dialog`, `AlertDialog`, and `DropdownMenu` roots in `components/ui` register themselves through [useOverlayState](../../components/overlay/use-overlay-state.ts). An overlay built on a Radix root directly, or a third-party one such as Clerk's sign-in modal, gets none of this; build new overlays on the shared roots.
+An installed app has no browser back button, and Android's back gesture is a history back. So that the gesture closes an open dialog or menu instead of leaving the page, each open overlay owns one history entry above the page's entry ([lib/overlay-history.ts](../../lib/overlay-history.ts)). The shared `Dialog`, `AlertDialog`, `DropdownMenu`, and `Popover` roots in `components/ui` register themselves through [useOverlayState](../../components/overlay/use-overlay-state.ts). An overlay built on a Radix root directly, or a third-party one such as Clerk's sign-in modal, gets none of this; build new overlays on the shared roots.
 
 Browsers behave the same way, so desktop back also closes the top overlay first. Chrome's `CloseWatcher` would handle the gesture without history, but it doesn't respond to history back, the only thing tests and other browsers can drive.
 
