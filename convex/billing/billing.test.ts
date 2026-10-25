@@ -593,7 +593,7 @@ test("a customer search ignores near matches with a different external ID", asyn
   expect(provider.subscriptions.list).not.toHaveBeenCalled();
   expect(provider.customers.delete).not.toHaveBeenCalled();
 
-  // Checkout and recovery create the user's own customer instead of linking it.
+  // Recovery creates the user's own customer instead of linking the near match.
   const t = setup(); await provision(t);
   await alice(t).action(api.billing.polar.recover, {});
   expect(provider.customers.create).toHaveBeenCalledTimes(1);

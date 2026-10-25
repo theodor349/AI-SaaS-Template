@@ -26,25 +26,28 @@ test("Polar search finds a customer by an external ID holding the issuer URL, an
   const scope = `fixture-${local.config.id}`;
   const externalId = `${scope}:${testTokenIdentifier(local.env, `user_${randomUUID()}`)}`;
   // The app treats a search without an exact match as truncated when total_count
-  // exceeds the page, so the total must count only matches.
+  // exceeds the page, so total_count must count this query's results, not every
+  // customer.
   const search = async () => {
     const { items, pagination } = await polar.customers.list({ query: externalId, limit: 10 });
     const ids = items.filter((customer) => customer.external_id === externalId).map((customer) => customer.id);
     return { ids, total: pagination.total_count };
   };
+  let created;
   try {
-    const customer = await polar.customers.create({
+    created = await polar.customers.create({
       email: `polar-search-${randomUUID()}+clerk_test@gmail.com`, external_id: externalId, metadata: { worktree_id: scope },
     });
-    assert.deepEqual(await eventually(search, ({ ids }) => ids.length > 0), { ids: [customer.id], total: 1 });
-    await polar.customers.delete(customer.id, { anonymize: true });
+    assert.deepEqual(await eventually(search, ({ ids }) => ids.length > 0), { ids: [created.id], total: 1 });
+    await polar.customers.delete(created.id, { anonymize: true });
+    created = undefined;
     // Cleanup retries rely on a deleted customer dropping out of search.
     assert.deepEqual(await eventually(search, ({ total }) => total === 0), { ids: [], total: 0 });
   } finally {
-    // A lost create or delete response can leave the customer behind. Cleanup
-    // failures must not hide the test's own error.
+    // A failed assertion, or a lost create or delete response, can leave the
+    // customer behind. Cleanup failures must not hide the test's own error.
     const { ids } = await search().catch(() => ({ ids: [] }));
-    for (const id of ids) {
+    for (const id of new Set([...ids, ...(created ? [created.id] : [])])) {
       await polar.customers.delete(id, { anonymize: true }).catch(() => {});
     }
   }
