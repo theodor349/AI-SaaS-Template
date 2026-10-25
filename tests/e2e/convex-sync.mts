@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import type { JSONValue } from "convex/values";
+import { ConvexError, jsonToConvex, type JSONValue } from "convex/values";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 
 // Intercepts the browser's Convex sync WebSocket so a test can answer actions,
@@ -17,7 +17,12 @@ type ClientFrame =
   | { type: "Other" };
 type ServerFrame =
   | { type: "Transition"; modifications: Array<{ type: string; queryId: number; value?: JSONValue }> }
+  | { type: "ActionResponse"; requestId: number; success: true; result: JSONValue }
+  | { type: "ActionResponse"; requestId: number; success: false; result: string; errorData?: JSONValue }
   | { type: "Other" };
+
+/** The backend's answer to a forwarded action, with a failure rebuilt as the browser client would throw it. */
+export type ActionOutcome = { success: true; result: JSONValue } | { success: false; error: Error };
 
 export type ActionCall<Args> = {
   args: Args;
@@ -27,6 +32,8 @@ export type ActionCall<Args> = {
   fail: (message: string) => void;
   /** Sends the original request on to the backend. */
   forward: () => void;
+  /** Resolves with the backend's answer after `forward` sent the request. */
+  forwardedAnswer: Promise<ActionOutcome>;
 };
 
 export async function interceptConvexSync(page: Page) {
@@ -42,8 +49,9 @@ export async function interceptConvexSync(page: Page) {
 
   await page.routeWebSocket((url) => url.host === backendHost && url.pathname.endsWith("/sync"), (socket) => {
     const server = socket.connectToServer();
-    // Query IDs are per connection; a reconnect starts a new query set.
+    // Query and request IDs are per connection; a reconnect starts a new query set.
     const queryPaths = new Map<number, string>();
+    const forwarded = new Map<number, (outcome: ActionOutcome) => void>();
 
     socket.onMessage((message) => {
       const frame = JSON.parse(message.toString()) as ClientFrame;
@@ -76,16 +84,32 @@ export async function interceptConvexSync(page: Page) {
       };
       const respond = (response: { success: true; result: JSONValue; logLines: string[] } | { success: false; result: string; logLines: string[] }) =>
         answer(() => socket.send(JSON.stringify({ type: "ActionResponse", requestId: frame.requestId, ...response })));
+      let resolveForwarded: (outcome: ActionOutcome) => void = () => {};
+      const forwardedAnswer = new Promise<ActionOutcome>((resolve) => { resolveForwarded = resolve; });
       void handler({
         args: frame.args[0] as never,
         succeed: (result, logLines = []) => respond({ success: true, result, logLines }),
         fail: (result) => respond({ success: false, result, logLines: [] }),
-        forward: () => answer(forward),
+        forward: () => answer(() => {
+          forwarded.set(frame.requestId, resolveForwarded);
+          forward();
+        }),
+        forwardedAnswer,
       });
     });
 
     server.onMessage((message) => {
       let text = message.toString();
+      if (forwarded.size) {
+        const frame = JSON.parse(text) as ServerFrame;
+        const resolve = frame.type === "ActionResponse" ? forwarded.get(frame.requestId) : undefined;
+        if (frame.type === "ActionResponse" && resolve) {
+          forwarded.delete(frame.requestId);
+          resolve(frame.success
+            ? { success: true, result: frame.result }
+            : { success: false, error: frame.errorData === undefined ? new Error(frame.result) : new ConvexError(jsonToConvex(frame.errorData)) });
+        }
+      }
       if (replacements.size || holdResponsesFrom) {
         const frame = JSON.parse(text) as ServerFrame;
         const updated = frame.type === "Transition"

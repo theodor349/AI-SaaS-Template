@@ -8,6 +8,8 @@ import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 import { billingTestAdmin } from "../../scripts/billing-test-fixtures.mjs";
 import { adminMutation, adminQuery } from "../../scripts/billing-test-admin";
 import { testTokenIdentifier } from "../../scripts/test-identity.mjs";
+import { openSandboxCheckout } from "./checkout.mjs";
+import { interceptConvexSync } from "./convex-sync.mjs";
 import { captureEvidence } from "./evidence.mjs";
 
 const local = resolveLocalTestConfig();
@@ -94,13 +96,13 @@ test("a deleted account's email can open checkout again on a new account", async
   const first = await createClerkTestUser(local);
   const polar = createPolar({ accessToken: local.env.POLAR_ACCESS_TOKEN, environment: "sandbox", organizationId: local.env.POLAR_ORGANIZATION_ID });
   const { client: admin } = billingTestAdmin();
+  const sync = await interceptConvexSync(page);
   let second: Awaited<ReturnType<typeof createClerkTestUser>> | undefined;
   let firstRemoved = false;
   try {
     // Opening checkout creates the first account's Polar customer.
     await page.goto("/billing"); await clerk.signIn({ page, emailAddress: first.email });
-    await page.getByRole("button", { name: "Choose monthly" }).click();
-    await expect(page).toHaveURL(/https:\/\/sandbox\.polar\.sh\/checkout\//);
+    await openSandboxCheckout(page, sync, "Choose monthly");
     await page.goto(`${local.config.env.APP_URL}/billing`);
     const userId = await adminQuery(admin, internal.account.users.byClerkId, { clerkId: first.id });
     const { customerId } = (await adminQuery(admin, internal.billing.account.accountByUser, { userId: userId! }))!;
@@ -113,8 +115,7 @@ test("a deleted account's email can open checkout again on a new account", async
     // Polar allows one customer per email, so the new account's customer needs the old one gone.
     second = await createClerkTestUser(local, { email: first.email });
     await page.goto("/billing"); await clerk.signIn({ page, emailAddress: second.email });
-    await page.getByRole("button", { name: "Choose monthly" }).click();
-    await expect(page).toHaveURL(/https:\/\/sandbox\.polar\.sh\/checkout\//);
+    await openSandboxCheckout(page, sync, "Choose monthly");
   } finally {
     try {
       if (!firstRemoved) await first.cleanup();

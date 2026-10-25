@@ -8,7 +8,9 @@ import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
 import { billingTestAdmin, leaseBillingFixture, publishBillingSnapshot, seedPaidTestUser } from "../../scripts/billing-test-fixtures.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 import { adminQuery, adminMutation } from "../../scripts/billing-test-admin";
+import { waitOutRateLimit } from "../../scripts/rate-limit-retry.mjs";
 import { testExternalCustomerId } from "../../scripts/test-identity.mjs";
+import { openSandboxCheckout } from "./checkout.mjs";
 import { interceptConvexSync } from "./convex-sync.mjs";
 import { captureEvidence } from "./evidence.mjs";
 
@@ -172,6 +174,7 @@ test("sandbox checkout and recovery work when another customer uses the sign-in 
   const user = await createClerkTestUser(local);
   const polar = createPolar({ accessToken: local.env.POLAR_ACCESS_TOKEN, environment: "sandbox", organizationId: local.env.POLAR_ORGANIZATION_ID });
   const fixtureScope = `fixture-${local.config.id}`;
+  const sync = await interceptConvexSync(page);
   let collisionCustomerId: string | undefined;
   try {
     // This customer represents a different worktree's existing customer. The
@@ -181,8 +184,7 @@ test("sandbox checkout and recovery work when another customer uses the sign-in 
     });
     collisionCustomerId = collision.id;
     await page.goto("/billing"); await clerk.signIn({ page, emailAddress: user.email });
-    await page.getByRole("button", { name: "Choose monthly" }).click();
-    await expect(page).toHaveURL(/https:\/\/sandbox\.polar\.sh\/checkout\//);
+    await openSandboxCheckout(page, sync, "Choose monthly");
     // Don't record provider pages, tokens, or payment details in PR artifacts.
     await page.goto(`${local.config.env.APP_URL}/billing`);
     await expect(page.getByRole("button", { name: "Customer portal" })).toBeVisible();
@@ -190,7 +192,7 @@ test("sandbox checkout and recovery work when another customer uses the sign-in 
     const token = await page.evaluate(() => window.Clerk.session!.getToken({ template: "convex" }));
     const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
     client.setAuth(token!);
-    await client.action(api.billing.polar.recover, {});
+    await waitOutRateLimit(() => client.action(api.billing.polar.recover, {}));
     await expect(page.getByText("We couldn’t complete the billing request")).toHaveCount(0);
     const { client: admin } = billingTestAdmin();
     const userId = await adminQuery(admin, internal.account.users.byClerkId, { clerkId: user.id });
@@ -226,10 +228,10 @@ test("a 100% discount code on the lifetime product grants lifetime Pro through s
     name: `fixture-${local.config.id} lifetime`, products: [local.env.POLAR_PRODUCT_LIFETIME],
   });
   const user = await createClerkTestUser(local);
+  const sync = await interceptConvexSync(page);
   try {
     await page.goto("/billing"); await clerk.signIn({ page, emailAddress: user.email });
-    await page.getByRole("button", { name: "Get lifetime" }).click();
-    await expect(page).toHaveURL(/https:\/\/sandbox\.polar\.sh\/checkout\//);
+    await openSandboxCheckout(page, sync, "Get lifetime");
     // Polar's button ignores clicks until its page has hydrated.
     const codeField = page.getByRole("textbox", { name: "Discount code" });
     await expect(async () => {
@@ -245,7 +247,7 @@ test("a 100% discount code on the lifetime product grants lifetime Pro through s
     const token = await page.evaluate(() => window.Clerk.session!.getToken({ template: "convex" }));
     const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
     client.setAuth(token!);
-    await client.action(api.billing.polar.recover, {});
+    await waitOutRateLimit(() => client.action(api.billing.polar.recover, {}));
     await expect(page).toHaveURL(`${local.config.env.APP_URL}/app`);
     await page.goto("/billing");
     await expect(page.getByText("You have lifetime access.")).toBeVisible();
