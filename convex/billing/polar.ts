@@ -118,23 +118,27 @@ function customerEmail(email: string) {
 
 // Returns the customer with exactly this external ID, or null. Our external IDs
 // contain the Clerk issuer URL, and Polar's router decodes %2F before routing,
-// so customers.getExternal answers 404 for every one of them. Search matches
-// substrings and other fields, so only an exact external_id match counts.
-async function customerByExternalId(p: Polar, externalId: string) {
+// so every endpoint with the external ID in its path, such as
+// customers.getExternal, answers 404 for them. Search takes it as a query
+// parameter but also returns prefix matches, so only an exact match counts.
+// Search leaves out deleted customers, which keep their external ID.
+async function customerByExternalId(ctx: ActionCtx, p: Polar, externalId: string) {
   const { items, pagination } = await retry(() => p.customers.list({ query: externalId, limit: 10 }));
   const matches = items.filter((customer) => customer.external_id === externalId);
   if (matches.length > 1) {
+    ctx.log.decision("customer_search", { result: "duplicates", matches: matches.length });
     throw new Error("Several customers share one external ID");
   }
   // The exact match could be on a later page, so none on this one proves nothing.
   if (!matches.length && pagination.total_count > items.length) {
+    ctx.log.decision("customer_search", { result: "truncated", total: pagination.total_count });
     throw new Error("Customer search results truncated");
   }
   return matches[0] ?? null;
 }
 
-async function findOrCreateCustomer(p: Polar, email: string, externalId: string) {
-  const existing = await customerByExternalId(p, externalId);
+async function findOrCreateCustomer(ctx: ActionCtx, p: Polar, email: string, externalId: string) {
+  const existing = await customerByExternalId(ctx, p, externalId);
   if (existing) {
     return existing;
   }
@@ -146,7 +150,7 @@ async function findOrCreateCustomer(p: Polar, email: string, externalId: string)
       metadata: { worktree_id: env.WORKTREE_ID },
     });
   } catch (creationError) {
-    const created = await customerByExternalId(p, externalId).catch(() => null);
+    const created = await customerByExternalId(ctx, p, externalId).catch(() => null);
     if (!created) {
       throw creationError;
     }
@@ -169,7 +173,7 @@ async function ownedCustomer(ctx: ActionCtx): Promise<{ p: Polar; customer: Pola
   ctx.log.decision("customer", { source: account ? "linked" : "lookup_or_create" });
   const customer = account
     ? await retry(() => p.customers.get(account.customerId))
-    : await findOrCreateCustomer(p, user.email!, externalId);
+    : await findOrCreateCustomer(ctx, p, user.email!, externalId);
   ctx.log.setCustomer(customer.id);
   belongs(customer, externalId);
   await ctx.runMutation(internal.billing.state.enqueue, { customerId: customer.id, externalId });
@@ -638,7 +642,7 @@ export const cleanupAccount = internalAction({
         if (notFound(error)) return null;
         throw error;
       })
-      : await customerByExternalId(p, externalId);
+      : await customerByExternalId(ctx, p, externalId);
     if (!customer) {
       // Either there never was a customer, or an earlier attempt deleted it.
       ctx.log.decision("cleanup", { result: "no_customer" });

@@ -602,6 +602,7 @@ test("a customer search ignores near matches with a different external ID", asyn
 });
 
 test("a customer search fails rather than guess between duplicates or past a truncated page", async () => {
+  const logging = vi.spyOn(console, "error").mockImplementation(() => {});
   const near = (n: number) => ({ id: `customer-near-${n}`, external_id: `${externalId}${n}`, metadata: { worktree_id: "wt-test" } });
   const cases = [
     { others: [{ ...customer, id: "customer-duplicate" }], error: "Several customers share one external ID" },
@@ -616,6 +617,8 @@ test("a customer search fails rather than guess between duplicates or past a tru
     await t.run(ctx => ctx.db.patch("users", userId, { lifecycle: "deletion_requested" }));
     await expect(t.action(internal.billing.polar.cleanupAccount, { userId })).rejects.toThrow(error);
   }
+  expect(decisions(logging)).toContainEqual({ decision: "customer_search", result: "duplicates", matches: 2 });
+  expect(decisions(logging)).toContainEqual({ decision: "customer_search", result: "truncated", total: 11 });
   expect(provider.customers.create).not.toHaveBeenCalled();
   expect(provider.customers.delete).not.toHaveBeenCalled();
 });
