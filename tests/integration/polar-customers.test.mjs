@@ -20,24 +20,32 @@ test("Polar search finds a customer by an external ID holding the issuer URL, an
   const local = resolveLocalTestConfig();
   const polar = createPolar({
     accessToken: local.env.POLAR_ACCESS_TOKEN, environment: "sandbox", organizationId: local.env.POLAR_ORGANIZATION_ID,
+    timeout: 15,
   });
   // The fixture scope keeps this worktree's webhook handler from claiming the customer.
   const scope = `fixture-${local.config.id}`;
   const externalId = `${scope}:${testTokenIdentifier(local.env, `user_${randomUUID()}`)}`;
-  const search = async () => (await polar.customers.list({ query: externalId, limit: 10 })).items
-    .filter((customer) => customer.external_id === externalId)
-    .map((customer) => customer.id);
-  const customer = await polar.customers.create({
-    email: `polar-search-${randomUUID()}+clerk_test@gmail.com`, external_id: externalId, metadata: { worktree_id: scope },
-  });
-  let deleted = false;
+  // The app treats a search without an exact match as truncated when total_count
+  // exceeds the page, so the total must count only matches.
+  const search = async () => {
+    const { items, pagination } = await polar.customers.list({ query: externalId, limit: 10 });
+    const ids = items.filter((customer) => customer.external_id === externalId).map((customer) => customer.id);
+    return { ids, total: pagination.total_count };
+  };
   try {
-    assert.deepEqual(await eventually(search, (ids) => ids.length > 0), [customer.id]);
+    const customer = await polar.customers.create({
+      email: `polar-search-${randomUUID()}+clerk_test@gmail.com`, external_id: externalId, metadata: { worktree_id: scope },
+    });
+    assert.deepEqual(await eventually(search, ({ ids }) => ids.length > 0), { ids: [customer.id], total: 1 });
     await polar.customers.delete(customer.id, { anonymize: true });
-    deleted = true;
     // Cleanup retries rely on a deleted customer dropping out of search.
-    assert.deepEqual(await eventually(search, (ids) => ids.length === 0), []);
+    assert.deepEqual(await eventually(search, ({ total }) => total === 0), { ids: [], total: 0 });
   } finally {
-    if (!deleted) await polar.customers.delete(customer.id, { anonymize: true });
+    // A lost create or delete response can leave the customer behind. Cleanup
+    // failures must not hide the test's own error.
+    const { ids } = await search().catch(() => ({ ids: [] }));
+    for (const id of ids) {
+      await polar.customers.delete(id, { anonymize: true }).catch(() => {});
+    }
   }
 });
