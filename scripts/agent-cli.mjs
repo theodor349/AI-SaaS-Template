@@ -25,6 +25,16 @@ export function parsePlan(value) {
   return value;
 }
 
+// Clerk's development instances treat a +clerk_test address as a test user that
+// never receives email. Nothing else may be signed in by an agent script.
+export function parseTestUserEmail(value) {
+  if (value === undefined) return null;
+  if (!/^[^\s@]+\+clerk_test@[^\s@]+\.[^\s@]+$/i.test(value)) {
+    throw new Error("--user must be a Clerk test address of the form <name>+clerk_test@<domain>.");
+  }
+  return value;
+}
+
 // A path on the application's own origin, with the same rules as lib/auth.ts safeReturnTo.
 export function appLocation(appUrl, path) {
   const origin = new URL(appUrl).origin;
