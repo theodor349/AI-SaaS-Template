@@ -19,7 +19,9 @@ jobs:
   # when an earlier one fails, so all of them report.
   checks:
     name: Checks
-    runs-on: ubuntu-latest
+    # The CI_RUNNER repository variable names a self-hosted runner label; see
+    # docs/deployment.md. Without it, jobs use GitHub's hosted runners.
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     env:
       NEXT_TELEMETRY_DISABLED: "1"
@@ -31,7 +33,8 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: .node-version
-          cache: pnpm
+          # A self-hosted runner keeps its own pnpm store, so only hosted runners cache it.
+          cache: ${{ runner.environment == 'github-hosted' && 'pnpm' || '' }}
       - name: Install dependencies
         id: install
         run: pnpm install --frozen-lockfile

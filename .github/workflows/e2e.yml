@@ -23,7 +23,7 @@ jobs:
       github.event_name != 'pull_request' ||
       (contains(github.event.pull_request.labels.*.name, 'run-e2e') &&
       (github.event.action != 'labeled' || github.event.label.name == 'run-e2e'))
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 2
     permissions:
       actions: read
@@ -71,7 +71,7 @@ jobs:
     name: Integration and E2E
     needs: preflight
     if: needs.preflight.outputs.available == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 45
     # Job-level so skipped label events never cancel a running suite.
     concurrency:
@@ -96,7 +96,7 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: ${{ env.APP_DIR }}/.node-version
-          cache: pnpm
+          cache: ${{ runner.environment == 'github-hosted' && 'pnpm' || '' }}
           cache-dependency-path: ${{ env.APP_DIR }}/pnpm-lock.yaml
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -104,19 +104,24 @@ jobs:
       - name: Resolve Playwright version
         id: playwright
         run: echo "version=$(pnpm exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      # A self-hosted runner keeps these caches on disk between runs.
       - name: Cache Playwright browsers
+        if: runner.environment == 'github-hosted'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
       - name: Cache Convex local backend
+        if: runner.environment == 'github-hosted'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/convex
           key: convex-${{ runner.os }}-${{ hashFiles(format('{0}/pnpm-lock.yaml', env.APP_DIR)) }}
           restore-keys: convex-${{ runner.os }}-
+      # Installing the system libraries needs sudo, which a self-hosted runner may
+      # lack, so its machine has them installed once instead.
       - name: Install Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install ${{ runner.environment == 'github-hosted' && '--with-deps' || '' }} chromium
 
       - name: Write bootstrap credentials
         env:
@@ -171,3 +176,10 @@ jobs:
           echo "::group::bootstrap service log"
           cat "$(git rev-parse --path-format=absolute --git-path bootstrap.log)" || true
           echo "::endgroup::"
+
+      # A self-hosted runner keeps its workspace, so remove this run's checkout,
+      # which holds the credentials file and the local Convex database.
+      - name: Remove run checkout
+        if: ${{ always() && runner.environment == 'self-hosted' }}
+        working-directory: ${{ github.workspace }}
+        run: rm -rf "$APP_DIR"
