@@ -170,19 +170,25 @@ deployment to match.
 
 ## Checks and launch
 
-GitHub Actions runs `Unit tests`, `Lint and typecheck`, and `Next.js build` on
-every pull request, regardless of source or target branch, and on pushes to
-`main`. There are no preview deployments, so `Next.js build` is what catches a
-broken production build before Vercel does. It runs `next build` with fake,
-well-formed placeholders for the browser variables read while building and
-prerendering; the checks need no hosted credentials. They run independently so
-each reports its failures, and new pushes cancel outdated runs. Integration and
-browser tests need bootstrap services and run in the E2E workflow below.
+GitHub Actions runs `Lint and typecheck`, `Unit tests`, and `Next.js build` as
+steps of one `Checks` job on every pull request, regardless of source or target
+branch. It does not run again after a merge: complete-worktree merges a pull
+request only once it contains the latest `main`, so the merge commit holds the
+tree CI already checked. There are no preview deployments, so `Next.js build` is
+what catches a broken production build before Vercel does. It runs `next build`
+with fake, well-formed placeholders for the browser variables read while building
+and prerendering; the checks need no hosted credentials. Each step runs even when
+an earlier one fails, so each reports its failures, and new pushes cancel outdated
+runs. The checks share a job because GitHub bills every job rounded up to a whole
+minute and each job installs dependencies again. Integration and browser tests
+need bootstrap services and run in the E2E workflow below.
 
 The separate [E2E workflow](../.github/workflows/e2e.yml) runs `pnpm test:integration`
-and `pnpm test:e2e` against a local bootstrap stack. It runs on pushes to `main`,
-manual dispatch, and pull requests labeled `run-e2e`; the label keeps it from
-spending the Clerk and Polar rate limits that local agents share. It needs these
+and `pnpm test:e2e` against a local bootstrap stack. It runs nightly on `main`,
+on manual dispatch, and on pull requests labeled `run-e2e`; the label keeps it from
+spending the Clerk and Polar rate limits that local agents share. The nightly run
+skips a commit that already passed, and GitHub emails its failures to whoever
+last changed the schedule in the workflow file. It needs these
 GitHub Actions repository secrets, using the same values as a local
 `.env.bootstrap.local`:
 

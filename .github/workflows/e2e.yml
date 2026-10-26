@@ -3,11 +3,12 @@ name: E2E
 # Runs the integration and browser suites against a real local stack: bootstrap's
 # local Convex backend, the shared Clerk development instance, and the shared
 # Polar sandbox organization. Provider rate limits are shared with local agents,
-# so pull requests only run when they carry the `run-e2e` label.
+# so pull requests only run when they carry the `run-e2e` label. Main runs nightly
+# rather than on every merge to save Actions minutes.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
+  schedule:
+    - cron: "17 2 * * *"
   pull_request:
     types: [opened, synchronize, reopened, labeled]
 
@@ -24,6 +25,8 @@ jobs:
       (github.event.action != 'labeled' || github.event.label.name == 'run-e2e'))
     runs-on: ubuntu-latest
     timeout-minutes: 2
+    permissions:
+      actions: read
     outputs:
       available: ${{ steps.check.outputs.available }}
     steps:
@@ -36,6 +39,7 @@ jobs:
           POLAR_PRODUCT_MONTHLY: ${{ secrets.POLAR_PRODUCT_MONTHLY }}
           POLAR_PRODUCT_YEARLY: ${{ secrets.POLAR_PRODUCT_YEARLY }}
           POLAR_PRODUCT_LIFETIME: ${{ secrets.POLAR_PRODUCT_LIFETIME }}
+          GH_TOKEN: ${{ github.token }}
         # Integration asserts the three synced Polar products and signed Polar
         # webhooks, and billing E2E calls the sandbox API, so Polar is required.
         run: |
@@ -45,6 +49,16 @@ jobs:
             [ -n "${!name}" ] || missing+=("$name")
           done
           if [ ${#missing[@]} -eq 0 ]; then
+            # The nightly run skips a main commit that an earlier run already passed.
+            if [ "$GITHUB_EVENT_NAME" = schedule ]; then
+              passed=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow e2e.yml --commit "$GITHUB_SHA" \
+                --status success --json databaseId --jq length)
+              if [ "$passed" -gt 0 ]; then
+                echo "::notice title=E2E skipped::$GITHUB_SHA already passed E2E."
+                echo "available=false" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
             echo "available=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
