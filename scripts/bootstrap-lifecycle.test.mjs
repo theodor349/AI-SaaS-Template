@@ -9,6 +9,8 @@ import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { assertPortsAvailable, descendantProcessGroups, environmentFile, signalProcessGroup, worktreeConfig } from "./bootstrap.mjs";
+import { reclaimStaleRun } from "./bootstrap/reclaim.mjs";
+import { readState } from "./bootstrap/state.mjs";
 
 const realPs = execFileSync("sh", ["-c", "command -v ps"], { encoding: "utf8" }).trim();
 const script = (name) => fileURLToPath(new URL(name, import.meta.url));
@@ -113,6 +115,10 @@ async function prepareFixture(t, { linked = false, typecheckError = false } = {}
   t.after(async () => {
     for (const step of fixtureState.teardown) await step();
     for (const group of new Set(fixtureState.groups)) signalProcessGroup(group, "SIGKILL");
+    // A test that fails before collecting its services' groups would leave them
+    // running after the supervisor is killed, so stop whatever the state recorded.
+    const recorded = readState(fixtureState.statePath);
+    if (recorded) await reclaimStaleRun(recorded, { graceMs: 0 });
     await rm(base, { recursive: true, force: true });
   });
   return fixtureState;
