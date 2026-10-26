@@ -24,12 +24,13 @@ Each of these facts reached Rekura's agents late and caused rework or an inciden
 5. **The paid model.** Free tier or not, and whether shared data needs each member to pay.
 6. **Users who can't be matched.** For example, rows without a Clerk account that haven't signed in for months: keep, recreate or drop.
 7. **The rehearsal strategy.** Rehearse on the cloud dev deployment with a copy of production before production. Rekura's plan was rewritten twice because this came after the first draft.
+8. **How the app should look.** Get screenshots of the old app's main screens on a phone and a desktop, from its dev deployment with test data or from the maintainer, and capture the template's version of the same screens. Show them side by side and ask which look to keep for colors, corner radius, density and each screen's layout. WeeklyReview's plan kept the template's look after a one-word yes to a question with no pictures, and the maintainer paused the migration before go-live to redo the UI.
 
 Check provider settings before recommending a path that depends on them. Rekura's plan review recommended creating Clerk accounts by email, and production Clerk turned out to allow Google sign-in only.
 
 ## Shape of the work
 
-- **Plan, then review it.** Commit the plan to a migration branch, with steps an orchestrator can hand to subagents and a parity checklist taken from the old app's features. Then have a separate agent try to break the plan before any code exists. For Rekura that review found six ways to lose data, including a rollback that couldn't work. Commit its fixes to the same branch.
+- **Plan, then review it.** Commit the plan to a migration branch, with steps an orchestrator can hand to subagents and a parity checklist taken from the old app's features. Then have a separate agent try to break the plan before any code exists. For Rekura that review found six ways to lose data, including a rollback that couldn't work. Commit its fixes to the same branch. The checklist covers each main screen's look as well as its features, and the final parity check compares new captures with the old screenshots.
 - **Freeze `main`** until cutover. The migration branch replaces its tree, so a later commit on `main` is lost or brings old files back.
 - **Replace the code with a merge that keeps both histories,** so later template syncs merge cleanly:
 
