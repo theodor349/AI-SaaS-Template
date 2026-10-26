@@ -58,9 +58,9 @@ is needed. Agent guidance lives in [AGENTS.md](AGENTS.md).
 
 ## CI and hosted development
 
-GitHub Actions runs unit tests and lint on every pull request and on pushes to
-`main`. The E2E workflow runs the integration and E2E suites against a local
-stack on pushes to `main` and on pull requests labeled `run-e2e`. Only `main`
+GitHub Actions runs lint, unit tests, and the Next.js build on every pull request.
+The E2E workflow runs the integration and E2E suites against a local stack
+nightly on `main` and on pull requests labeled `run-e2e`. Only `main`
 deploys to Vercel and Convex. See
 [deployment setup](docs/deployment.md) for the hosted environment, its checks,
 and Clerk/Polar webhooks.
