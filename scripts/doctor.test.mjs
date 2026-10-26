@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { compareVersions, convexTemplateCheck, fail, formatResults, ghVersionCheck, nodeCheck, ok, pnpmCheck, polarProductProblem, preflight, skip, summarize, tailscaleChecks, warn } from "./doctor.mjs";
+import { compareVersions, convexTemplateCheck, dependencyCheck, fail, formatResults, ghVersionCheck, nodeCheck, ok, pnpmCheck, polarProductProblem, preflight, skip, summarize, tailscaleChecks, warn } from "./doctor.mjs";
 
 test("versions compare numerically", () => {
   assert.equal(compareVersions("2.92.0", "2.99.0"), -1);
@@ -30,6 +30,28 @@ test("gh below the --attach minimum warns with an upgrade", () => {
   assert.match(old.fix, /brew upgrade gh/);
   assert.equal(ghVersionCheck("gh version 2.99.0 (2026-09-01)").status, "ok");
   assert.equal(ghVersionCheck(undefined).status, "warn");
+});
+
+test("missing or partly installed dependencies warn with pnpm install", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "doctor-deps-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const packageJson = { dependencies: { next: "16.0.0", "@polar-sh/sdk": "1.0.0" }, devDependencies: { eslint: "9.0.0" } };
+  const fresh = dependencyCheck(root, packageJson);
+  assert.equal(fresh.status, "warn");
+  assert.match(fresh.detail, /node_modules is missing/);
+  assert.match(fresh.fix, /pnpm install/);
+
+  const install = name => {
+    mkdirSync(join(root, "node_modules", name), { recursive: true });
+    writeFileSync(join(root, "node_modules", name, "package.json"), "{}");
+  };
+  install("next"); install("eslint");
+  const partial = dependencyCheck(root, packageJson);
+  assert.equal(partial.status, "warn");
+  assert.match(partial.detail, /@polar-sh\/sdk is not installed/);
+
+  install("@polar-sh/sdk");
+  assert.equal(dependencyCheck(root, packageJson).status, "ok");
 });
 
 test("Tailscale HTTPS needs a running MagicDNS name with a certificate domain", () => {

@@ -30,6 +30,17 @@ export function compareVersions(a, b) {
   return 0;
 }
 
+// A warning, not a failure: a fresh worktree has no node_modules until bootstrap installs them.
+export function dependencyCheck(root, packageJson) {
+  const fix = "Run `pnpm install`; `pnpm bootstrap` also installs them.";
+  if (!existsSync(join(root, "node_modules"))) return warn("Dependencies", "node_modules is missing; tests, lint, and scripts need it", fix);
+  const missing = Object.keys({ ...packageJson.dependencies, ...packageJson.devDependencies })
+    .filter(name => !existsSync(join(root, "node_modules", name, "package.json")));
+  if (!missing.length) return ok("Dependencies", "installed");
+  const listed = missing.length > 3 ? `${missing.slice(0, 3).join(", ")} and ${missing.length - 3} more` : missing.join(", ");
+  return warn("Dependencies", `${listed} ${missing.length === 1 ? "is" : "are"} not installed`, fix);
+}
+
 // Newer majors usually work, so they warn; older majors fail.
 export function nodeCheck(version = process.version, engines) {
   const major = Number(version.replace(/^v/, "").split(".")[0]);
@@ -212,7 +223,9 @@ async function polarRefundsCheck(polar) {
 
 async function polarChecks(credentials) {
   if (!credentials?.POLAR_ACCESS_TOKEN) return [skip("Polar API", "no POLAR_ACCESS_TOKEN")];
-  const { createPolar } = await import("@polar-sh/sdk/2026-10");
+  let createPolar;
+  try { ({ createPolar } = await import("@polar-sh/sdk/2026-10")); }
+  catch { return [skip("Polar API", "@polar-sh/sdk is not installed")]; }
   const polar = createPolar({ accessToken: credentials.POLAR_ACCESS_TOKEN, environment: "sandbox", timeout: 15 });
   const tokenFix = "Create an organization access token at sandbox.polar.sh (not polar.sh).";
   let organizations;
@@ -308,7 +321,8 @@ export async function doctor({ offline = false } = {}) {
   ]);
   const offlineSkip = name => offline ? [skip(name, "--offline")] : [];
   return { root, worktree: config.id, results: [
-    nodeCheck(process.version, packageJson.engines.node), pnpmCheck(pnpm, packageJson.packageManager), ...credentialResults,
+    nodeCheck(process.version, packageJson.engines.node), pnpmCheck(pnpm, packageJson.packageManager),
+    dependencyCheck(root, packageJson), ...credentialResults,
     ...(clerk ?? offlineSkip("Clerk API")), ...(polar ?? offlineSkip("Polar API")),
     // Sentry is optional and hosted-only; bootstrap points local stacks at a fake ingest route.
     ok("Sentry", "optional; this worktree reports to its fake local endpoint. Hosted setup: docs/deployment.md"),
