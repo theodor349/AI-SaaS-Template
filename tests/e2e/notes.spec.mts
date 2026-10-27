@@ -12,6 +12,10 @@ import { captureEvidence } from "./evidence.mjs";
 
 const local = resolveLocalTestConfig();
 
+declare global {
+  interface Window { authPendingAppeared?: boolean }
+}
+
 async function convexAs(page: Page) {
   const token = await page.evaluate(() => window.Clerk.session!.getToken({ template: "convex" }));
   const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
@@ -97,6 +101,44 @@ test("a Pro user creates, edits, pages through, pins, and deletes notes", async 
     await captureEvidence(page, "notes-pinned");
   } finally {
     if (userId) await adminMutation(admin, internal.featureFlags.disallowUser, { key: "notePinning", userId });
+    await user.cleanup();
+  }
+});
+
+test("an open note editor survives Convex replacing an expired token", async ({ page }) => {
+  const user = await createClerkTestUser(local);
+  try {
+    await seedPaidTestUser(user);
+    const sync = await interceptConvexSync(page);
+    await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email });
+    await page.goto("/app");
+    await expect(page.getByText("No notes yet")).toBeVisible();
+    await (await convexAs(page)).mutation(api.notes.notes.create, { title: "Groceries", body: "" });
+    await page.getByRole("button", { name: "Edit Groceries" }).click();
+    const editor = page.getByRole("dialog", { name: "Edit note" });
+    await editor.getByLabel("Title", { exact: true }).fill("Groceries for Friday");
+
+    // Resuming the app after its token expired: the backend rejects the token,
+    // and the client fetches a new one while the loaded page stays in place.
+    await page.evaluate(() => {
+      new MutationObserver(() => {
+        if (/Connecting your account…|Checking paid access…/.test(document.body.innerText)) window.authPendingAppeared = true;
+      }).observe(document.body, { childList: true, subtree: true, characterData: true });
+    });
+    const sent = sync.authentications();
+    sync.holdResponses();
+    sync.rejectToken();
+    await expect.poll(() => sync.authentications()).toBeGreaterThan(sent);
+    await captureEvidence(page, "notes-token-refresh");
+    await expect(editor.getByLabel("Title", { exact: true })).toHaveValue("Groceries for Friday");
+
+    // A save during the refresh waits for the new token, then goes through.
+    await editor.getByRole("button", { name: "Save note" }).click();
+    sync.releaseResponses();
+    await expect(editor).toHaveCount(0);
+    await expect(note(page, "Groceries for Friday")).toBeVisible();
+    expect(await page.evaluate(() => window.authPendingAppeared)).toBeUndefined();
+  } finally {
     await user.cleanup();
   }
 });

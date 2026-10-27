@@ -20,8 +20,7 @@ const pages = [
 export function SiteNavigation() {
   const pathname = usePathname();
   const { isLoaded, isSignedIn } = useAuth();
-  const { isLoading, isRefreshing } = useConvexAuth();
-  const pending = isLoading || isRefreshing;
+  const { isLoading } = useConvexAuth();
 
   return (
     <header className={styles.bar}>
@@ -33,7 +32,7 @@ export function SiteNavigation() {
             <span>{appConfig.appName}</span>
           </Link>
           {isSignedIn && !maintenanceMode && pages.map(({ href, label, icon: Icon }) => {
-            if (label === "Dashboard" && pending) {
+            if (label === "Dashboard" && isLoading) {
               return (
                 <span key={href} aria-hidden="true" className={cn(styles.pageLink, styles.disabledLink)}>
                   <Icon size={20} /><span className={styles.pageLabel}>{label}</span>

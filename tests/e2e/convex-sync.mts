@@ -3,8 +3,8 @@ import { ConvexError, jsonToConvex, type JSONValue } from "convex/values";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 
 // Intercepts the browser's Convex sync WebSocket so a test can answer actions,
-// hold authentication or backend responses, and observe query subscriptions while
-// every other message still reaches this worktree's backend.
+// hold authentication or backend responses, reject a token, and observe query
+// subscriptions while every other message still reaches this worktree's backend.
 //
 // This is the only E2E code that depends on Convex's private wire protocol
 // (convex/src/browser/sync/protocol.ts). If a Convex upgrade breaks these tests,
@@ -12,7 +12,7 @@ import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 
 type ClientFrame =
   | { type: "Action"; requestId: number; udfPath: string; args: [JSONValue] }
-  | { type: "Authenticate"; tokenType: "User" | "Admin" | "None" }
+  | { type: "Authenticate"; tokenType: "User" | "Admin" | "None"; baseVersion: number }
   | { type: "ModifyQuerySet"; modifications: Array<{ type: "Add"; queryId: number; udfPath: string } | { type: "Remove"; queryId: number }> }
   | { type: "Other" };
 type ServerFrame =
@@ -46,6 +46,8 @@ export async function interceptConvexSync(page: Page) {
   let holdingAuthentication = false;
   let holdingResponses = false;
   let holdResponsesFrom: string | undefined;
+  let authentications = 0;
+  let rejectToken = () => {};
 
   await page.routeWebSocket((url) => url.host === backendHost && url.pathname.endsWith("/sync"), (socket) => {
     const server = socket.connectToServer();
@@ -65,6 +67,11 @@ export async function interceptConvexSync(page: Page) {
             queryPaths.delete(modification.queryId);
           }
         }
+      }
+      if (frame.type === "Authenticate" && frame.tokenType === "User") {
+        authentications++;
+        // The backend's answer when a token expired while the app was suspended or offline.
+        rejectToken = () => socket.send(JSON.stringify({ type: "AuthError", error: "Token expired", baseVersion: frame.baseVersion, authUpdateAttempted: true }));
       }
       if (frame.type === "Authenticate" && frame.tokenType !== "None" && holdingAuthentication) {
         heldAuthentication.push(forward);
@@ -144,6 +151,10 @@ export async function interceptConvexSync(page: Page) {
     holdAuthentication: () => {
       holdingAuthentication = true;
     },
+    /** Rejects the last accepted token, so the client fetches a fresh one and reconnects. */
+    rejectToken: () => rejectToken(),
+    /** How many tokens the browser has sent, across reconnects. */
+    authentications: () => authentications,
     releaseAuthentication: () => {
       holdingAuthentication = false;
       heldAuthentication.splice(0).forEach((send) => send());

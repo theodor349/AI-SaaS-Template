@@ -32,12 +32,12 @@ export function formatPrice(amount: number, currency: string) {
 
 export function Pricing({ onboarding = false, disabled = false, pendingPlan = null, onSelect }: PricingActions) {
   const { isSignedIn } = useAuth();
-  const { isAuthenticated, isLoading, isRefreshing } = useConvexAuth();
-  const status = useQuery(api.billing.account.status, isAuthenticated && !isLoading && !isRefreshing ? {} : "skip");
+  const { isAuthenticated, isLoading } = useConvexAuth();
+  const status = useQuery(api.billing.account.status, isAuthenticated && !isLoading ? {} : "skip");
   const currentPlan = status?.state === "active" ? status.model : null;
   const products = useQuery(api.billing.catalog.products, currentPlan === "lifetime" ? "skip" : {});
 
-  if (isLoading || isRefreshing || (isAuthenticated && status === undefined)) {
+  if (isLoading || (isAuthenticated && status === undefined)) {
     return <AuthPending fallback={<PricingSkeleton />} />;
   }
 
