@@ -37,8 +37,8 @@ function matchesExpectation(
 // An action acknowledgement does not confirm a subscription change. Keep its
 // button pending until a newer billing publication matches the requested state.
 export function useBillingActions() {
-  const { isAuthenticated, isLoading, isRefreshing } = useConvexAuth();
-  const status = useQuery(api.billing.account.status, isAuthenticated && !isLoading && !isRefreshing ? {} : "skip");
+  const { isAuthenticated, isLoading } = useConvexAuth();
+  const status = useQuery(api.billing.account.status, isAuthenticated && !isLoading ? {} : "skip");
   const change = useAction(api.billing.polar.changeSubscription);
   const portal = useAction(api.billing.polar.portal);
   const requestInFlight = useRef(false);
