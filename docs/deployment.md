@@ -9,7 +9,9 @@ This repository's instance: Vercel project `ai-saas-template`
 `kindhearted-bandicoot-875` (reference `cloud-dev`) in the `jes` team's
 `ai-saas-template` project, and a Sentry project in Sentry's EU region
 (`ingest.de.sentry.io`) whose DSN is set in Vercel. Downstream projects replace
-these values.
+these values. `kindhearted-bandicoot-875` is in Convex's US region, even though the
+privacy policy it serves lists Convex in the EU. It holds only test data, so it
+stays there.
 
 ## Vercel
 
