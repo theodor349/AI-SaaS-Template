@@ -9,7 +9,9 @@ This repository's instance: Vercel project `ai-saas-template`
 `kindhearted-bandicoot-875` (reference `cloud-dev`) in the `jes` team's
 `ai-saas-template` project, and a Sentry project in Sentry's EU region
 (`ingest.de.sentry.io`) whose DSN is set in Vercel. Downstream projects replace
-these values.
+these values. `kindhearted-bandicoot-875` is in Convex's US region, even though the
+privacy policy it serves lists Convex in the EU. It holds only test data, so it
+stays there.
 
 ## Vercel
 
@@ -68,10 +70,11 @@ with that frontend; a Vercel rollback does not roll back Convex.
 
 ## Convex
 
-The privacy policy lists Convex as storing data in the EU, so create the Convex
-production deployment in the EU region (Ireland). If you pick another region,
-change the Convex entry in [`lib/legal/subprocessors.ts`](../lib/legal/subprocessors.ts)
-to match.
+The privacy policy lists Convex as storing data in the EU, because most production
+deployments run in Convex's EU region (Ireland). Before you create a new production
+deployment, ask Theodor which region it goes in. If it isn't the EU, change the
+Convex entry in [`lib/legal/subprocessors.ts`](../lib/legal/subprocessors.ts) to
+match.
 
 On the Convex project's **production deployment**, set:
 
