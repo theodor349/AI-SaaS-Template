@@ -68,10 +68,11 @@ with that frontend; a Vercel rollback does not roll back Convex.
 
 ## Convex
 
-The privacy policy lists Convex as storing data in the EU, so create the Convex
-production deployment in the EU region (Ireland). If you pick another region,
-change the Convex entry in [`lib/legal/subprocessors.ts`](../lib/legal/subprocessors.ts)
-to match.
+The privacy policy lists Convex as storing data in the EU, because most production
+deployments run in Convex's EU region (Ireland). Before you create a new production
+deployment, ask Theodor which region it goes in. If it isn't the EU, change the
+Convex entry in [`lib/legal/subprocessors.ts`](../lib/legal/subprocessors.ts) to
+match.
 
 On the Convex project's **production deployment**, set:
 
