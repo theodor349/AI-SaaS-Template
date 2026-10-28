@@ -210,9 +210,11 @@ Jobs run on Depot's `depot-ubuntu-24.04` sandboxes, which are fresh for every
 job and have no IPv6. Depot needs its Code Access GitHub app installed on the
 repository; it reports each job back to GitHub as a check run named
 `<workflow> / <job>`, such as `CI / Checks`. Require `CI / Checks` in a GitHub
-branch ruleset for `main` if merges should be blocked on failures. Vercel independently runs `pnpm test:app` and `pnpm lint`
-before deployment. The dev-server fixtures in `test:bootstrap` run in Depot CI
-and locally: Vercel's build worker does not reliably support the
+branch ruleset for `main` if merges should be blocked on failures.
+
+Vercel independently runs `pnpm test:app` and `pnpm lint` before deployment.
+The dev-server fixtures in `test:bootstrap` run in Depot CI and locally:
+Vercel's build worker does not reliably support the
 fixture's loopback rewrite. Application test or lint failures still stop the
 Vercel build before Convex deployment.
 
