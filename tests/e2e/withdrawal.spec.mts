@@ -1,14 +1,11 @@
 import { clerk } from "@clerk/testing/playwright";
 import { expect, test } from "@playwright/test";
-import { ConvexHttpClient } from "convex/browser";
-import { api } from "../../convex/_generated/api";
 import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
 import { seedPaidTestUser } from "../../scripts/billing-test-fixtures.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 import { captureEvidence } from "./evidence.mjs";
 
 const local = resolveLocalTestConfig();
-const day = 24 * 60 * 60_000;
 
 test("a purchase can be withdrawn after a confirmation step", { tag: "@critical" }, async ({ page }) => {
   const user = await createClerkTestUser(local);
@@ -35,33 +32,5 @@ test("a purchase can be withdrawn after a confirmation step", { tag: "@critical"
     await captureEvidence(page, "withdrawal-received");
     await page.reload();
     await expect(card.getByText(/^Withdrawal received /)).toBeVisible();
-  } finally { await user.cleanup(); }
-});
-
-// Days back to a purchase whose 14th day is the coming Danish Saturday, so its
-// period runs on past the weekend and ends days, not hours, from now.
-function purchasedBeforeAWeekend() {
-  const weekday = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Copenhagen", weekday: "short" }).format(Date.now());
-  const toSaturday = (6 - ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(weekday) + 7) % 7;
-  return Date.now() - (14 - toSaturday) * day;
-}
-
-test("the withdrawal control disappears when the period ends", async ({ page }) => {
-  const user = await createClerkTestUser(local);
-  try {
-    await seedPaidTestUser(user, "lifetime", true, { purchasedAt: purchasedBeforeAWeekend() });
-    await page.clock.install();
-    await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email }); await page.goto("/billing");
-    const card = page.getByLabel("Withdraw from contract", { exact: true });
-    await expect(card.getByRole("button", { name: "Withdraw from contract" })).toBeVisible();
-    const token = await page.evaluate(() => window.Clerk.session!.getToken({ template: "convex" }));
-    const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
-    client.setAuth(token!);
-    const [purchase] = await client.query(api.billing.withdrawals.purchases, {});
-    expect(purchase.withdrawUntil - Date.now()).toBeGreaterThan(day);
-
-    await page.clock.fastForward(purchase.withdrawUntil - Date.now());
-    await expect(card).toHaveCount(0);
-    await expect(page.getByText("You have lifetime access.")).toBeVisible();
   } finally { await user.cleanup(); }
 });

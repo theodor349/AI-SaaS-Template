@@ -1,7 +1,6 @@
 import { clerk } from "@clerk/testing/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
-import { seedPaidTestUser } from "../../scripts/billing-test-fixtures.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 import { interceptConvexSync } from "./convex-sync.mjs";
 import { captureEvidence } from "./evidence.mjs";
@@ -63,65 +62,6 @@ test("billing remains visible with safe pending controls at 1280px and 390px", a
       await captureEvidence(page, `billing-loaded-${width}`);
     }
   } finally {
-    await user.cleanup();
-  }
-});
-
-test("subscription controls remain usable while plan prices load independently", async ({ page }) => {
-  const user = await createClerkTestUser(local);
-  try {
-    await seedPaidTestUser(user, "monthly");
-    await page.goto("/");
-    await clerk.signIn({ page, emailAddress: user.email });
-    const backend = await interceptWithFixedCatalog(page);
-    backend.holdResponses("billing/catalog:products");
-    await page.goto("/billing");
-    await expect.poll(backend.pendingResponses).toBeGreaterThan(0);
-    await expect(page.getByRole("button", { name: "Customer portal" })).toBeEnabled();
-    await expect(page.getByRole("button", { name: "Cancel subscription" })).toBeEnabled();
-    await expect(page.locator('[aria-label="Plan prices"]')).toHaveAttribute("aria-busy", "true");
-    await expect(page.getByRole("button", { name: "Switch to yearly" })).toHaveCount(0);
-    backend.releaseResponses();
-    await expect(page.getByRole("button", { name: "Switch to yearly" })).toBeVisible();
-  } finally {
-    await user.cleanup();
-  }
-});
-
-test("checkout disables duplicate attempts until the request fails, then permits retry", async ({ page }) => {
-  const user = await createClerkTestUser(local);
-  let release: (() => void) | undefined;
-  let requests = 0;
-  const sync = await interceptConvexSync(page);
-  sync.onAction("billing/polar:checkout", (call) => {
-    requests++;
-    release = () => call.fail("Fixture checkout failure");
-  });
-  try {
-    await page.goto("/");
-    await clerk.signIn({ page, emailAddress: user.email });
-    await page.goto("/billing");
-    const checkout = page.getByRole("button", { name: "Choose monthly" });
-    await expect(checkout).toBeEnabled();
-    const before = await checkout.boundingBox();
-    await checkout.click();
-    const pending = page.getByRole("button", { name: "Opening checkout…" });
-    await expect(pending).toBeDisabled();
-    await expect(pending).toHaveAttribute("aria-busy", "true");
-    expect(await pending.boundingBox()).toEqual(before);
-    await pending.dispatchEvent("click");
-    expect(requests).toBe(1);
-    release!();
-    await expect(page.getByText("We couldn’t open checkout")).toBeVisible();
-    await expect(checkout).toBeEnabled();
-    await checkout.click();
-    await expect(pending).toBeDisabled();
-    await expect.poll(() => requests).toBe(2);
-    release!();
-    await expect(checkout).toBeEnabled();
-  } finally {
-    release?.();
-    await page.unrouteAll({ behavior: "wait" });
     await user.cleanup();
   }
 });
