@@ -60,7 +60,7 @@ This template provides shared architecture, UI patterns, and an agent-friendly d
   | Account page | account, account-loading, data-export, theme |
   | Notes, or a feature built from it | notes |
   | Consent, Sentry, headers | consent, security-headers, server-errors |
-  | Layout, dialogs, offline, errors | connection-status, overlay-history, error-pages, legal, install |
+  | Layout, dialogs, offline, errors | connection-status, overlay-history, error-pages, legal |
 
 - Tag an E2E test `@critical` only when its failure would cost money, leak data, lock users out, or break a legal duty. Main runs those tests nightly and the full suite weekly.
 

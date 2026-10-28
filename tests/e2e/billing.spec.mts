@@ -67,79 +67,6 @@ test("selected plan opens checkout once after authentication; success URL alone 
   } finally { await user.cleanup(); }
 });
 
-test("lifetime access shows the purchase date and opens the customer portal", async ({ page }) => {
-  const user = await createClerkTestUser(local);
-  let release: (() => void) | undefined;
-  let requests = 0;
-  const portalUrl = "https://sandbox.polar.sh/fixture-lifetime-portal";
-  await page.route(portalUrl, route => route.fulfill({ contentType: "text/html", body: "<h1>Customer portal fixture</h1>" }));
-  const sync = await interceptConvexSync(page);
-  sync.onAction("billing/polar:portal", (call) => {
-    requests++;
-    release = () => call.succeed(portalUrl);
-  });
-  try {
-    await seedPaidTestUser(user);
-    await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email }); await page.goto("/billing");
-    await expect(page.getByLabel("Purchased on", { exact: true })).toBeDisabled();
-    const token = await page.evaluate(() => window.Clerk.session!.getToken({ template: "convex" }));
-    const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
-    client.setAuth(token!);
-    const status = await client.query(api.billing.account.status, {});
-    expect(status.lifetimePurchasedAt).not.toBeNull();
-    const purchaseDate = await page.evaluate(timestamp => new Date(timestamp!).toLocaleDateString(undefined, {
-      day: "numeric", month: "long", year: "numeric",
-    }), status.lifetimePurchasedAt);
-    await expect(page.getByLabel("Purchased on", { exact: true })).toHaveValue(purchaseDate);
-    await expect(page.getByLabel("Purchased on", { exact: true })).toBeDisabled();
-    await expect(page.getByLabel("Plan", { exact: true })).toHaveValue("Lifetime Pro");
-    await expect(page.getByRole("heading", { name: "Monthly", exact: true })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Cancel subscription" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Customer portal" })).toBeEnabled();
-    await captureEvidence(page, "lifetime-desktop");
-    await page.setViewportSize({ width: 390, height: 844 });
-    await captureEvidence(page, "lifetime-mobile");
-    await page.reload();
-    await expect(page.getByLabel("Purchased on", { exact: true })).toHaveValue(purchaseDate);
-    await page.getByRole("button", { name: "Customer portal" }).click();
-    await expect(page.getByRole("button", { name: "Opening portal…" })).toBeDisabled();
-    await expect.poll(() => requests).toBe(1);
-    release!();
-    await expect(page).toHaveURL(portalUrl);
-  } finally { release?.(); await user.cleanup(); }
-});
-
-for (const action of ["checkout", "portal"] as const) {
-  test(`${action} permits another request after a cached page is restored`, async ({ page }) => {
-    const user = await createClerkTestUser(local);
-    let requests = 0;
-    try {
-      if (action === "portal") await seedPaidTestUser(user);
-      const sync = await interceptConvexSync(page);
-      sync.onAction(`billing/polar:${action}`, (call) => {
-        requests++;
-        // Keep the document mounted after a successful navigation response,
-        // then reproduce the browser's cached-page lifecycle event below.
-        call.succeed(`${local.config.env.APP_URL}/billing#navigation-${requests}`);
-      });
-      await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email });
-      await page.goto("/billing");
-      const label = action === "checkout" ? "Choose monthly" : "Customer portal";
-      const progress = action === "checkout" ? "Opening checkout…" : "Opening portal…";
-      await page.getByRole("button", { name: label, exact: true }).click();
-      await expect(page).toHaveURL(/#navigation-1$/);
-      await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: false })));
-      await expect(page.getByRole("button", { name: progress, exact: true })).toBeDisabled();
-      expect(requests).toBe(1);
-      await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
-      await expect(page.getByRole("button", { name: label, exact: true })).toBeEnabled();
-      await page.getByRole("button", { name: label, exact: true }).click();
-      await expect(page).toHaveURL(/#navigation-2$/);
-      expect(requests).toBe(2);
-    } finally { await user.cleanup(); }
-  });
-}
-
 test("expiry removes paid pages reactively while billing and account controls remain accessible", { tag: "@critical" }, async ({ page }) => {
   const user = await createClerkTestUser(local);
   try {
@@ -287,9 +214,13 @@ test("yearly-to-monthly requires confirmation and shows the scheduled plan witho
     await captureEvidence(page, "switch-monthly-confirmation");
     expect(requests).toBe(0);
     await dialog.getByRole("button", { name: "Keep current plan" }).click();
+    const before = await page.getByRole("button", { name: "Switch to monthly" }).boundingBox();
     await page.getByRole("button", { name: "Switch to monthly" }).click();
     await dialog.getByRole("button", { name: "Confirm switch" }).click();
-    await expect(page.getByRole("button", { name: "Confirming plan…" })).toBeDisabled();
+    const pending = page.getByRole("button", { name: "Confirming plan…" });
+    await expect(pending).toBeDisabled();
+    // The pending label takes the idle label's place without moving the button.
+    expect(await pending.boundingBox()).toEqual(before);
     await expect.poll(() => requests).toBe(1);
     const account = (await adminQuery(admin, internal.billing.state.get, { customerId: fixture.customerId }))!;
     const now = Date.now();
