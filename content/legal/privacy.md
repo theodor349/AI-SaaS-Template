@@ -2,7 +2,7 @@
 title: Privacy Policy
 description: How {{COMPANY_NAME}} collects, uses, and protects personal data in {{APP_NAME}}.
 version: 1
-effective: 2026-10-21
+effective: 2026-10-28
 ---
 
 This policy explains how we process personal data when you use {{APP_NAME}} at {{APP_URL}}. We follow the EU General Data Protection Regulation (GDPR) and the Danish Data Protection Act (databeskyttelsesloven).
@@ -35,7 +35,7 @@ We use these providers to run {{APP_NAME}}. They process data on our behalf, exc
 
 {{block:subprocessors}}
 
-These providers are based in the United States, so your data may be transferred outside the EU. The table shows the safeguard for each transfer. Ask us for a copy of the safeguards. We also share data with authorities when the law requires it, and with our accountant and legal advisers, who are bound by confidentiality.
+These providers are companies based in the United States. The table shows where each one stores your data. They may access data stored in the EU from the United States, so your data may be transferred outside the EU. The table shows the safeguard for each transfer. Ask us for a copy of the safeguards. We also share data with authorities when the law requires it, and with our accountant and legal advisers, who are bound by confidentiality.
 
 ## How long we keep it
 
