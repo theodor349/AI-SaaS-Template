@@ -20,7 +20,7 @@ async function exportData(page: Page) {
   return JSON.parse(await readFile(await download.path(), "utf8")) as Export;
 }
 
-test("users download their data from the account page, including a pending deletion request", async ({ page }) => {
+test("users download their data from the account page, including a pending deletion request", { tag: "@critical" }, async ({ page }) => {
   const user = await createClerkTestUser(local);
   try {
     const sync = await interceptConvexSync(page);

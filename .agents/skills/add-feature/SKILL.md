@@ -31,7 +31,7 @@ Notes is the reference feature: [convex/notes](../../../convex/notes/notes.ts), 
 ## Tests
 
 - [ ] convex-test covering the happy path, another user's ID on every by-ID function, the paid or auth guard, validation codes, flag gating, and erasure across more than one batch ([convex/notes/notes.test.ts](../../../convex/notes/notes.test.ts)).
-- [ ] An E2E spec for the main flow and the unpaid redirect, using the billing fixtures in `scripts/billing-test-fixtures.mjs`. `pnpm test:e2e` picks it up, so it also runs in the `run-e2e` workflow.
+- [ ] An E2E spec for the main flow and the unpaid redirect, using the billing fixtures in `scripts/billing-test-fixtures.mjs`. `pnpm test:e2e` picks it up, so it also runs in the full suite. Tag the main flow `@critical`, as Notes does, so the nightly run covers it, and add the spec to the area table in `AGENTS.md`.
 - [ ] Before/after captures of the loaded, empty, and skeleton states at desktop and mobile widths for the PR.
 
 # Remove Notes

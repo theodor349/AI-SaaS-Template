@@ -16,7 +16,7 @@ import { captureEvidence } from "./evidence.mjs";
 
 const local = resolveLocalTestConfig();
 
-test("selected plan opens checkout once after authentication; success URL alone cannot grant access", async ({ page }) => {
+test("selected plan opens checkout once after authentication; success URL alone cannot grant access", { tag: "@critical" }, async ({ page }) => {
   const user = await createClerkTestUser(local);
   const checkoutModels: string[] = [];
   const sync = await interceptConvexSync(page);
@@ -138,7 +138,7 @@ for (const action of ["checkout", "portal"] as const) {
   });
 }
 
-test("expiry removes paid pages reactively while billing and account controls remain accessible", async ({ page }) => {
+test("expiry removes paid pages reactively while billing and account controls remain accessible", { tag: "@critical" }, async ({ page }) => {
   const user = await createClerkTestUser(local);
   try {
     const fixture = await seedPaidTestUser(user, "monthly");
@@ -170,7 +170,7 @@ test("expiry removes paid pages reactively while billing and account controls re
   } finally { await user.cleanup(); }
 });
 
-test("sandbox checkout and recovery work when another customer uses the sign-in email", async ({ page }) => {
+test("sandbox checkout and recovery work when another customer uses the sign-in email", { tag: "@critical" }, async ({ page }) => {
   const user = await createClerkTestUser(local);
   const polar = createPolar({ accessToken: local.env.POLAR_ACCESS_TOKEN, environment: "sandbox", organizationId: local.env.POLAR_ORGANIZATION_ID });
   const fixtureScope = `fixture-${local.config.id}`;

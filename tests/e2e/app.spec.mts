@@ -16,7 +16,7 @@ async function createClerkTestUser(config: typeof local) {
   catch (error) { await user.cleanup(); throw error; }
 }
 const authenticatedDestination = resolveAuthenticatedDestination(local.env.NEXT_PUBLIC_AUTHENTICATED_DESTINATION);
-test("Clerk identity reaches paid local Convex and persists across reloads", async ({ page }) => {
+test("Clerk identity reaches paid local Convex and persists across reloads", { tag: "@critical" }, async ({ page }) => {
   const user = await createClerkTestUser(local);
   try {
     await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email });
@@ -34,7 +34,7 @@ test("Clerk identity reaches paid local Convex and persists across reloads", asy
   } finally { await user.cleanup(); }
 });
 
-test("sign-in fallback and return-to redirects reach the configured application destination", async ({ page }) => {
+test("sign-in fallback and return-to redirects reach the configured application destination", { tag: "@critical" }, async ({ page }) => {
   const user = await createClerkTestUser(local);
   try {
     await page.goto("/sign-in");
@@ -51,7 +51,7 @@ test("sign-in fallback and return-to redirects reach the configured application 
   }
 });
 
-test("revoked sessions remove protected content and restored cookies cannot re-enter", async ({ page, browser }) => {
+test("revoked sessions remove protected content and restored cookies cannot re-enter", { tag: "@critical" }, async ({ page, browser }) => {
   const user = await createClerkTestUser(local);
   try {
     await page.goto("/");
@@ -122,7 +122,7 @@ test("organization and role changes wait for fresh Convex validation", async ({ 
   }
 });
 
-test("signed-out application navigation preserves the requested destination and stays public at sign-in", async ({ page }) => {
+test("signed-out application navigation preserves the requested destination and stays public at sign-in", { tag: "@critical" }, async ({ page }) => {
   await page.goto("/app?tab=profile");
   await expect(page).toHaveURL(/\/sign-in\?/);
   const returnTo = new URL(page.url()).searchParams.get("redirect_url");
@@ -133,7 +133,7 @@ test("signed-out application navigation preserves the requested destination and 
   await expect(page).toHaveURL(`${local.config.env.APP_URL}/sign-in`);
 });
 
-test("separate users and account switching never keep the previous protected identity", async ({ page, browser }) => {
+test("separate users and account switching never keep the previous protected identity", { tag: "@critical" }, async ({ page, browser }) => {
   const otherContext = await browser.newContext();
   const users: Awaited<ReturnType<typeof createClerkTestUser>>[] = [];
   try {

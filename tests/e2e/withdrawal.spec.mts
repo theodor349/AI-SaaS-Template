@@ -10,7 +10,7 @@ import { captureEvidence } from "./evidence.mjs";
 const local = resolveLocalTestConfig();
 const day = 24 * 60 * 60_000;
 
-test("a purchase can be withdrawn after a confirmation step", async ({ page }) => {
+test("a purchase can be withdrawn after a confirmation step", { tag: "@critical" }, async ({ page }) => {
   const user = await createClerkTestUser(local);
   try {
     await seedPaidTestUser(user, "monthly");

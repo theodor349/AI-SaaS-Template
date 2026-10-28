@@ -3,12 +3,22 @@ name: E2E
 # Runs the integration and browser suites against a real local stack: bootstrap's
 # local Convex backend, the shared Clerk development instance, and the shared
 # Polar sandbox organization. Provider rate limits are shared with local agents,
-# so pull requests only run when they carry the `run-e2e` label. Main runs nightly
-# rather than on every merge to save CI minutes.
+# so pull requests only run when they carry the `run-e2e` label. Main runs the
+# tests tagged @critical nightly rather than on every merge to save CI minutes,
+# and the full suite weekly so tests that rarely run don't go stale. Labeled pull
+# requests and manual runs use the full suite unless a manual run picks critical.
 on:
   workflow_dispatch:
+    inputs:
+      suite:
+        description: The full suite, or only the tests tagged @critical
+        type: choice
+        options: [full, critical]
+        default: full
   schedule:
-    - cron: "17 2 * * *"
+    # Keep the weekly cron in sync with the preflight step that picks the suite.
+    - cron: "17 2 * * 1-6"
+    - cron: "17 2 * * 0"
   pull_request:
     types: [opened, synchronize, reopened, labeled]
 
@@ -29,6 +39,7 @@ jobs:
       checks: read
     outputs:
       available: ${{ steps.check.outputs.available }}
+      suite: ${{ steps.check.outputs.suite }}
     steps:
       - name: Check required secrets
         id: check
@@ -40,18 +51,25 @@ jobs:
           POLAR_PRODUCT_YEARLY: ${{ secrets.POLAR_PRODUCT_YEARLY }}
           POLAR_PRODUCT_LIFETIME: ${{ secrets.POLAR_PRODUCT_LIFETIME }}
           GH_TOKEN: ${{ github.token }}
+          SCHEDULE: ${{ github.event.schedule }}
+          DISPATCHED_SUITE: ${{ inputs.suite }}
         # Integration asserts the three synced Polar products and signed Polar
         # webhooks, and billing E2E calls the sandbox API, so Polar is required.
         run: |
+          suite=full
+          if [ "$GITHUB_EVENT_NAME" = schedule ] && [ "$SCHEDULE" != "17 2 * * 0" ]; then suite=critical; fi
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "$DISPATCHED_SUITE" = critical ]; then suite=critical; fi
+          echo "suite=$suite" >> "$GITHUB_OUTPUT"
           missing=()
           for name in NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY CLERK_SECRET_KEY POLAR_ACCESS_TOKEN \
             POLAR_PRODUCT_MONTHLY POLAR_PRODUCT_YEARLY POLAR_PRODUCT_LIFETIME; do
             [ -n "${!name}" ] || missing+=("$name")
           done
           if [ ${#missing[@]} -eq 0 ]; then
-            # The nightly run skips a main commit that an earlier run already passed.
+            # The nightly critical run skips a main commit that an earlier run of
+            # either suite already passed. The weekly full run always runs.
             # Depot reports each job to GitHub as a check run named "<workflow> / <job>".
-            if [ "$GITHUB_EVENT_NAME" = schedule ]; then
+            if [ "$GITHUB_EVENT_NAME" = schedule ] && [ "$suite" = critical ]; then
               passed=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?check_name=E2E%20%2F%20Integration%20and%20E2E" \
                 --jq '[.check_runs[] | select(.conclusion == "success")] | length')
               if [ "$passed" -gt 0 ]; then
@@ -149,9 +167,12 @@ jobs:
         id: integration
         run: pnpm test:integration
       # Run the browser suite even when integration fails so both report.
-      - name: E2E tests
+      - name: E2E tests (${{ needs.preflight.outputs.suite }})
         if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
-        run: pnpm test:e2e
+        env:
+          SUITE: ${{ needs.preflight.outputs.suite }}
+        run: |
+          if [ "$SUITE" = critical ]; then pnpm test:e2e:critical; else pnpm test:e2e; fi
 
       - name: Stop bootstrap
         if: ${{ always() && steps.bootstrap.outcome == 'success' }}
