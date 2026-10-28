@@ -19,23 +19,23 @@ async function interceptWithFixedCatalog(page: Page) {
   return sync;
 }
 
-for (const width of [1280, 390]) {
-  test(`billing remains visible with safe pending controls at ${width}px`, async ({ page }) => {
-    const user = await createClerkTestUser(local);
-    try {
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto("/");
-      await clerk.signIn({ page, emailAddress: user.email });
-      await page.goto("/billing");
-      await expect(page.getByRole("button", { name: "Choose yearly" })).toBeVisible();
+test("billing remains visible with safe pending controls at 1280px and 390px", async ({ page }) => {
+  const user = await createClerkTestUser(local);
+  try {
+    await page.goto("/");
+    await clerk.signIn({ page, emailAddress: user.email });
+    await page.goto("/billing");
+    await expect(page.getByRole("button", { name: "Choose yearly" })).toBeVisible();
+    const backend = await interceptWithFixedCatalog(page);
 
-      const backend = await interceptWithFixedCatalog(page);
+    // Scope to main: while a cold page streams in, the document can briefly hold
+    // a second, hidden copy of the skeleton outside it.
+    const status = page.getByRole("main").locator('[data-slot="card"][aria-label="Billing status"]');
+    const plans = page.getByRole("main").locator('[aria-label="Paid plans"]');
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 900 });
       backend.holdResponses();
       await page.reload();
-      // Scope to main: while a cold page streams in, the document can briefly hold
-      // a second, hidden copy of the skeleton outside it.
-      const status = page.getByRole("main").locator('[data-slot="card"][aria-label="Billing status"]');
-      const plans = page.getByRole("main").locator('[aria-label="Paid plans"]');
       await expect(page.getByRole("heading", { name: "Billing", exact: true })).toBeVisible();
       await expect(page.getByRole("navigation", { name: "Main navigation" })).toHaveCount(1);
       await expect(status).toHaveAttribute("aria-busy", "true");
@@ -61,11 +61,11 @@ for (const width of [1280, 390]) {
         expect(plansAfter![dimension]).toBeCloseTo(plansBefore![dimension], 0);
       }
       await captureEvidence(page, `billing-loaded-${width}`);
-    } finally {
-      await user.cleanup();
     }
-  });
-}
+  } finally {
+    await user.cleanup();
+  }
+});
 
 test("subscription controls remain usable while plan prices load independently", async ({ page }) => {
   const user = await createClerkTestUser(local);

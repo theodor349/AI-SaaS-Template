@@ -55,7 +55,7 @@ This template provides shared architecture, UI patterns, and an agent-friendly d
 
   | Area | Specs in `tests/e2e/` |
   | --- | --- |
-  | Auth, sessions, redirects | app, user-provisioning, navigation |
+  | Auth, sessions, redirects | app, navigation |
   | Billing, checkout, plans | billing, billing-loading, landing, withdrawal |
   | Account page | account, account-loading, data-export, theme |
   | Notes, or a feature built from it | notes |

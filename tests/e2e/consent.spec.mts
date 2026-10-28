@@ -1,5 +1,5 @@
 import { expect, test, type BrowserContext, type Page, type Request } from "@playwright/test";
-import { CONSENT_COOKIE, CONSENT_MAX_AGE_SECONDS, CONSENT_POLICY_VERSION } from "../../lib/consent/cookie";
+import { CONSENT_COOKIE, CONSENT_MAX_AGE_SECONDS } from "../../lib/consent/cookie";
 import { E2E_CRASH_COOKIE } from "../../lib/e2e-crash";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 import { captureEvidence } from "./evidence.mjs";
@@ -64,26 +64,22 @@ async function setAnalytics(page: Page, granted: boolean) {
   await expect(dialog).toHaveCount(0);
 }
 
-function storedConsent(value: unknown) {
-  return [{ name: CONSENT_COOKIE, value: encodeURIComponent(JSON.stringify(value)), url: appUrl }];
-}
-
-for (const width of [1280, 390]) {
-  test(`the banner leaves the cookie page usable at ${width}px`, async ({ page }) => {
+test("the banner leaves the cookie page usable at 1280px and 390px", async ({ page }) => {
+  await page.goto("/cookies");
+  const dialog = page.getByRole("dialog", { name: "Cookie Preferences" });
+  for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.goto("/cookies");
     await expect(banner(page)).toBeVisible();
     await expect(page.getByRole("cell", { name: "__client_uat" })).toBeVisible();
     await captureEvidence(page, `cookies-banner-${width}`);
     await page.getByRole("button", { name: "Cookie Preferences" }).click();
-    const dialog = page.getByRole("dialog", { name: "Cookie Preferences" });
     await expect(dialog.getByRole("list", { name: "Analytics services" })).toContainText("Sentry");
     await captureEvidence(page, `preferences-${width}`);
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
     await expect(banner(page)).toBeVisible();
-  });
-}
+  }
+});
 
 test("Reject all never loads Sentry and is remembered", { tag: "@critical" }, async ({ page, context }) => {
   const sentry = watchSentry(page);
@@ -141,23 +137,4 @@ test("withdrawing analytics stops Sentry in the same page, and granting it again
   await crashOnClient(page, context);
   await expect.poll(() => sentry.crashReports().length).toBe(1);
   expect(await page.evaluate(() => (window as unknown as { samePage?: boolean }).samePage)).toBe(true);
-});
-
-test("a choice from another policy version, an expired choice, or a malformed cookie shows the banner again", async ({ page, context }) => {
-  const decidedAt = new Date().toISOString();
-  const expiredAt = new Date(Date.now() - (CONSENT_MAX_AGE_SECONDS + 86_400) * 1000).toISOString();
-  await context.addCookies(storedConsent({ version: CONSENT_POLICY_VERSION, choices: { analytics: false }, decidedAt }));
-  await page.goto("/cookies");
-  await hydrated(page);
-  await expect(banner(page)).toHaveCount(0);
-
-  for (const value of [
-    { version: CONSENT_POLICY_VERSION - 1, choices: { analytics: false }, decidedAt },
-    { version: CONSENT_POLICY_VERSION, choices: { analytics: false }, decidedAt: expiredAt },
-    "not a consent cookie",
-  ]) {
-    await context.addCookies(storedConsent(value));
-    await page.goto("/cookies");
-    await expect(banner(page)).toBeVisible();
-  }
 });

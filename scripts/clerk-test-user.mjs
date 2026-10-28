@@ -98,28 +98,3 @@ export async function findClerkTestUser({ env }, email, client = clerkBackend(en
     },
   };
 }
-
-export async function createClerkTestOrganization({ config, env }, userId) {
-  const client = clerkBackend(env);
-  let organization;
-  try {
-    organization = await withProviderRetry(() => client.organizations.createOrganization({
-      name: `${config.id}-${randomUUID().slice(0, 8)}-E2E`,
-      createdBy: userId,
-      privateMetadata: { WORKTREE_ID: config.id, purpose: "local-agent-test" },
-    }));
-  } catch (error) {
-    if (error.errors?.some((detail) => detail.code === "organization_not_enabled_in_instance")) return null;
-    const codes = error.errors?.map((detail) => detail.code).join(", ") ?? "unknown";
-    throw new Error(`Could not create the dedicated Clerk development test organization (${codes}). Check organization support in the development instance.`);
-  }
-  return {
-    id: organization.id,
-    async setRole(role) {
-      await withProviderRetry(() => client.organizations.updateOrganizationMembership({ organizationId: organization.id, userId, role }));
-    },
-    async cleanup() {
-      await withProviderRetry(() => client.organizations.deleteOrganization(organization.id));
-    },
-  };
-}

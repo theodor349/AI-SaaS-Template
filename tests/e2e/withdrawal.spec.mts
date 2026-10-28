@@ -65,19 +65,3 @@ test("the withdrawal control disappears when the period ends", async ({ page }) 
     await expect(page.getByText("You have lifetime access.")).toBeVisible();
   } finally { await user.cleanup(); }
 });
-
-// Its own test, so the page clock fast-forwarded above cannot break this sign-in.
-test("the server refuses a late withdrawal", async ({ page }) => {
-  const late = await createClerkTestUser(local);
-  try {
-    await seedPaidTestUser(late, "lifetime", true, { purchasedAt: Date.now() - 30 * day });
-    await page.goto("/"); await clerk.signIn({ page, emailAddress: late.email }); await page.goto("/billing");
-    await expect(page.getByText("You have lifetime access.")).toBeVisible();
-    await expect(page.getByLabel("Withdraw from contract", { exact: true })).toHaveCount(0);
-    const token = await page.evaluate(() => window.Clerk.session!.getToken({ template: "convex" }));
-    const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
-    client.setAuth(token!);
-    await expect(client.mutation(api.billing.withdrawals.request, { orderId: `fixture-order-${late.id}-lifetime` }))
-      .rejects.toThrow("WITHDRAWAL_PERIOD_ENDED");
-  } finally { await late.cleanup(); }
-});

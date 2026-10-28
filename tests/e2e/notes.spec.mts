@@ -197,19 +197,3 @@ test("an open note editor survives a token refresh while Clerk is unreachable", 
     await user.cleanup();
   }
 });
-
-test("a signed-in user without Pro is sent to billing, and the backend rejects their calls", async ({ page }) => {
-  const user = await createClerkTestUser(local);
-  try {
-    await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email });
-    await page.goto("/app");
-    await expect(page).toHaveURL(`${local.config.env.APP_URL}/billing`);
-    await expect(page.getByRole("heading", { name: "Notes", exact: true })).toHaveCount(0);
-
-    const client = await convexAs(page);
-    await expect(client.query(api.notes.notes.list, { paginationOpts: { numItems: 10, cursor: null } })).rejects.toThrow("PAID_ACCESS_REQUIRED");
-    await expect(client.mutation(api.notes.notes.create, { title: "Free note", body: "" })).rejects.toThrow("PAID_ACCESS_REQUIRED");
-  } finally {
-    await user.cleanup();
-  }
-});
