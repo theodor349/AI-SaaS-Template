@@ -13,7 +13,7 @@ import { captureEvidence } from "./evidence.mjs";
 const local = resolveLocalTestConfig();
 
 declare global {
-  interface Window { authPendingAppeared?: boolean }
+  interface Window { authPendingAppeared?: boolean; authRecoveryAppeared?: boolean; clerkOfflineFailures?: number }
 }
 
 async function convexAs(page: Page) {
@@ -138,6 +138,61 @@ test("an open note editor survives Convex replacing an expired token", async ({ 
     await expect(editor).toHaveCount(0);
     await expect(note(page, "Groceries for Friday")).toBeVisible();
     expect(await page.evaluate(() => window.authPendingAppeared)).toBeUndefined();
+  } finally {
+    await user.cleanup();
+  }
+});
+
+test("an open note editor survives a token refresh while Clerk is unreachable", async ({ page, context }) => {
+  const user = await createClerkTestUser(local);
+  try {
+    await seedPaidTestUser(user);
+    const sync = await interceptConvexSync(page);
+    await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email });
+    await page.goto("/app");
+    await expect(page.getByText("No notes yet")).toBeVisible();
+    await (await convexAs(page)).mutation(api.notes.notes.create, { title: "Groceries", body: "" });
+    await page.getByRole("button", { name: "Edit Groceries" }).click();
+    const editor = page.getByRole("dialog", { name: "Edit note" });
+    await editor.getByLabel("Title", { exact: true }).fill("Groceries for Friday");
+    await page.evaluate(() => {
+      new MutationObserver(() => {
+        if (/We couldn.t load your account/.test(document.body.innerText)) window.authRecoveryAppeared = true;
+      }).observe(document.body, { childList: true, subtree: true, characterData: true });
+    });
+
+    // Resuming an offline phone after its token expired: the backend rejects the
+    // token and Clerk cannot reach its Frontend API for a new one. @clerk/testing
+    // sends Frontend API requests through Node, so going offline alone doesn't block them.
+    const unreachable = /\.clerk\.accounts\.dev/;
+    await page.route(unreachable, (route) => route.abort("internetdisconnected"));
+    await page.evaluate(() => {
+      window.clerkOfflineFailures = 0;
+      const session = window.Clerk.session!;
+      const getToken = session.getToken.bind(session);
+      session.getToken = (options) => getToken(options).catch((error: unknown) => {
+        if ((error as { code?: string }).code === "clerk_offline") window.clerkOfflineFailures!++;
+        throw error;
+      });
+    });
+    const sent = sync.authentications();
+    sync.rejectToken();
+    // Clerk gives up while the browser still reports itself online, then again once it is offline.
+    await page.waitForFunction(() => window.clerkOfflineFailures! >= 1, null, { timeout: 30_000 });
+    await context.setOffline(true);
+    await page.waitForFunction(() => window.authRecoveryAppeared || window.clerkOfflineFailures! >= 2, null, { timeout: 30_000 });
+    expect(await page.evaluate(() => window.authRecoveryAppeared)).toBeUndefined();
+    await expect(editor.getByLabel("Title", { exact: true })).toHaveValue("Groceries for Friday");
+    await editor.getByRole("button", { name: "Save note" }).click();
+    expect(sync.authentications()).toBe(sent);
+
+    // Back online, the client fetches a token and the queued save goes through.
+    await page.unroute(unreachable);
+    await context.setOffline(false);
+    await expect.poll(() => sync.authentications()).toBeGreaterThan(sent);
+    await expect(editor).toHaveCount(0);
+    await expect(note(page, "Groceries for Friday")).toBeVisible();
+    expect(await page.evaluate(() => window.authRecoveryAppeared)).toBeUndefined();
   } finally {
     await user.cleanup();
   }
