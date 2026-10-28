@@ -194,9 +194,14 @@ browser tests need bootstrap services and run in the E2E workflow below.
 The separate [E2E workflow](../.depot/workflows/e2e.yml) runs `pnpm test:integration`
 and the browser tests against a local bootstrap stack. The nightly run on `main`
 covers only the tests tagged `@critical` and skips a commit that already passed.
-The full suite runs weekly on `main`, on manual dispatch, and on pull requests
-labeled `run-e2e`; the label keeps it from spending the Clerk and Polar rate
-limits that local agents share. A manual run can pick the critical suite instead. A failed nightly run shows as a failed check
+The full suite runs weekly on `main` and on manual dispatch, and a manual run can
+pick the critical suite instead. Pull requests run E2E only with the `run-e2e`
+label, so they don't spend the Clerk and Polar rate limits that local agents
+share. Adding the label runs the full suite, and each later push to the labeled
+pull request runs the critical tests. A push cancels a full run still in
+progress. To run the full suite on the latest commit, remove the label and add
+it back with `gh pr edit <pr> --remove-label run-e2e` and then
+`gh pr edit <pr> --add-label run-e2e`. A failed nightly run shows as a failed check
 on that `main` commit and in `depot ci run list --status failed`. It needs these
 Depot CI secrets, using the same values as a local `.env.bootstrap.local`. Add
 each one scoped to the repository, piping the value in so it stays out of shell
