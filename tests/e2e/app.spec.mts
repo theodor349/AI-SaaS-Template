@@ -211,7 +211,7 @@ test("slow Clerk token acquisition shows loading and sends no protected query", 
     expect(sync.hasSubscribed("billing/account:status")).toBe(false);
     expect(sync.hasSubscribed("billing/account:application")).toBe(false);
     await page.evaluate(() => window.dispatchEvent(new Event("release-auth-test")));
-    await expect(page.getByText("You have lifetime access.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Current" })).toBeDisabled();
     expect(sync.hasSubscribed("billing/account:status")).toBe(true);
     await page.getByRole("link", { name: "Dashboard", exact: true }).click();
     await expect(page).toHaveURL(`${local.config.env.APP_URL}${authenticatedDestination}`);

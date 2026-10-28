@@ -157,7 +157,7 @@ test("a new visitor creates an account and reaches Polar sandbox checkout for th
   }
 });
 
-test("existing Pro users switch recurring plans through billing and buy lifetime through checkout", async ({ page }) => {
+test("existing Pro users switch recurring plans and buy lifetime through billing", async ({ page }) => {
   const user = await createClerkTestUser(local);
   const checkoutModels: string[] = [];
   const sync = await interceptConvexSync(page);
@@ -181,10 +181,30 @@ test("existing Pro users switch recurring plans through billing and buy lifetime
     await page.getByRole("button", { name: "Keep current plan" }).click();
     await page.goto("/");
     await page.getByRole("link", { name: "Get lifetime" }).click();
-    await expect(page.getByRole("alert").filter({ hasText: "We couldn’t open the payment page" })).toBeVisible();
-    await expect(page).toHaveURL(`${local.config.env.APP_URL}/checkout`);
+    await expect(page).toHaveURL(`${local.config.env.APP_URL}/billing`);
+    expect(checkoutModels).toEqual([]);
+    await page.getByRole("button", { name: "Get lifetime" }).click();
+    await expect(page.getByText("We couldn’t open checkout")).toBeVisible();
     expect(checkoutModels).toEqual(["lifetime"]);
   } finally { await page.unrouteAll({ behavior: "wait" }); await user.cleanup(); }
+});
+
+test("lifetime users see every plan's price on the landing page, with lifetime as their current plan", async ({ page }) => {
+  const user = await createClerkTestUser(local);
+  try {
+    await seedPaidTestUser(user, "lifetime");
+    await page.goto("/");
+    await clerk.signIn({ page, emailAddress: user.email });
+    await page.goto("/#pricing");
+    const products = await new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL).query(api.billing.catalog.products, {});
+    for (const product of products) {
+      const card = page.locator('[data-slot="card"]').filter({ has: page.getByRole("heading", { name: new RegExp(`^${product.model}$`, "i") }) });
+      const formatter = new Intl.NumberFormat("en-US", { style: "currency", currency: product.currency });
+      await expect(card).toContainText(formatter.format(product.amount / 10 ** (formatter.resolvedOptions().maximumFractionDigits ?? 2)));
+      await expect(card.getByRole("button", { name: product.model === "lifetime" ? "Current" : "Included" })).toBeDisabled();
+    }
+    await expect(page.getByRole("link", { name: /^(Choose|Switch to|Get) / })).toHaveCount(0);
+  } finally { await user.cleanup(); }
 });
 
 for (const transition of ["paid", "deleting", "manual"] as const) {
