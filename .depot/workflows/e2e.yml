@@ -3,10 +3,13 @@ name: E2E
 # Runs the integration and browser suites against a real local stack: bootstrap's
 # local Convex backend, the shared Clerk development instance, and the shared
 # Polar sandbox organization. Provider rate limits are shared with local agents,
-# so pull requests only run when they carry the `run-e2e` label. Main runs the
-# tests tagged @critical nightly rather than on every merge to save CI minutes,
-# and the full suite weekly so tests that rarely run don't go stale. Labeled pull
-# requests and manual runs use the full suite unless a manual run picks critical.
+# so pull requests only run when they carry the `run-e2e` label. Adding the label
+# runs the full suite, and later pushes to the labeled pull request run only the
+# tests tagged @critical. A push cancels a full run still in progress, so to get a
+# full run on the latest commit, remove the label and add it back. Main runs the
+# critical tests nightly rather than on every merge to save CI minutes, and the
+# full suite weekly so tests that rarely run don't go stale. Manual runs use the
+# full suite unless they pick critical.
 on:
   workflow_dispatch:
     inputs:
@@ -53,12 +56,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SCHEDULE: ${{ github.event.schedule }}
           DISPATCHED_SUITE: ${{ inputs.suite }}
+          PR_ACTION: ${{ github.event.action }}
         # Integration asserts the three synced Polar products and signed Polar
         # webhooks, and billing E2E calls the sandbox API, so Polar is required.
         run: |
           suite=full
           if [ "$GITHUB_EVENT_NAME" = schedule ] && [ "$SCHEDULE" != "17 2 * * 0" ]; then suite=critical; fi
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "$DISPATCHED_SUITE" = critical ]; then suite=critical; fi
+          # Adding the label, or opening a pull request that has it, runs the full suite.
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$PR_ACTION" != labeled ] && [ "$PR_ACTION" != opened ]; then suite=critical; fi
           echo "suite=$suite" >> "$GITHUB_OUTPUT"
           missing=()
           for name in NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY CLERK_SECRET_KEY POLAR_ACCESS_TOKEN \
@@ -92,7 +98,9 @@ jobs:
     if: needs.preflight.outputs.available == 'true'
     runs-on: depot-ubuntu-24.04
     timeout-minutes: 45
-    # Job-level so skipped label events never cancel a running suite.
+    # Job-level so skipped label events never cancel a running suite. A push to a
+    # labeled pull request cancels its running full suite and runs the critical
+    # tests on the new commit instead.
     concurrency:
       group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: true
