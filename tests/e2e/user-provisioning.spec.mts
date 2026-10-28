@@ -7,7 +7,7 @@ import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 
 const local = resolveLocalTestConfig();
 
-test("a first signed-in visit provisions through Clerk without a loopback webhook", async ({ page, browser }) => {
+test("a first signed-in visit provisions through Clerk without a loopback webhook", { tag: "@critical" }, async ({ page, browser }) => {
   const alice = await createClerkTestUser(local);
   const bob = await createClerkTestUser(local);
   const otherContext = await browser.newContext({ baseURL: local.config.env.APP_URL });

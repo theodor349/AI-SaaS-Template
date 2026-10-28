@@ -19,7 +19,7 @@ function crash(context: BrowserContext, target: "page" | "layout") {
   return context.addCookies([{ name: E2E_CRASH_COOKIE, value: target, url: appUrl }]);
 }
 
-test("an unknown URL returns 404 in the site shell with a way home", async ({ page }) => {
+test("an unknown URL returns 404 in the site shell with a way home", { tag: "@critical" }, async ({ page }) => {
   const response = await page.goto("/this-page-was-not-part-of-it");
   expect(response?.status()).toBe(404);
   await expect(page).toHaveTitle(`Page not found — ${appConfig.appName}`);

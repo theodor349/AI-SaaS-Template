@@ -15,7 +15,7 @@ function watchViolations(page: Page) {
   return violations;
 }
 
-test("pages, routes, and static files carry the security headers", async ({ request }) => {
+test("pages, routes, and static files carry the security headers", { tag: "@critical" }, async ({ request }) => {
   for (const path of ["/", "/terms", "/sign-in", "/app", "/does-not-exist"]) {
     const response = await request.get(path, { maxRedirects: 0 });
     const headers = response.headers();
@@ -32,7 +32,7 @@ test("pages, routes, and static files carry the security headers", async ({ requ
   expect(icon.headers()["x-content-type-options"]).toBe("nosniff");
 });
 
-test("signing in, live data, and consented Sentry run without CSP violations", async ({ page, context }) => {
+test("signing in, live data, and consented Sentry run without CSP violations", { tag: "@critical" }, async ({ page, context }) => {
   const violations = watchViolations(page);
   const user = await createClerkTestUser(local);
   try {

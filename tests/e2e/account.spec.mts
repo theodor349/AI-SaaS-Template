@@ -14,7 +14,7 @@ import { captureEvidence } from "./evidence.mjs";
 
 const local = resolveLocalTestConfig();
 
-test("unpaid owners edit profiles, preserve drafts, request deletion and recover independently", async ({ page, browser }) => {
+test("unpaid owners edit profiles, preserve drafts, request deletion and recover independently", { tag: "@critical" }, async ({ page, browser }) => {
   const alice = await createClerkTestUser(local);
   const bob = await createClerkTestUser(local);
   const otherContext = await browser.newContext({ baseURL: local.config.env.APP_URL });
@@ -69,7 +69,7 @@ test("unpaid owners edit profiles, preserve drafts, request deletion and recover
 });
 
 
-test("provider deletion supersedes an open user request and completes cleanup", async ({ page }) => {
+test("provider deletion supersedes an open user request and completes cleanup", { tag: "@critical" }, async ({ page }) => {
   const user = await createClerkTestUser(local);
   let removed = false;
   try {
@@ -92,7 +92,7 @@ test("provider deletion supersedes an open user request and completes cleanup", 
   } finally { if (!removed) await user.cleanup(); }
 });
 
-test("a deleted account's email can open checkout again on a new account", async ({ page }) => {
+test("a deleted account's email can open checkout again on a new account", { tag: "@critical" }, async ({ page }) => {
   const first = await createClerkTestUser(local);
   const polar = createPolar({ accessToken: local.env.POLAR_ACCESS_TOKEN, environment: "sandbox", organizationId: local.env.POLAR_ORGANIZATION_ID });
   const { client: admin } = billingTestAdmin();

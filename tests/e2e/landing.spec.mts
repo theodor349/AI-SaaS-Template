@@ -17,7 +17,7 @@ const { createClerkClient } = createRequire(import.meta.url)("@clerk/nextjs/serv
 const local = resolveLocalTestConfig();
 
 for (const width of [1280, 390]) {
-  test(`public plans lead to signup with the selected plan at ${width}px`, async ({ page }) => {
+  test(`public plans lead to signup with the selected plan at ${width}px`, { tag: width === 1280 ? "@critical" : [] }, async ({ page }) => {
     await setupClerkTestingToken({ page });
     await page.setViewportSize({ width, height: 900 });
     const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL);
@@ -99,7 +99,7 @@ test("checkout shows progress after sign-in and for signed-in users, with explic
   }
 });
 
-test("a new visitor creates an account and reaches Polar sandbox checkout for the chosen plan", async ({ page }) => {
+test("a new visitor creates an account and reaches Polar sandbox checkout for the chosen plan", { tag: "@critical" }, async ({ page }) => {
   const email = `${local.config.id}-${randomUUID().slice(0, 8)}+clerk_test@gmail.com`;
   const clerkClient = createClerkClient({ secretKey: local.env.CLERK_SECRET_KEY });
   const polar = createPolar({ accessToken: local.env.POLAR_ACCESS_TOKEN, environment: "sandbox", organizationId: local.env.POLAR_ORGANIZATION_ID });

@@ -30,7 +30,7 @@ async function serverEvents(request: APIRequestContext, run: string) {
   });
 }
 
-test("server component, route handler, and Server Function errors reach Sentry without personal data", async ({ page, context }) => {
+test("server component, route handler, and Server Function errors reach Sentry without personal data", { tag: "@critical" }, async ({ page, context }) => {
   const user = await createClerkTestUser(local);
   try {
     await page.goto("/");

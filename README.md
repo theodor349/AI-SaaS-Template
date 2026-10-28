@@ -40,7 +40,8 @@ is needed. Agent guidance lives in [AGENTS.md](AGENTS.md).
 - `pnpm test:unit` (or `pnpm test`) - run bootstrap checks and application tests.
 - `pnpm test:app` - run application unit tests without starting dev-server fixtures.
 - `pnpm test:integration` - check the running worktree's local backend and frontend.
-- `pnpm test:e2e` - test sign-in and sign-out with Clerk and Convex in Chromium.
+- `pnpm test:e2e [spec...]` - run the browser suite, or the given specs, against the running worktree in Chromium.
+- `pnpm test:e2e:critical` - run only the browser tests tagged `@critical`.
   `E2E_EVIDENCE=1 pnpm test:e2e <spec>` also saves screenshots and videos for PR evidence in `.playwright/results`.
 - `pnpm inspect` - open the running worktree for manual browser inspection.
 - `pnpm capture <path...>` - screenshot (and optionally record) pages for PR evidence, outside the worktree.
@@ -59,8 +60,9 @@ is needed. Agent guidance lives in [AGENTS.md](AGENTS.md).
 ## CI and hosted development
 
 Depot CI runs lint, unit tests, and the Next.js build on every pull request.
-The E2E workflow runs the integration and E2E suites against a local stack
-nightly on `main` and on pull requests labeled `run-e2e`. Only `main`
+The E2E workflow runs the integration suite and the `@critical` E2E tests
+against a local stack nightly on `main`, and the full E2E suite weekly on
+`main` and on pull requests labeled `run-e2e`. Only `main`
 deploys to Vercel and Convex. See
 [deployment setup](docs/deployment.md) for the hosted environment, its checks,
 and Clerk/Polar webhooks.
