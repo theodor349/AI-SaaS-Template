@@ -26,7 +26,7 @@ async function convexAs(page: Page) {
 const notes = (page: Page) => page.getByRole("region", { name: "Your notes" }).getByRole("listitem");
 const note = (page: Page, title: string) => notes(page).filter({ has: page.getByText(title, { exact: true }) });
 
-test("a Pro user creates, edits, pages through, pins, and deletes notes", async ({ page }) => {
+test("a Pro user creates, edits, pages through, pins, and deletes notes", { tag: "@critical" }, async ({ page }) => {
   const user = await createClerkTestUser(local);
   const admin = billingTestAdmin().client;
   let userId: Id<"users"> | undefined;

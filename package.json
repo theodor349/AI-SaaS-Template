@@ -16,6 +16,7 @@
     "test:app": "vitest run",
     "test:integration": "node --test tests/integration/*.test.mjs",
     "test:e2e": "playwright test",
+    "test:e2e:critical": "playwright test --grep @critical",
     "inspect": "node scripts/inspect.mjs",
     "capture": "node scripts/capture.mjs",
     "review-link": "node scripts/review-link.mjs",

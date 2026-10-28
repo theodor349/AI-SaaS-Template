@@ -85,7 +85,7 @@ for (const width of [1280, 390]) {
   });
 }
 
-test("Reject all never loads Sentry and is remembered", async ({ page, context }) => {
+test("Reject all never loads Sentry and is remembered", { tag: "@critical" }, async ({ page, context }) => {
   const sentry = watchSentry(page);
   await page.goto("/cookies");
   await banner(page).getByRole("button", { name: "Reject all" }).click();
@@ -105,7 +105,7 @@ test("Reject all never loads Sentry and is remembered", async ({ page, context }
   expect(sentry.envelopes()).toEqual([]);
 });
 
-test("Accept all starts Sentry, which reports client errors, and is remembered", async ({ page, context }) => {
+test("Accept all starts Sentry, which reports client errors, and is remembered", { tag: "@critical" }, async ({ page, context }) => {
   const sentry = watchSentry(page);
   await page.goto("/");
   await expect(banner(page)).toBeVisible();
