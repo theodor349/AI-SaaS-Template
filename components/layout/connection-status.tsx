@@ -27,8 +27,10 @@ export function ConnectionStatus() {
   }, [disconnected]);
 
   // The live region stays mounted so screen readers announce its changes politely.
+  // Radix modals hide the rest of the page from assistive technology but keep elements
+  // with an explicit `aria-live`, so the announcement still reaches users in a dialog.
   return (
-    <div role="status" className={styles.region}>
+    <div role="status" aria-live="polite" className={styles.region}>
       {status !== "connected" && episode.overdue && (
         <p className={styles.indicator}>
           <span aria-hidden="true" className={styles.light} />
