@@ -59,7 +59,7 @@ test("selected plan opens checkout once after authentication; success URL alone 
     await captureEvidence(page, "lifetime-confirmed");
     await expect(page.getByRole("heading", { name: "Monthly", exact: true })).toHaveCount(0);
     await page.goto("/");
-    await expect(page.getByText("You have lifetime access.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Current" })).toBeDisabled();
     await page.getByRole("link", { name: "Dashboard", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Notes", exact: true })).toBeVisible();
   } finally { await user.cleanup(); }
