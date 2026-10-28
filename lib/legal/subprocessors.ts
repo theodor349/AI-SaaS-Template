@@ -26,7 +26,7 @@ export const subprocessors: Subprocessor[] = [
     name: "Convex",
     entity: "Convex, Inc.",
     purpose: "Database and backend for your application data",
-    location: "United States",
+    location: "European Union (Ireland)",
     safeguard: standardContractualClauses,
     privacyUrl: "https://www.convex.dev/legal/privacy",
   },
