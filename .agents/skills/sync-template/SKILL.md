@@ -32,7 +32,7 @@ Merge the sync PR with a merge commit, `gh pr merge --merge`. A squash or rebase
 
   The template version is usually the later one, reworked in the template's review.
 
-- Check the template's E2E workflow on `main` (`gh run list -R theodor349/AI-SaaS-Template --workflow E2E`). A failure there comes into the app with the merge; fix it in the template as well.
+- Check the template's E2E result on `main`: `gh api "repos/theodor349/AI-SaaS-Template/commits/main/check-runs?check_name=E2E%20%2F%20Integration%20and%20E2E" --jq '.check_runs[].conclusion'`. The nightly run tests the newest commit, so a commit merged since then has no result yet; check its parent. A failure there comes into the app with the merge; fix it in the template as well.
 - Skills this one links to, such as add-feature, may not exist in the app until the merge brings them. Read them from the template meanwhile: `git show template/main:.agents/skills/add-feature/SKILL.md`.
 
 ## 2. Merge and resolve

@@ -49,8 +49,11 @@ for (const width of [1280, 390]) {
       await page.goBack();
       await expect(menu).toHaveCount(0);
       await expect(page).toHaveURL(/\/account$/);
+      // An unpaid user passes through /app on the way to /billing, often faster than
+      // toHaveURL polls, so wait for the navigation event instead.
+      const dashboard = page.waitForURL(/\/app$/);
       await page.getByRole("link", { name: "Dashboard", exact: true }).click();
-      await expect(page).toHaveURL(/\/app$/);
+      await dashboard;
       await page.goto("/billing");
       await trigger.click();
       await page.getByRole("menuitem", { name: "Cookie Preferences" }).click();

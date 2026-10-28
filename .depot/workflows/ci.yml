@@ -14,14 +14,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # One job installs dependencies once. GitHub bills every job rounded up to a whole
-  # minute, so three short jobs cost about twice as much as one. Each check runs even
+  # One job installs dependencies once for all three checks. Each check runs even
   # when an earlier one fails, so all of them report.
   checks:
     name: Checks
-    # The CI_RUNNER repository variable names a self-hosted runner label; see
-    # docs/deployment.md. Without it, jobs use GitHub's hosted runners.
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 15
     env:
       NEXT_TELEMETRY_DISABLED: "1"
@@ -33,8 +30,7 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: .node-version
-          # A self-hosted runner keeps its own pnpm store, so only hosted runners cache it.
-          cache: ${{ runner.environment == 'github-hosted' && 'pnpm' || '' }}
+          cache: pnpm
       - name: Install dependencies
         id: install
         run: pnpm install --frozen-lockfile

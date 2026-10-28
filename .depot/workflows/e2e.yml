@@ -4,7 +4,7 @@ name: E2E
 # local Convex backend, the shared Clerk development instance, and the shared
 # Polar sandbox organization. Provider rate limits are shared with local agents,
 # so pull requests only run when they carry the `run-e2e` label. Main runs nightly
-# rather than on every merge to save Actions minutes.
+# rather than on every merge to save CI minutes.
 on:
   workflow_dispatch:
   schedule:
@@ -23,10 +23,10 @@ jobs:
       github.event_name != 'pull_request' ||
       (contains(github.event.pull_request.labels.*.name, 'run-e2e') &&
       (github.event.action != 'labeled' || github.event.label.name == 'run-e2e'))
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 2
     permissions:
-      actions: read
+      checks: read
     outputs:
       available: ${{ steps.check.outputs.available }}
     steps:
@@ -50,9 +50,10 @@ jobs:
           done
           if [ ${#missing[@]} -eq 0 ]; then
             # The nightly run skips a main commit that an earlier run already passed.
+            # Depot reports each job to GitHub as a check run named "<workflow> / <job>".
             if [ "$GITHUB_EVENT_NAME" = schedule ]; then
-              passed=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow e2e.yml --commit "$GITHUB_SHA" \
-                --status success --json databaseId --jq length)
+              passed=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?check_name=E2E%20%2F%20Integration%20and%20E2E" \
+                --jq '[.check_runs[] | select(.conclusion == "success")] | length')
               if [ "$passed" -gt 0 ]; then
                 echo "::notice title=E2E skipped::$GITHUB_SHA already passed E2E."
                 echo "available=false" >> "$GITHUB_OUTPUT"
@@ -71,7 +72,7 @@ jobs:
     name: Integration and E2E
     needs: preflight
     if: needs.preflight.outputs.available == 'true'
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 45
     # Job-level so skipped label events never cancel a running suite.
     concurrency:
@@ -96,7 +97,7 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: ${{ env.APP_DIR }}/.node-version
-          cache: ${{ runner.environment == 'github-hosted' && 'pnpm' || '' }}
+          cache: pnpm
           cache-dependency-path: ${{ env.APP_DIR }}/pnpm-lock.yaml
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -104,24 +105,19 @@ jobs:
       - name: Resolve Playwright version
         id: playwright
         run: echo "version=$(pnpm exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
-      # A self-hosted runner keeps these caches on disk between runs.
       - name: Cache Playwright browsers
-        if: runner.environment == 'github-hosted'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
       - name: Cache Convex local backend
-        if: runner.environment == 'github-hosted'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/convex
           key: convex-${{ runner.os }}-${{ hashFiles(format('{0}/pnpm-lock.yaml', env.APP_DIR)) }}
           restore-keys: convex-${{ runner.os }}-
-      # Installing the system libraries needs sudo, which a self-hosted runner may
-      # lack, so its machine has them installed once instead.
       - name: Install Chromium
-        run: pnpm exec playwright install ${{ runner.environment == 'github-hosted' && '--with-deps' || '' }} chromium
+        run: pnpm exec playwright install --with-deps chromium
 
       - name: Write bootstrap credentials
         env:
@@ -164,7 +160,7 @@ jobs:
         if: ${{ always() && steps.bootstrap.outcome == 'success' }}
         run: pnpm clerk:sweep --older-than 0s
 
-      # Print logs into the job output, where GitHub masks secret values; uploaded
+      # Print logs into the job output, where Depot masks secret values; uploaded
       # artifacts are not masked. Playwright traces and screenshots stay off
       # because they would capture Clerk session tokens.
       - name: Show bootstrap logs
@@ -177,9 +173,3 @@ jobs:
           cat "$(git rev-parse --path-format=absolute --git-path bootstrap.log)" || true
           echo "::endgroup::"
 
-      # A self-hosted runner keeps its workspace, so remove this run's checkout,
-      # which holds the credentials file and the local Convex database.
-      - name: Remove run checkout
-        if: ${{ always() && runner.environment == 'self-hosted' }}
-        working-directory: ${{ github.workspace }}
-        run: rm -rf "$APP_DIR"
