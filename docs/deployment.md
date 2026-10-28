@@ -210,10 +210,11 @@ or on GitHub's `ubuntu-latest` when it is unset. A self-hosted runner uses no
 Actions minutes. Its jobs run as the runner's user and can read that user's
 files, so register one only for private repositories whose pull requests come
 from you and your agents. The machine needs Chromium's system libraries
-installed beforehand, because installing them takes sudo. Jobs there use the
-machine's own pnpm store and Playwright browsers instead of GitHub's cache, and
-the E2E job removes its checkout, credentials file and local database when it
-ends.
+installed beforehand, because installing them takes sudo. The runner service's
+`PATH` must include `gh`, because the nightly preflight calls `gh run list`.
+Jobs there use the machine's own pnpm store and Playwright browsers instead of
+GitHub's cache, and the E2E job removes its checkout, credentials file and local
+database when it ends.
 
 Require the checks in a GitHub branch ruleset for `main` if merges should be
 blocked on failures. Vercel independently runs `pnpm test:app` and `pnpm lint`
