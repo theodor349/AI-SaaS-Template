@@ -16,14 +16,14 @@ import { captureEvidence } from "./evidence.mjs";
 const { createClerkClient } = createRequire(import.meta.url)("@clerk/nextjs/server");
 const local = resolveLocalTestConfig();
 
-for (const width of [1280, 390]) {
-  test(`public plans lead to signup with the selected plan at ${width}px`, { tag: width === 1280 ? "@critical" : [] }, async ({ page }) => {
-    await setupClerkTestingToken({ page });
-    await page.setViewportSize({ width, height: 900 });
-    const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL);
-    const products = await client.query(api.billing.catalog.products, {});
-    expect(products).toHaveLength(3);
+test("public plans lead to signup with the selected plan at 1280px and 390px", { tag: "@critical" }, async ({ page }) => {
+  await setupClerkTestingToken({ page });
+  const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL);
+  const products = await client.query(api.billing.catalog.products, {});
+  expect(products).toHaveLength(3);
 
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 });
     await page.goto("/");
     await expect(page.getByRole("heading", { name: `${appConfig.tagline}.` })).toBeVisible();
     await expect(page.getByRole("link", { name: "Choose monthly" })).toBeVisible();
@@ -39,8 +39,8 @@ for (const width of [1280, 390]) {
       await expect(page).toHaveURL(new RegExp(`/sign-up\\?redirect_url=${encodeURIComponent(`/checkout?plan=${product.model}`)}$`));
       await expect(page.getByRole("heading", { name: "Create your account" })).toBeVisible();
     }
-  });
-}
+  }
+});
 
 test("checkout shows progress after sign-in and for signed-in users, with explicit retries", async ({ page }) => {
   const user = await createClerkTestUser(local);

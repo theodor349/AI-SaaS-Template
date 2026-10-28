@@ -7,18 +7,19 @@ import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 const local = resolveLocalTestConfig();
 const authenticatedDestination = resolveAuthenticatedDestination(local.env.NEXT_PUBLIC_AUTHENTICATED_DESTINATION);
 
-for (const width of [1280, 390]) {
-  test(`profile navigation, public policies, and sign-out work at ${width}px`, async ({ page }) => {
-    const user = await createClerkTestUser(local);
-    try {
+test("profile navigation, public policies, and sign-out work at 1280px and 390px", async ({ page }) => {
+  const user = await createClerkTestUser(local);
+  try {
+    await page.goto("/");
+    await clerk.signIn({ page, emailAddress: user.email });
+    const trigger = page.getByRole("button", { name: "Open profile menu" });
+    const menu = page.getByRole("menu");
+    const dialog = page.getByRole("dialog", { name: "Cookie Preferences" });
+    for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 900 });
-      await page.goto("/");
-      await clerk.signIn({ page, emailAddress: user.email });
       await page.goto("/account");
-      const trigger = page.getByRole("button", { name: "Open profile menu" });
       await expect(trigger).toBeVisible();
       await trigger.click();
-      const menu = page.getByRole("menu");
       await expect(menu).toBeVisible();
       await expect(menu.getByText(user.email, { exact: true })).toBeVisible();
       const bounds = await menu.boundingBox();
@@ -59,7 +60,6 @@ for (const width of [1280, 390]) {
       await page.goto("/billing");
       await trigger.click();
       await page.getByRole("menuitem", { name: "Cookie Preferences" }).click();
-      const dialog = page.getByRole("dialog", { name: "Cookie Preferences" });
       await expect(dialog).toBeVisible();
       await expect(dialog.getByRole("switch", { name: "Essential" })).toBeChecked();
       await expect(dialog.getByRole("switch", { name: "Essential" })).toBeDisabled();
@@ -72,10 +72,15 @@ for (const width of [1280, 390]) {
         await page.getByRole("menuitem", { name: label, exact: true }).click();
         await expect(page.getByRole("heading", { name: label, exact: true })).toBeVisible();
       }
-      await trigger.click();
-      await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
-      await expect(page).toHaveURL(`${local.config.env.APP_URL}/`);
-      await expect(trigger).toHaveCount(0);
+    }
+
+    // Signing out ends the session, so it runs once, at the last width.
+    await trigger.click();
+    await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
+    await expect(page).toHaveURL(`${local.config.env.APP_URL}/`);
+    await expect(trigger).toHaveCount(0);
+    for (const width of [390, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
       for (const [path, heading] of [["/privacy", "Privacy Policy"], ["/terms", "Terms of Service"], ["/cookies", "Cookie Policy"]]) {
         await page.goto(path);
         await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
@@ -86,11 +91,11 @@ for (const width of [1280, 390]) {
       await expect(dialog).toBeVisible();
       await dialog.getByRole("button", { name: "Save preferences", exact: true }).click();
       await expect(cookieButton).toBeFocused();
-    } finally {
-      await user.cleanup();
     }
-  });
-}
+  } finally {
+    await user.cleanup();
+  }
+});
 
 test("failed Convex authentication keeps Dashboard reachable without exposing protected content", async ({ page }) => {
   const user = await createClerkTestUser(local);

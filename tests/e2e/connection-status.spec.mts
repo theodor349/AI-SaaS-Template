@@ -18,11 +18,11 @@ async function openConnected(page: Page) {
   await expect(page.getByRole("link", { name: "Choose monthly" })).toBeVisible();
 }
 
-for (const width of [1280, 390]) {
-  test(`going offline shows the indicator after a grace period and reconnecting hides it at ${width}px`, async ({ page, context }) => {
+test("going offline shows the indicator after a grace period and reconnecting hides it at 1280px and 390px", async ({ page, context }) => {
+  await openConnected(page);
+  const heading = page.getByRole("heading", { name: `${appConfig.tagline}.` });
+  for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    await openConnected(page);
-    const heading = page.getByRole("heading", { name: `${appConfig.tagline}.` });
     const before = await heading.boundingBox();
 
     const wentOffline = Date.now();
@@ -41,24 +41,24 @@ for (const width of [1280, 390]) {
     await context.setOffline(false);
     await expect(indicator(page)).toHaveCount(0);
     await expect(page.getByRole("status").filter({ hasText: "Back online" })).toHaveCount(1);
-  });
-}
+  }
+});
 
-for (const width of [1280, 390]) {
-  test(`the indicator shows and is announced above an open dialog at ${width}px`, async ({ page, context }) => {
+test("the indicator shows and is announced above an open dialog at 1280px and 390px", async ({ page, context }) => {
+  await page.goto("/cookies");
+  await page.getByRole("button", { name: "Cookie Preferences" }).click();
+  await expect(page.getByRole("dialog", { name: "Cookie Preferences" })).toBeVisible();
+  // Hit testing skips elements with `pointer-events: none`, so let the indicator take
+  // hits to find out what is drawn on top at its center.
+  await page.addStyleTag({ content: "[role=status] p { pointer-events: auto !important; }" });
+
+  for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 844 });
-    await page.goto("/cookies");
-    await page.getByRole("button", { name: "Cookie Preferences" }).click();
-    await expect(page.getByRole("dialog", { name: "Cookie Preferences" })).toBeVisible();
-
     await context.setOffline(true);
     const shown = page.getByText("Offline…");
     await expect(shown).toBeVisible();
     await captureEvidence(page, `offline-dialog-${width}`);
 
-    // Hit testing skips elements with `pointer-events: none`, so let the indicator take
-    // hits to find out what is drawn on top at its center.
-    await page.addStyleTag({ content: "[role=status] p { pointer-events: auto !important; }" });
     const box = (await shown.boundingBox())!;
     const onTop = await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest("[role=status]"),
       [box.x + box.width / 2, box.y + box.height / 2]);
@@ -68,21 +68,28 @@ for (const width of [1280, 390]) {
     // indicator must stay in the accessibility tree to be announced.
     await expect(indicator(page)).toHaveText("Offline…");
     await context.setOffline(false);
+    await expect(indicator(page)).toHaveCount(0);
     await expect(page.getByRole("status").filter({ hasText: "Back online" })).toHaveCount(1);
-  });
-}
+  }
+});
 
 test("a disconnect shorter than the grace period shows nothing", async ({ page, context }) => {
+  // The fake clock runs the grace period without waiting it out.
+  await page.clock.install();
   await openConnected(page);
   await page.evaluate(() => {
     new MutationObserver(() => {
       if (/Offline…|Reconnecting…/.test(document.body.innerText)) window.indicatorAppeared = true;
     }).observe(document.body, { childList: true, subtree: true, characterData: true });
   });
+  // Advance the clock only once the page has seen each change.
+  const online = () => page.evaluate(() => navigator.onLine);
   await context.setOffline(true);
-  await page.waitForTimeout(GRACE_MS / 2);
+  await expect.poll(online).toBe(false);
+  await page.clock.runFor(GRACE_MS / 2);
   await context.setOffline(false);
-  await page.waitForTimeout(GRACE_MS * 1.5);
+  await expect.poll(online).toBe(true);
+  await page.clock.runFor(GRACE_MS * 1.5);
   expect(await page.evaluate(() => window.indicatorAppeared)).toBeUndefined();
 });
 

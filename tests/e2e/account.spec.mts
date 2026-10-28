@@ -19,6 +19,7 @@ test("unpaid owners edit profiles, preserve drafts, request deletion and recover
   const bob = await createClerkTestUser(local);
   const otherContext = await browser.newContext({ baseURL: local.config.env.APP_URL });
   try {
+    const sync = await interceptConvexSync(page);
     const other = await otherContext.newPage();
     for (const [target, user] of [[page, alice], [other, bob]] as const) {
       await target.goto("/"); await clerk.signIn({ page: target, emailAddress: user.email });
@@ -26,13 +27,22 @@ test("unpaid owners edit profiles, preserve drafts, request deletion and recover
       await expect(target.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
       await expect(target.getByRole("button", { name: "Open profile menu" })).toBeVisible();
     }
+    const email = page.getByLabel("Email", { exact: true });
+    await expect(email).toHaveValue(alice.email);
+    await expect(email).toBeDisabled();
     await expect(page.getByLabel("Display name", { exact: true })).toHaveValue(alice.name);
     await page.getByLabel("Display name", { exact: true }).fill("  Local name  ");
+    // Saving shows a disabled pending button until the backend answers.
+    sync.holdResponses();
     await page.getByRole("button", { name: "Save profile" }).click();
+    await expect(page.getByRole("button", { name: "Saving...", exact: true })).toBeDisabled();
+    sync.releaseResponses();
     await expect(page.getByRole("button", { name: "Save profile" })).toBeEnabled();
     await expect(page.getByLabel("Display name", { exact: true })).toHaveValue("Local name");
     await page.reload();
     await expect(page.getByLabel("Display name", { exact: true })).toHaveValue("Local name");
+    await expect(email).toHaveValue(alice.email);
+    await expect(email).toBeDisabled();
     await page.getByRole("button", { name: "Open profile menu" }).click();
     await expect(page.getByRole("menu").getByText("Local name", { exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
