@@ -1,10 +1,13 @@
 /* Fixed below the desktop navigation bar (site-navigation.module.css) and at the top on
-   mobile, where the navigation sits at the bottom. Clicks pass through to the page. */
+   mobile, where the navigation sits at the bottom. Clicks pass through to the page.
+   Drawn above every overlay that can open over it: dialogs, alert dialogs, popovers,
+   dropdown menus, tooltips (all z-index 50) and the navigation bar (40). Sonner's
+   toasts (999999999) stay above it. */
 .region {
   position: fixed;
   top: calc(81px + 12px);
   right: calc(16px + env(safe-area-inset-right));
-  z-index: 45;
+  z-index: 60;
   pointer-events: none;
 }
 .indicator {

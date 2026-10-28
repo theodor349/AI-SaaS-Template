@@ -44,6 +44,34 @@ for (const width of [1280, 390]) {
   });
 }
 
+for (const width of [1280, 390]) {
+  test(`the indicator shows and is announced above an open dialog at ${width}px`, async ({ page, context }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto("/cookies");
+    await page.getByRole("button", { name: "Cookie Preferences" }).click();
+    await expect(page.getByRole("dialog", { name: "Cookie Preferences" })).toBeVisible();
+
+    await context.setOffline(true);
+    const shown = page.getByText("Offline…");
+    await expect(shown).toBeVisible();
+    await captureEvidence(page, `offline-dialog-${width}`);
+
+    // Hit testing skips elements with `pointer-events: none`, so let the indicator take
+    // hits to find out what is drawn on top at its center.
+    await page.addStyleTag({ content: "[role=status] p { pointer-events: auto !important; }" });
+    const box = (await shown.boundingBox())!;
+    const onTop = await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest("[role=status]"),
+      [box.x + box.width / 2, box.y + box.height / 2]);
+    expect(onTop).toBe(true);
+
+    // The modal dialog hides the rest of the page from assistive technology; the
+    // indicator must stay in the accessibility tree to be announced.
+    await expect(indicator(page)).toHaveText("Offline…");
+    await context.setOffline(false);
+    await expect(page.getByRole("status").filter({ hasText: "Back online" })).toHaveCount(1);
+  });
+}
+
 test("a disconnect shorter than the grace period shows nothing", async ({ page, context }) => {
   await openConnected(page);
   await page.evaluate(() => {
