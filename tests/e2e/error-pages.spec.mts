@@ -1,6 +1,7 @@
 import { clerk } from "@clerk/testing/playwright";
 import { expect, test, type BrowserContext } from "@playwright/test";
 import { appConfig } from "../../app.config";
+import { resolveAuthenticatedDestination } from "../../lib/auth";
 import { E2E_CRASH_COOKIE } from "../../lib/e2e-crash";
 import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
@@ -8,6 +9,7 @@ import { captureEvidence } from "./evidence.mjs";
 
 const local = resolveLocalTestConfig();
 const appUrl = local.config.env.APP_URL;
+const authenticatedDestination = resolveAuthenticatedDestination(local.env.NEXT_PUBLIC_AUTHENTICATED_DESTINATION);
 
 declare global {
   interface Window { illustrationAnimationStarts?: number }
@@ -47,7 +49,7 @@ test("the 404 page sends signed-in visitors to their dashboard", async ({ page }
     await page.locator("section > svg").evaluate((svg) => Promise.all(svg.getAnimations({ subtree: true }).map((a) => a.finished)));
     expect(await page.evaluate(() => window.illustrationAnimationStarts)).toBe(1);
     await dashboard.click();
-    await expect(page).toHaveURL(/\/app$/);
+    await expect(page).toHaveURL(`${appUrl}${authenticatedDestination}`);
   } finally {
     await user.cleanup();
   }

@@ -7,6 +7,7 @@ import { api, internal } from "../../convex/_generated/api";
 import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
 import { billingTestAdmin, leaseBillingFixture, publishBillingSnapshot, seedPaidTestUser } from "../../scripts/billing-test-fixtures.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
+import { resolveAuthenticatedDestination } from "../../lib/auth";
 import { adminQuery, adminMutation } from "../../scripts/billing-test-admin";
 import { waitOutRateLimit } from "../../scripts/rate-limit-retry.mjs";
 import { testExternalCustomerId } from "../../scripts/test-identity.mjs";
@@ -15,6 +16,7 @@ import { interceptConvexSync } from "./convex-sync.mjs";
 import { captureEvidence } from "./evidence.mjs";
 
 const local = resolveLocalTestConfig();
+const authenticatedDestination = resolveAuthenticatedDestination(local.env.NEXT_PUBLIC_AUTHENTICATED_DESTINATION);
 
 test("selected plan opens checkout once after authentication; success URL alone cannot grant access", async ({ page }) => {
   const user = await createClerkTestUser(local);
@@ -52,7 +54,7 @@ test("selected plan opens checkout once after authentication; success URL alone 
     // The trusted billing publication alone, not the success URL, confirms access,
     // and then opens the product.
     await seedPaidTestUser(user);
-    await expect(page).toHaveURL(`${local.config.env.APP_URL}/app`);
+    await expect(page).toHaveURL(`${local.config.env.APP_URL}${authenticatedDestination}`);
     await expect(page.getByRole("heading", { name: "Notes", exact: true })).toBeVisible();
     await page.goto("/billing");
     await expect(page.getByText("You have lifetime access.")).toBeVisible();
@@ -232,15 +234,21 @@ test("a 100% discount code on the lifetime product grants lifetime Pro through s
   try {
     await page.goto("/billing"); await clerk.signIn({ page, emailAddress: user.email });
     await openSandboxCheckout(page, sync, "Get lifetime");
-    // Polar's button ignores clicks until its page has hydrated.
+    // Polar's page ignores clicks until it has hydrated and can re-render the code
+    // field empty after a fill. "Add discount code" disappears once the field opens,
+    // and "Apply" shows only while the field has text, so retry each step from
+    // what is on the page until the free total appears.
     const codeField = page.getByRole("textbox", { name: "Discount code" });
+    const getForFree = page.getByRole("button", { name: "Get for free" });
     await expect(async () => {
-      await page.getByRole("button", { name: "Add discount code" }).click();
-      await expect(codeField).toBeVisible({ timeout: 1000 });
+      if (await getForFree.isHidden()) {
+        if (await codeField.isHidden()) await page.getByRole("button", { name: "Add discount code" }).click({ timeout: 1000 });
+        await codeField.fill(code, { timeout: 1000 });
+        await page.getByRole("button", { name: "Apply" }).click({ timeout: 1000 });
+      }
+      await expect(getForFree).toBeVisible({ timeout: 5000 });
     }).toPass();
-    await codeField.fill(code);
-    await page.getByRole("button", { name: "Apply" }).click();
-    await page.getByRole("button", { name: "Get for free" }).click();
+    await getForFree.click();
     await page.waitForURL(url => url.href.startsWith(`${local.config.env.APP_URL}/billing?confirmation=lifetime`));
     // Webhook forwarding may be off, so ask for reconciliation as the billing page's recovery does.
     await page.waitForFunction(() => !!window.Clerk?.session);
@@ -248,7 +256,7 @@ test("a 100% discount code on the lifetime product grants lifetime Pro through s
     const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
     client.setAuth(token!);
     await waitOutRateLimit(() => client.action(api.billing.polar.recover, {}));
-    await expect(page).toHaveURL(`${local.config.env.APP_URL}/app`);
+    await expect(page).toHaveURL(`${local.config.env.APP_URL}${authenticatedDestination}`);
     await page.goto("/billing");
     await expect(page.getByText("You have lifetime access.")).toBeVisible();
   } finally {
