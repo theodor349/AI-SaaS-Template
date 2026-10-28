@@ -1,9 +1,11 @@
 import { clerk } from "@clerk/testing/playwright";
 import { expect, test } from "@playwright/test";
+import { resolveAuthenticatedDestination } from "../../lib/auth";
 import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 
 const local = resolveLocalTestConfig();
+const authenticatedDestination = resolveAuthenticatedDestination(local.env.NEXT_PUBLIC_AUTHENTICATED_DESTINATION);
 
 for (const width of [1280, 390]) {
   test(`profile navigation, public policies, and sign-out work at ${width}px`, async ({ page }) => {
@@ -49,9 +51,9 @@ for (const width of [1280, 390]) {
       await page.goBack();
       await expect(menu).toHaveCount(0);
       await expect(page).toHaveURL(/\/account$/);
-      // An unpaid user passes through /app on the way to /billing, often faster than
-      // toHaveURL polls, so wait for the navigation event instead.
-      const dashboard = page.waitForURL(/\/app$/);
+      // An unpaid user can pass through the dashboard on the way to /billing, often
+      // faster than toHaveURL polls, so wait for the navigation event instead.
+      const dashboard = page.waitForURL(`${local.config.env.APP_URL}${authenticatedDestination}`);
       await page.getByRole("link", { name: "Dashboard", exact: true }).click();
       await dashboard;
       await page.goto("/billing");
@@ -112,7 +114,7 @@ test("failed Convex authentication keeps Dashboard reachable without exposing pr
     await expect(recovery).toBeVisible();
     await expect(page.getByRole("link", { name: "Dashboard", exact: true })).toBeVisible();
     await page.getByRole("link", { name: "Dashboard", exact: true }).click();
-    await expect(page).toHaveURL(/\/app$/);
+    await expect(page).toHaveURL(`${local.config.env.APP_URL}${authenticatedDestination}`);
     await expect(recovery).toBeVisible();
     await expect(page.getByRole("heading", { name: "Notes", exact: true })).toHaveCount(0);
   } finally {
