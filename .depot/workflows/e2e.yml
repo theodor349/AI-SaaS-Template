@@ -26,7 +26,7 @@ jobs:
     runs-on: depot-ubuntu-24.04
     timeout-minutes: 2
     permissions:
-      actions: read
+      checks: read
     outputs:
       available: ${{ steps.check.outputs.available }}
     steps:
@@ -50,9 +50,10 @@ jobs:
           done
           if [ ${#missing[@]} -eq 0 ]; then
             # The nightly run skips a main commit that an earlier run already passed.
+            # Depot reports each job to GitHub as a check run named "<workflow> / <job>".
             if [ "$GITHUB_EVENT_NAME" = schedule ]; then
-              passed=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow e2e.yml --commit "$GITHUB_SHA" \
-                --status success --json databaseId --jq length)
+              passed=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?check_name=E2E%20%2F%20Integration%20and%20E2E" \
+                --jq '[.check_runs[] | select(.conclusion == "success")] | length')
               if [ "$passed" -gt 0 ]; then
                 echo "::notice title=E2E skipped::$GITHUB_SHA already passed E2E."
                 echo "available=false" >> "$GITHUB_OUTPUT"
@@ -159,7 +160,7 @@ jobs:
         if: ${{ always() && steps.bootstrap.outcome == 'success' }}
         run: pnpm clerk:sweep --older-than 0s
 
-      # Print logs into the job output, where GitHub masks secret values; uploaded
+      # Print logs into the job output, where Depot masks secret values; uploaded
       # artifacts are not masked. Playwright traces and screenshots stay off
       # because they would capture Clerk session tokens.
       - name: Show bootstrap logs

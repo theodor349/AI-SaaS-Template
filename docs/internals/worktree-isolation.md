@@ -1,6 +1,6 @@
 # Worktree isolation
 
-Each worktree gets its own ports, Convex database, and generated environment files, but the hosted providers are shared. Isolation in those providers comes from the worktree's `WORKTREE_ID`, which [bootstrap](../../scripts/bootstrap.mjs) derives from the checkout path. Two checkouts at the same path get the same ID, which is why the [E2E workflow](../../.github/workflows/e2e.yml) checks out into a per-run directory.
+Each worktree gets its own ports, Convex database, and generated environment files, but the hosted providers are shared. Isolation in those providers comes from the worktree's `WORKTREE_ID`, which [bootstrap](../../scripts/bootstrap.mjs) derives from the checkout path. Two checkouts at the same path get the same ID, which is why the [E2E workflow](../../.depot/workflows/e2e.yml) checks out into a per-run directory.
 
 **Polar events reach every listener.** All worktrees, CI runs, and the hosted deployment use one Polar sandbox organization, and each `polar listen` receives that organization's events. A delivery reaching a handler says nothing about whose customer it is. Handlers must treat a resource as their own only when its external ID or metadata carries this `WORKTREE_ID` ([webhook association](../../convex/billing/polarWebhook.ts), [reconciliation](../../convex/billing/polar.ts)). Any new Polar resource the app creates needs the same tag. Polar's CLI also shares one delivery log across listeners, so `pnpm polar:trigger` can report another worktree's destination; check delivery at the handler.
 

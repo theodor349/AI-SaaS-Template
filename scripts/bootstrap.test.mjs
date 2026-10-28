@@ -133,10 +133,25 @@ test("an occupied port fails instead of choosing a different worktree URL", asyn
   }
 });
 
+// Some CI sandboxes, such as Depot's, have no IPv6 and refuse to listen on "::".
+async function ipv6Available() {
+  const server = createServer();
+  try {
+    server.listen(0, "::");
+    await once(server, "listening");
+  } catch {
+    return false;
+  }
+  server.close();
+  await once(server, "close");
+  return true;
+}
+
 test("wildcard listeners are rejected on every service port", async (t) => {
+  const ipv6 = await ipv6Available();
   for (const host of ["0.0.0.0", "::"]) {
     for (const service of ["next", "convex", "site"]) {
-      await t.test(`${service} on ${host}`, async () => {
+      await t.test(`${service} on ${host}`, { skip: host === "::" && !ipv6 && "IPv6 is unavailable" }, async () => {
         const server = createServer((socket) => socket.end());
         server.listen(0, host);
         await once(server, "listening");

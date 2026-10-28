@@ -54,7 +54,7 @@ Leave `ALLOW_SEARCH_INDEXING` unset. Without it, `robots.txt` disallows every
 page, so search engines skip this shared development deployment and worktrees.
 Do not set `CONVEX_DEPLOYMENT` or copy a worktree's `.env.local` into Vercel.
 `convex deploy` supplies `NEXT_PUBLIC_CONVEX_URL` to the Next.js build. Backend
-secrets belong on Convex, not in browser variables or GitHub Actions; only the
+secrets belong on Convex, not in browser variables or Depot CI; only the
 E2E workflow below holds development credentials there.
 
 `pnpm build:vercel` runs application unit tests and lint before invoking
@@ -170,27 +170,28 @@ deployment to match.
 
 ## Checks and launch
 
-GitHub Actions runs `Lint and typecheck`, `Unit tests`, and `Next.js build` as
-steps of one `Checks` job on every pull request, regardless of source or target
-branch. It does not run again after a merge: complete-worktree merges a pull
+[Depot CI](https://depot.dev/docs/ci/overview) runs the workflows in
+[`.depot/workflows`](../.depot/workflows). The [CI workflow](../.depot/workflows/ci.yml)
+runs `Lint and typecheck`, `Unit tests`, and `Next.js build` as steps of one
+`Checks` job on every pull request, regardless of source or target branch. It does not run again after a merge: complete-worktree merges a pull
 request only once it contains the latest `main`, so the merge commit holds the
 tree CI already checked. There are no preview deployments, so `Next.js build` is
 what catches a broken production build before Vercel does. It runs `next build`
 with fake, well-formed placeholders for the browser variables read while building
 and prerendering; the checks need no hosted credentials. Each step runs even when
 an earlier one fails, so each reports its failures, and new pushes cancel outdated
-runs. The checks share a job because GitHub bills every job rounded up to a whole
-minute and each job installs dependencies again. Integration and browser tests
-need bootstrap services and run in the E2E workflow below.
+runs. The checks share a job so dependencies install once. Integration and
+browser tests need bootstrap services and run in the E2E workflow below.
 
-The separate [E2E workflow](../.github/workflows/e2e.yml) runs `pnpm test:integration`
+The separate [E2E workflow](../.depot/workflows/e2e.yml) runs `pnpm test:integration`
 and `pnpm test:e2e` against a local bootstrap stack. It runs nightly on `main`,
 on manual dispatch, and on pull requests labeled `run-e2e`; the label keeps it from
 spending the Clerk and Polar rate limits that local agents share. The nightly run
-skips a commit that already passed, and GitHub emails its failures to whoever
-last changed the schedule in the workflow file. It needs these
-GitHub Actions repository secrets, using the same values as a local
-`.env.bootstrap.local`:
+skips a commit that already passed. A failed nightly run shows as a failed check
+on that `main` commit and in `depot ci run list --status failed`. It needs these
+Depot CI secrets, using the same values as a local `.env.bootstrap.local`. Add
+each one scoped to the repository, piping the value in so it stays out of shell
+history: `printf '%s' "$VALUE" | depot ci secrets add NAME --repo owner/repo`.
 
 | Secret | Value |
 | --- | --- |
@@ -205,20 +206,13 @@ webhooks, and sandbox customers. Without the secrets, as on fork pull requests,
 the workflow reports a notice and skips. Do not make it a required check, since
 unlabeled pull requests never run it.
 
-Both workflows run on the runner label in the `CI_RUNNER` repository variable,
-or on GitHub's `ubuntu-latest` when it is unset. A self-hosted runner uses no
-Actions minutes. Its jobs run as the runner's user and can read that user's
-files, so register one only for private repositories whose pull requests come
-from you and your agents. The machine needs Chromium's system libraries
-installed beforehand, because installing them takes sudo. Jobs there use the
-machine's own pnpm store and Playwright browsers instead of GitHub's cache, and
-the E2E job removes its checkout, credentials file and local database when it
-ends.
-
-Require the checks in a GitHub branch ruleset for `main` if merges should be
-blocked on failures. Vercel independently runs `pnpm test:app` and `pnpm lint`
-before deployment. The dev-server fixtures in `test:bootstrap` run in GitHub
-Actions and locally: Vercel's build worker does not reliably support the
+Jobs run on Depot's `depot-ubuntu-24.04` sandboxes, which are fresh for every
+job and have no IPv6. Depot needs its Code Access GitHub app installed on the
+repository; it reports each job back to GitHub as a check run named
+`<workflow> / <job>`, such as `CI / Checks`. Require `CI / Checks` in a GitHub
+branch ruleset for `main` if merges should be blocked on failures. Vercel independently runs `pnpm test:app` and `pnpm lint`
+before deployment. The dev-server fixtures in `test:bootstrap` run in Depot CI
+and locally: Vercel's build worker does not reliably support the
 fixture's loopback rewrite. Application test or lint failures still stop the
 Vercel build before Convex deployment.
 
