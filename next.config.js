@@ -44,6 +44,13 @@ const nextConfig = {
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
+  // next/og tries an optional import of sharp, so the tracer copies sharp and two
+  // libvips builds, about 40 MB, into every page function. The image routes are
+  // prerendered at build time, and next/og falls back to its bundled WASM renderer
+  // without sharp. Vercel counts every kept deployment's functions toward storage.
+  outputFileTracingExcludes: {
+    "*": ["node_modules/**/sharp", "node_modules/**/sharp/**", "node_modules/**/@img/**"],
+  },
   // Inlined into browser code; read through lib/sentry/options.ts.
   env: {
     NEXT_PUBLIC_SENTRY_DSN: sentryDsn(),
