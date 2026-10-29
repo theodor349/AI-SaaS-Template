@@ -231,6 +231,43 @@ test("killing only the Next listener shuts down Convex, the watcher, and Polar",
   assert.match(wait.output, /failed[\s\S]*Last log lines/);
 });
 
+test("polar listen exiting restarts webhook forwarding, keeps the stack, and reports the gap", { timeout: 20000 }, async (t) => {
+  const fixture = await startFixture(t);
+  const { root, config } = fixture;
+  const polarPid = Number(await readFile(join(root, "polar.pid"), "utf8"));
+  process.kill(polarPid, "SIGKILL");
+  const deadline = Date.now() + 8000;
+  let restarted;
+  while (Date.now() < deadline) {
+    restarted = Number(await readFile(join(root, "polar.pid"), "utf8"));
+    const state = JSON.parse(await readFile(fixture.statePath, "utf8"));
+    // A restarted stand-in truncates polar.pid before writing its PID, so a read can see 0.
+    if (restarted > 0 && restarted !== polarPid && state.polarForwarding?.status === "running") break;
+    await delay(50);
+  }
+  assert.notEqual(restarted, polarPid, fixture.output());
+  assert.equal(fixture.child.exitCode, null, "The supervisor keeps running");
+  const state = JSON.parse(await readFile(fixture.statePath, "utf8"));
+  assert.equal(state.status, "ready");
+  assert.equal(state.polarForwarding.restarts, 1);
+  assert.equal(state.polarForwarding.missed.length, 1);
+  assert.match(state.polarForwarding.missed[0].reason, /^signal SIGKILL/);
+  assert.ok(state.services.some(({ pgid }) => pgid === restarted), "The restarted forwarder is recorded for reclaim");
+  assert.ok(!state.services.some(({ pgid }) => pgid === polarPid), "The exited forwarder is no longer recorded");
+  const status = await control(fixture, ["status"]);
+  assert.match(status.output, /Polar forwarding: restarted once, last after signal SIGKILL[\s\S]*were not forwarded/);
+  const log = await readFile(fixture.logPath, "utf8");
+  assert.match(log, /Polar webhook forwarding stopped \(signal SIGKILL[\s\S]*Polar webhook forwarding restarted\. Webhooks Polar sent from/);
+  assert.doesNotMatch(log + status.output, /whsec_example|sk_test_example|polar_oat_example/);
+  const response = await fetch(config.env.APP_URL);
+  assert.equal(response.status, 200);
+
+  const stop = await control(fixture, ["stop", "--timeout", "10"]);
+  assert.equal(stop.code, 0, `${stop.output}\n${fixture.output()}`);
+  assert.throws(() => process.kill(restarted, 0), { code: "ESRCH" });
+  await assertPortsAvailable(config.ports);
+});
+
 test("bootstrap:stop signals only the verified supervisor and waits for its services", { timeout: 20000 }, async (t) => {
   const fixture = await startFixture(t);
   const polarPid = Number(await readFile(join(fixture.root, "polar.pid"), "utf8"));

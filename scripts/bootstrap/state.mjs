@@ -78,6 +78,25 @@ export function createStateRecorder(file, initial) {
   };
 }
 
+// Explains a gap in Polar webhook forwarding, for the log and pnpm bootstrap:status.
+export function missedWebhooks({ from, to }) {
+  return `Webhooks Polar sent from ${from} to ${to} were not forwarded, and Polar does not resend them. ` +
+    "A signed-in user's billing reconciles with Polar through api.billing.polar.recover.";
+}
+
+// Status lines for the polarForwarding state that bootstrap records after polar listen first exits.
+export function describeForwarding(forwarding) {
+  if (!forwarding) return [];
+  const lines = [];
+  if (forwarding.status === "restarting") lines.push(`Polar forwarding: down since ${forwarding.since} (${forwarding.reason}); restarting.`);
+  const last = forwarding.missed.at(-1);
+  if (last) {
+    const times = forwarding.restarts === 1 ? "once" : `${forwarding.restarts} times`;
+    lines.push(`Polar forwarding: restarted ${times}, last after ${last.reason}. ${missedWebhooks(last)}`);
+  }
+  return lines;
+}
+
 export function openLog(file) {
   // Truncate at each start; an existing log may have been created with a wider mode.
   const descriptor = openSync(file, "w", 0o600);

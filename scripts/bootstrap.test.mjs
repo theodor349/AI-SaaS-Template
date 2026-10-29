@@ -11,6 +11,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { parseEnv } from "node:util";
 import * as bootstrap from "./bootstrap.mjs";
 import { billingEnabled } from "./bootstrap/config.mjs";
+import { createSupervisor, exitReason } from "./bootstrap/processes.mjs";
 import {
   assertPortsAvailable,
   childEnvironment,
@@ -584,4 +585,115 @@ test("an occupied port explains how to choose another port block", async () => {
     server.close();
     await once(server, "close");
   }
+});
+
+// A stand-in named polar, so the supervisor treats its output as Polar's. Each
+// run appends its PID to runs and writes the secret to stderr. Runs listed in
+// failingRuns exit with code 1; the others keep running.
+function polarStandIn(t, { failingRuns }) {
+  const dir = mkdtempSync(join(tmpdir(), "bootstrap supervisor "));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const command = join(dir, "polar");
+  writeFileSync(command, `#!/usr/bin/env node
+    const { appendFileSync, existsSync, readFileSync } = require("node:fs");
+    const runs = ${JSON.stringify(join(dir, "runs"))};
+    appendFileSync(runs, process.pid + "\\n");
+    const run = readFileSync(runs, "utf8").trim().split("\\n").length;
+    console.error("▲ Update available v2.0.1 → v3.0.0\\n  Run polar update to install it");
+    console.error("Signing secret: " + process.env.POLAR_WEBHOOK_SECRET);
+    if (${JSON.stringify(failingRuns)}.includes(run)) {
+      console.error("✖ Event stream error (503)\\n    The Polar API may be having issues, try again shortly.");
+      process.exitCode = 1;
+    } else setInterval(() => {}, 1000);
+  `, { mode: 0o700 });
+  const runs = () => {
+    try { return readFileSync(join(dir, "runs"), "utf8").trim().split("\n").filter(Boolean).map(Number); }
+    catch { return []; }
+  };
+  return { dir, command, runs };
+}
+
+// Stops the supervisor after the test even when an assertion fails, so no
+// stand-in outlives it and keeps the test process running.
+function testSupervisor(t, dir) {
+  const controller = new AbortController();
+  const env = { ...process.env, POLAR_WEBHOOK_SECRET: "whsec_supervisor_example" };
+  const supervisor = createSupervisor({ root: dir, env, controller, log: null });
+  let stopped;
+  const stop = () => (stopped ??= supervisor.stop());
+  t.after(stop);
+  return { controller, supervisor, stop };
+}
+
+async function waitForRuns(polar, count) {
+  const deadline = Date.now() + 5000;
+  while (polar.runs().length < count && Date.now() < deadline) await delay(25);
+  return polar.runs();
+}
+
+test("a kept service that exits is restarted without stopping the stack, and its stderr explains why", { timeout: 10000 }, async (t) => {
+  const polar = polarStandIn(t, { failingRuns: [1] });
+  const { controller, supervisor, stop } = testSupervisor(t, polar.dir);
+  const exits = [];
+  let restarted;
+  const restart = new Promise((resolveRestart) => { restarted = resolveRestart; });
+  const kept = supervisor.keep(polar.command, ["listen"], {
+    delaysMs: [100],
+    onExit: (exit, delayMs) => { exits.push({ reason: exitReason(exit), delayMs }); },
+    onRestart: async () => restarted(await supervisor.recordServiceGroups()),
+  });
+  const groups = await restart;
+  assert.equal(controller.signal.aborted, false);
+  assert.deepEqual(exits, [{
+    reason: "exit 1: ✖ Event stream error (503) The Polar API may be having issues, try again shortly.",
+    delayMs: 100,
+  }]);
+  // The restarted stand-in records its PID once Node has started it.
+  const [first, second] = await waitForRuns(polar, 2);
+  assert.deepEqual(groups.map(({ pgid }) => pgid), [second], "Only the running restart is recorded");
+  assert.throws(() => process.kill(first, 0), { code: "ESRCH" });
+  await stop();
+  await kept;
+  assert.throws(() => process.kill(second, 0), { code: "ESRCH" });
+  assert.equal(polar.runs().length, 2);
+});
+
+// Records the restart delays of a stand-in that fails its first five runs.
+async function restartDelays(t, stableMs) {
+  const polar = polarStandIn(t, { failingRuns: [1, 2, 3, 4, 5] });
+  const { supervisor, stop } = testSupervisor(t, polar.dir);
+  const delays = [];
+  let errors = "";
+  const kept = supervisor.keep(polar.command, ["listen"], {
+    delaysMs: [10, 20, 30], stableMs,
+    onExit: (exit, delayMs) => {
+      delays.push(delayMs);
+      errors = exit.errors;
+    },
+  });
+  await waitForRuns(polar, 6);
+  await stop();
+  await kept;
+  return { delays, errors };
+}
+
+test("a kept service's restart delay grows with each quick exit and resets after a stable run", { timeout: 10000 }, async (t) => {
+  const quick = await restartDelays(t, 60_000);
+  assert.deepEqual(quick.delays, [10, 20, 30, 30, 30]);
+  // Lines before the error can hold Polar's secret; it never leaves the supervisor.
+  assert.match(quick.errors, /Signing secret: \[redacted\]/);
+  assert.doesNotMatch(quick.errors, /whsec_supervisor_example|Update available|polar update/);
+  assert.deepEqual((await restartDelays(t, 0)).delays, [10, 10, 10, 10, 10]);
+});
+
+test("stopping during a kept service's restart delay starts nothing more", { timeout: 10000 }, async (t) => {
+  const polar = polarStandIn(t, { failingRuns: [1] });
+  const { supervisor, stop } = testSupervisor(t, polar.dir);
+  let exited;
+  const exit = new Promise((resolveExit) => { exited = resolveExit; });
+  const kept = supervisor.keep(polar.command, ["listen"], { delaysMs: [5000], onExit: () => exited() });
+  await exit;
+  await stop();
+  await kept;
+  assert.equal(polar.runs().length, 1);
 });

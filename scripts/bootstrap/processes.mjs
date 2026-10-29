@@ -190,25 +190,45 @@ function writeIfOpen(stream, text) {
   if (stream && !stream.destroyed && stream.writable) stream.write(text);
 }
 
+// Replaces the values of secret-looking environment variables, which env may
+// gain after a service starts, such as POLAR_WEBHOOK_SECRET.
+export function redactSecrets(text, env) {
+  return Object.entries(env)
+    .filter(([key, value]) => /SECRET|TOKEN|KEY/.test(key) && typeof value === "string" && value.length >= 8)
+    .reduce((result, [, value]) => result.replaceAll(value, "[redacted]"), text);
+}
+
+// Describes a service exit for the log: its exit code or signal and the last
+// lines it wrote to stderr.
+export function exitReason({ code, signal, error, errors = "" }) {
+  const how = error ? `could not start: ${error.message}` : signal ? `signal ${signal}` : `exit ${code}`;
+  const lastLines = stripVTControlCharacters(errors).split("\n").map((line) => line.trim()).filter(Boolean).slice(-2).join(" ");
+  return lastLines ? `${how}: ${lastLines}` : how;
+}
+
 // Runs every service in its own process group so shutdown can reach detached
-// grandchildren. A persistent service exiting aborts the whole stack.
+// grandchildren. A persistent service exiting aborts the whole stack, unless it
+// was started with keep().
 export function createSupervisor({ root, env, controller, log }) {
   const children = [];
   const supervision = [];
   let serviceGroups = [];
   let stopping = false;
 
-  function start(command, args, { persistent = false, capture = false, terminal = true, onOutput } = {}) {
+  function start(command, args, { persistent = false, restarts = false, capture = false, terminal = true, onOutput } = {}) {
     controller.signal.throwIfAborted();
-    // Polar prints its signing secret during startup. Capture only --print-secret;
-    // discard other Polar output, including stderr, to keep credentials private.
+    // Polar prints its signing secret during startup. Capture only --print-secret
+    // and discard its other stdout. Keep the end of its stderr, with secrets
+    // redacted, so exitReason() can say why it stopped.
     const quiet = basename(command) === "polar";
     const child = spawn(command, args, {
       cwd: root, env, detached: true,
-      stdio: ["ignore", quiet && !capture ? "ignore" : "pipe", quiet ? "ignore" : "pipe"],
+      stdio: ["ignore", quiet && !capture ? "ignore" : "pipe", "pipe"],
     });
     let output = "";
+    let errors = "";
     if (capture) child.stdout.setEncoding("utf8").on("data", (chunk) => { output += chunk; });
+    if (quiet) child.stderr.setEncoding("utf8").on("data", (chunk) => { errors = (errors + chunk).slice(-4000); });
     if (!quiet) {
       // Tee to the terminal and the worktree log; keep logs free of colour codes.
       const streams = [...capture ? [] : [[child.stdout, process.stdout]], [child.stderr, process.stderr]];
@@ -228,11 +248,13 @@ export function createSupervisor({ root, env, controller, log }) {
       child.stderr?.destroy();
     }, 2000).unref());
     const done = new Promise((resolveChild) => {
-      child.once("error", (error) => resolveChild({ error, output }));
-      child.once("close", (code, signal) => resolveChild({ code, signal, output }));
+      // The CLI's update notice says nothing about why it stopped.
+      const redacted = () => redactSecrets(errors, env).replace(/^.*(Update available|Run polar update).*$/gm, "");
+      child.once("error", (error) => resolveChild({ error, output, errors: redacted() }));
+      child.once("close", (code, signal) => resolveChild({ code, signal, output, errors: redacted() }));
     });
     children.push({ child, done, persistent });
-    if (persistent) {
+    if (persistent && !restarts) {
       void done.then(() => {
         if (!stopping) controller.abort(new Error(`${basename(command)} ${args.slice(0, 2).join(" ")} exited unexpectedly.`));
       });
@@ -251,9 +273,38 @@ export function createSupervisor({ root, env, controller, log }) {
     return result.output;
   }
 
+  // Keeps a service running, restarting it after each exit instead of stopping
+  // the stack. The delay before a restart grows with each exit that comes less
+  // than stableMs after its start. onExit(exit, delayMs) runs before the delay
+  // and onRestart() after the next start; an error from either stops the stack.
+  // Shutdown ends the loop.
+  async function keep(command, args, { onExit, onRestart, delaysMs = [1000, 5000, 15000, 30000], stableMs = 60_000, ...options } = {}) {
+    let quickExits = 0;
+    try {
+      for (let restart = false; ; restart = true) {
+        const startedAt = Date.now();
+        const done = start(command, args, { ...options, persistent: true, restarts: true });
+        if (restart) await onRestart?.();
+        const exit = await done;
+        if (stopping || controller.signal.aborted) return;
+        // An exited group is no longer ours to signal, and its ID may be reused.
+        const [{ child }] = children.splice(children.findIndex((entry) => entry.done === done), 1);
+        serviceGroups = serviceGroups.filter((group) => group !== child.pid);
+        quickExits = Date.now() - startedAt < stableMs ? quickExits + 1 : 1;
+        const delayMs = delaysMs[Math.min(quickExits, delaysMs.length) - 1];
+        await onExit?.(exit, delayMs);
+        await delay(delayMs, undefined, { signal: controller.signal }).catch(() => {});
+        if (stopping || controller.signal.aborted) return;
+      }
+    } catch (error) {
+      if (!stopping && !controller.signal.aborted) controller.abort(error);
+    }
+  }
+
   return {
     start,
     run,
+    keep,
     supervise(task) { supervision.push(task); },
     // Record groups while services are healthy; a crashed parent hides its descendants later.
     // Returns them with their members for the state file, which outlives a killed supervisor.
