@@ -73,12 +73,12 @@ export function classifyChecks({ checkRuns = [], statuses = [], required = { kno
   for (const check of checks) check.required = requiredNames ? requiredNames.has(check.name) : true;
   const missing = requiredNames ? [...requiredNames].filter((name) => !checks.some((check) => check.name === name)) : [];
   for (const name of missing) checks.push({ name, kind: "missing", state: "pending", required: true, detail: "required check not reported yet" });
-  const count = (state, onlyRequired) => checks.filter((check) => check.state === state && (!onlyRequired || check.required)).length;
+  const count = (state) => checks.filter((check) => check.state === state).length;
   return {
     checks,
     requiredSource: requiredNames ? "repository rules" : required.known ? "none configured; treating all checks as required" : `unavailable (${required.reason ?? "no access"}); treating all checks as required`,
     passed: count("passed"), skipped: count("skipped"), failed: count("failed"),
-    pending: count("pending"), requiredPending: count("pending", true),
+    pending: count("pending"),
   };
 }
 
@@ -127,7 +127,8 @@ function mergeableGate(pr) {
 function checksGate(summary, pushedAt, now) {
   const counts = `${summary.passed} passed, ${summary.pending} pending, ${summary.failed} failed, ${summary.skipped} skipped; required: ${summary.requiredSource}`;
   if (summary.failed) return { gate: "action", detail: counts };
-  if (summary.requiredPending) return { gate: "wait", detail: counts };
+  // Wait on every pending check, required or not, so an optional E2E run still finishes before the merge.
+  if (summary.pending) return { gate: "wait", detail: counts };
   if (!summary.checks.length && now - time(pushedAt) < NO_CHECKS_GRACE_MS) return { gate: "wait", detail: "no checks reported yet for head" };
   return { gate: "pass", detail: summary.checks.length ? counts : "no checks reported for head" };
 }
