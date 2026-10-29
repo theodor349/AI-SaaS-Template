@@ -8,6 +8,12 @@ import { onCall, resetConvex, setQuery } from "@/tests/component/fake-convex";
 import { click, getByRole, queryByRole, render, settle, waitFor } from "@/tests/component/render";
 import BillingPage from "./page";
 
+// These tests cover billing turned on, whatever app.config.ts sets.
+vi.mock("@/app.config", async (importOriginal) => {
+  const { appConfig } = await importOriginal<typeof import("@/app.config")>();
+  return { appConfig: { ...appConfig, billing: true } };
+});
+
 vi.mock("convex/react", () => import("@/tests/component/fake-convex"));
 vi.mock("@clerk/nextjs", () => ({ useAuth: () => ({ isLoaded: true, isSignedIn: true }), SignInButton: () => null }));
 vi.mock("next/navigation", () => ({
