@@ -20,8 +20,15 @@ as Root Directory, and set the Production Branch to `main`. Use Node.js 24.x,
 matching `package.json` and CI. Build and install commands come from
 [`vercel.json`](../vercel.json). Its Git configuration disables automatic
 deployments for every other branch, including branches whose names contain `/`.
-The project's Ignored Build Step also skips non-`main` branches, including older
-branches that do not yet contain `vercel.json`.
+Its Ignored Build Step,
+[`scripts/vercel-ignore-build.mjs`](../scripts/vercel-ignore-build.mjs), also skips
+non-`main` branches, and skips `main` commits that change only docs, agent files,
+CI, tests, or dev scripts since the last successful deployment. Each kept
+deployment's functions count toward Vercel's function storage limit, which is
+10 GB on Hobby, so skipped builds also save storage. A redeploy, or any case where
+Vercel doesn't report the last deployed commit, always builds. Set the project's
+own Ignored Build Step to `test "$VERCEL_GIT_COMMIT_REF" != main` so older branches
+that do not yet contain `vercel.json` are skipped too.
 
 Set these environment variables for **Production only**:
 
