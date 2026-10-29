@@ -1,5 +1,8 @@
+import { clerk } from "@clerk/testing/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { appConfig } from "../../app.config";
+import { seedPaidTestUser } from "../../scripts/billing-test-fixtures.mjs";
+import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 import { captureEvidence } from "./evidence.mjs";
 
@@ -12,10 +15,26 @@ declare global {
 
 const indicator = (page: Page) => page.getByRole("status").filter({ hasText: /Offline…|Reconnecting…/ });
 
-// The landing page's plans come from a live Convex query, so they show once it connects.
+let visitor: Awaited<ReturnType<typeof createClerkTestUser>> | undefined;
+test.afterEach(async () => {
+  await visitor?.cleanup();
+  visitor = undefined;
+});
+
+// Opens the landing page once live Convex data has arrived. Its plans come from a
+// query; an app without billing has none, so a signed-in visitor's name stands in.
 async function openConnected(page: Page) {
   await page.goto("/");
-  await expect(page.getByRole("link", { name: "Choose monthly" })).toBeVisible();
+  if (appConfig.billing) {
+    await expect(page.getByRole("link", { name: "Choose monthly" })).toBeVisible();
+    return;
+  }
+  visitor = await createClerkTestUser(local);
+  await seedPaidTestUser(visitor);
+  await clerk.signIn({ page, emailAddress: visitor.email });
+  await page.getByRole("button", { name: "Open profile menu" }).click();
+  await expect(page.getByRole("menu").getByText(visitor.name, { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
 }
 
 test("going offline shows the indicator after a grace period and reconnecting hides it at 1280px and 390px", async ({ page, context }) => {

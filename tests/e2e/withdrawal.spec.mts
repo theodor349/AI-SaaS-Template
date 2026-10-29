@@ -1,11 +1,14 @@
 import { clerk } from "@clerk/testing/playwright";
 import { expect, test } from "@playwright/test";
+import { appConfig } from "../../app.config";
 import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
 import { seedPaidTestUser } from "../../scripts/billing-test-fixtures.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 import { captureEvidence } from "./evidence.mjs";
 
 const local = resolveLocalTestConfig();
+
+test.skip(!appConfig.billing, "billing is off in app.config.ts");
 
 test("a purchase can be withdrawn after a confirmation step", { tag: "@critical" }, async ({ page }) => {
   const user = await createClerkTestUser(local);

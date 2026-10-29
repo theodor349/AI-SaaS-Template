@@ -5,6 +5,7 @@ import { AlertCircleIcon } from "lucide-react";
 import { useState } from "react";
 import { appConfig } from "@/app.config";
 import { api } from "@/convex/_generated/api";
+import { billingEnabled } from "@/convex/billing/plans";
 import { hasErrorCode } from "@/convex/lib/errors";
 import { AuthBoundary, AuthPending } from "@/components/auth/auth-boundary";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -14,8 +15,9 @@ import { ContentSkeleton, TextSkeleton } from "@/components/loading/content-skel
 import { useAction } from "@/lib/convex";
 import { rateLimitMessage } from "@/lib/rate-limit";
 
-const exportDescription =
-  "Download a copy of your profile, notes, billing history, and account requests as a JSON file.";
+const exportDescription = billingEnabled
+  ? "Download a copy of your profile, notes, billing history, and account requests as a JSON file."
+  : "Download a copy of your profile, notes, and account requests as a JSON file.";
 
 export function DataExport() {
   return (

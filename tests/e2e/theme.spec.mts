@@ -1,5 +1,6 @@
 import { clerk } from "@clerk/testing/playwright";
 import { expect, test, type Page } from "@playwright/test";
+import { appConfig } from "../../app.config";
 import { E2E_CRASH_COOKIE } from "../../lib/e2e-crash";
 import { themeColors } from "../../lib/theme";
 import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
@@ -65,8 +66,10 @@ test("a chosen theme applies at once, persists without a flash, and System follo
     await page.goto("/");
     await expectPaintedFirstAs(page, "dark");
     await page.getByRole("button", { name: "Open profile menu" }).click();
-    await page.getByRole("menuitem", { name: "Billing", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Billing", exact: true })).toBeVisible();
+    // Billing, or the Account page in an app without billing.
+    const menuPage = appConfig.billing ? "Billing" : "Account";
+    await page.getByRole("menuitem", { name: menuPage, exact: true }).click();
+    await expect(page.getByRole("heading", { name: menuPage, exact: true })).toBeVisible();
     await expectTheme(page, "dark");
 
     // A root layout crash loses the layout's script; the error page still turns dark.

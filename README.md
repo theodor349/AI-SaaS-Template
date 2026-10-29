@@ -13,6 +13,8 @@ This template supports agents developing and testing features in parallel using 
    and add Clerk development keys, a Polar sandbox organization access token,
    and the monthly, yearly, and lifetime sandbox product IDs. Linked worktrees
    inherit these settings; bootstrap syncs their prices before reporting `Ready:`.
+   An app that launches free sets `billing: false` in `app.config.ts` and skips
+   every Polar step (see [running without billing](docs/deployment.md#running-without-billing)).
 3. Configure the Clerk application's `convex` JWT template following the
    [Convex Clerk setup](https://docs.convex.dev/auth/clerk). Under **User & authentication**,
    sign users in with an email verification code and Google, and turn off passwords.

@@ -5,6 +5,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../convex/_generated/api.js";
+import { billingEnabled } from "../../scripts/bootstrap/config.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 
 const { config } = resolveLocalTestConfig();
@@ -12,7 +13,8 @@ const client = new ConvexHttpClient(config.env.NEXT_PUBLIC_CONVEX_URL, { logger:
 
 test("the running local backend rejects anonymous application calls", async () => {
   await assert.rejects(client.query(api.billing.account.application, {}), /UNAUTHENTICATED/);
-  assert.equal((await client.query(api.billing.catalog.products, {})).length, 3);
+  if (billingEnabled(config.root)) assert.equal((await client.query(api.billing.catalog.products, {})).length, 3);
+  else await assert.rejects(client.query(api.billing.catalog.products, {}), /BILLING_DISABLED/);
 });
 
 test("the worktree frontend serves successfully", { timeout: 30000 }, async () => {

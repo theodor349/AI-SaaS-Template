@@ -1,10 +1,16 @@
 import { Check } from "lucide-react";
+import { billingEnabled } from "@/convex/billing/plans";
 
-const steps = [
-  { title: "Make it yours", description: "Choose a plan and create your account." },
-  { title: "Complete checkout", description: "Pay securely with Polar for your selected plan." },
-  { title: "You’re ready", description: "Open your dashboard once payment is confirmed." },
-];
+const steps = billingEnabled
+  ? [
+    { title: "Make it yours", description: "Choose a plan and create your account." },
+    { title: "Complete checkout", description: "Pay securely with Polar for your selected plan." },
+    { title: "You’re ready", description: "Open your dashboard once payment is confirmed." },
+  ]
+  : [
+    { title: "Make it yours", description: "Create your account." },
+    { title: "You’re ready", description: "Open your dashboard and start building." },
+  ];
 
 export function GettingStarted() {
   return (
@@ -22,7 +28,7 @@ export function GettingStarted() {
         ))}
       </ol>
       <p className="mt-8 flex items-center gap-2 border-t pt-5 text-xs text-muted-foreground">
-        <Check aria-hidden="true" size={16} /> Your account and billing, in one place.
+        <Check aria-hidden="true" size={16} /> {billingEnabled ? "Your account and billing, in one place." : "Your account, in one place."}
       </p>
     </aside>
   );

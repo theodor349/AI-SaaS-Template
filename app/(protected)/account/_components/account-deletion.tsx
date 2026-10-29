@@ -5,6 +5,7 @@ import { AlertCircleIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
+import { billingEnabled } from "@/convex/billing/plans";
 import { hasErrorCode } from "@/convex/lib/errors";
 import { AuthBoundary, AuthPending } from "@/components/auth/auth-boundary";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -24,10 +25,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ContentSkeleton, TextSkeleton } from "@/components/loading/content-skeleton";
 import { useMutation } from "@/lib/convex";
 
-const deletionDescription =
-  "Requesting deletion cancels subscription renewal. You have seven days to undo it. At the deadline, paid access ends and your account and application data are deleted. Unused paid time is not automatically refunded.";
-const retentionDescription =
-  "Lifetime access ends when deletion completes. Required billing records may be retained by the payment provider.";
+const deletionDescription = billingEnabled
+  ? "Requesting deletion cancels subscription renewal. You have seven days to undo it. At the deadline, paid access ends and your account and application data are deleted. Unused paid time is not automatically refunded."
+  : "You have seven days to undo the request. At the deadline, your account and application data are deleted.";
+// Only an app that sells plans has billing records to mention.
+const retentionDescription = billingEnabled
+  ? "Lifetime access ends when deletion completes. Required billing records may be retained by the payment provider."
+  : null;
+const confirmationDescription = billingEnabled
+  ? "We will stop renewal and schedule permanent deletion in seven days. You can undo the request during that window. Deletion ends any remaining paid access and does not automatically refund payments."
+  : "We will schedule permanent deletion in seven days. You can undo the request during that window.";
 
 export function AccountDeletion() {
   return (
@@ -49,7 +56,7 @@ function AccountDeletionSkeleton() {
         </p>
         <div className="flex flex-col gap-4">
           <TextSkeleton>{deletionDescription}</TextSkeleton>
-          <TextSkeleton>{retentionDescription}</TextSkeleton>
+          {retentionDescription && <TextSkeleton>{retentionDescription}</TextSkeleton>}
           <div>
             <div className="w-fit">
               <ContentSkeleton>
@@ -177,7 +184,7 @@ function AccountDeletionContent() {
     deletionContent = (
       <>
         <p>{deletionDescription}</p>
-        <p>{retentionDescription}</p>
+        {retentionDescription && <p>{retentionDescription}</p>}
         <div>
           <AlertDialog>
             <AlertDialogTrigger asChild>
@@ -198,12 +205,7 @@ function AccountDeletionContent() {
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>Request account deletion?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  We will stop renewal and schedule permanent deletion in seven
-                  days. You can undo the request during that window. Deletion
-                  ends any remaining paid access and does not automatically
-                  refund payments.
-                </AlertDialogDescription>
+                <AlertDialogDescription>{confirmationDescription}</AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Keep account</AlertDialogCancel>

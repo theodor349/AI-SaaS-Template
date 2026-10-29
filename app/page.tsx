@@ -2,6 +2,8 @@ import Link from "next/link";
 import { ArrowDown, ArrowRight, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { appConfig } from "@/app.config";
+import { billingEnabled } from "@/convex/billing/plans";
+import { SIGN_UP_PATH } from "@/lib/auth";
 import { publicPageMetadata } from "@/lib/seo";
 import { LandingFeatures } from "./_components/landing-features";
 import { LandingPricing } from "./_components/landing-pricing";
@@ -28,23 +30,25 @@ export default function Home() {
           </h1>
           <p className="max-w-lg text-lg leading-relaxed text-muted-foreground">
             A starting point for your next AI product. Built with Next.js and Convex,
-            with account management and payments already connected, so you can focus
+            with account management{billingEnabled && " and payments"} already connected, so you can focus
             on what makes your application useful.
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <Button asChild size="lg">
-              <Link href="#pricing">Explore plans <ArrowRight aria-hidden="true" /></Link>
+              {billingEnabled
+                ? <Link href="#pricing">Explore plans <ArrowRight aria-hidden="true" /></Link>
+                : <Link href={SIGN_UP_PATH}>Get started <ArrowRight aria-hidden="true" /></Link>}
             </Button>
             <Button asChild size="lg" variant="ghost">
               <Link href="#features">See what’s included <ArrowDown aria-hidden="true" /></Link>
             </Button>
           </div>
-          <p className="text-sm text-muted-foreground">One product. Three ways to get Pro access.</p>
+          {billingEnabled && <p className="text-sm text-muted-foreground">One product. Three ways to get Pro access.</p>}
         </div>
         <GettingStarted />
       </section>
       <LandingFeatures />
-      <LandingPricing />
+      {billingEnabled && <LandingPricing />}
       <footer className="flex flex-col justify-between gap-4 border-t pt-6 text-xs text-muted-foreground sm:flex-row">
         <p>{appConfig.appName} · Built for your next project.</p>
         <nav aria-label="Legal" className="flex flex-wrap gap-5">

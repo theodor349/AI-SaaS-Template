@@ -55,19 +55,25 @@ function cookieRows(service: ConsentService) {
   ]);
 }
 
-const blocks = {
+const blocks = (billing: boolean) => ({
   "cookie-table": markdownTable(["Name", "Provider", "Category", "Purpose", "Duration"], consentServices.flatMap(cookieRows)),
   "analytics-services": analyticsServices.map((service) => `- **${service.name}:** ${service.purpose}`).join("\n"),
   subprocessors: markdownTable(
     ["Provider", "What they do for us", "Where", "Transfer safeguard"],
-    subprocessors.map((processor) => [
+    subprocessors.filter((processor) => billing || !processor.billing).map((processor) => [
       `[${processor.name}](${processor.privacyUrl}) (${processor.entity})`,
       processor.purpose,
       processor.location,
       processor.safeguard,
     ]),
   ),
-};
+});
+
+// Numbers the `## ` sections in order, so a section left out leaves no gap.
+function numberSections(markdown: string) {
+  let section = 0;
+  return markdown.replace(/^## /gm, () => `## ${++section}. `);
+}
 
 // The template's example company details. Other builds may show them, but the
 // public production deployment must publish the real operator.
@@ -92,10 +98,11 @@ export function loadLegalDocument(slug: LegalSlug, options: { config?: AppConfig
       APP_URL: new URL(appUrl).origin,
       EFFECTIVE_DATE: effective,
     },
-    blocks,
-    flags: { ANALYTICS: analyticsServices.length > 0 },
+    blocks: blocks(config.billing),
+    flags: { ANALYTICS: analyticsServices.length > 0, BILLING: config.billing },
   };
-  const markdown = renderTemplate(body, values);
+  const rendered = renderTemplate(body, values);
+  const markdown = data.numbered === "true" ? numberSections(rendered) : rendered;
   return {
     title: required(data.title, "title"),
     // Used for search results and link previews; variables work here too.

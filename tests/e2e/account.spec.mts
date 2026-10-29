@@ -1,5 +1,6 @@
 import { clerk } from "@clerk/testing/playwright";
 import { expect, test } from "@playwright/test";
+import { appConfig } from "../../app.config";
 import { ConvexHttpClient } from "convex/browser";
 import { createPolar } from "@polar-sh/sdk/2026-10";
 import { api, internal } from "../../convex/_generated/api";
@@ -67,10 +68,12 @@ test("unpaid owners edit profiles, preserve drafts, request deletion and recover
       await expect(page.getByRole("button", { name: "Delete account", exact: true })).toBeVisible({ timeout: 2000 });
     }).toPass({ timeout: 30_000 });
     await captureEvidence(page, "deletion-recovered");
-    await page.getByRole("button", { name: "Open profile menu" }).click();
-    await page.getByRole("menuitem", { name: "Billing", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Billing", exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Open profile menu" })).toBeVisible();
+    if (appConfig.billing) {
+      await page.getByRole("button", { name: "Open profile menu" }).click();
+      await page.getByRole("menuitem", { name: "Billing", exact: true }).click();
+      await expect(page.getByRole("heading", { name: "Billing", exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Open profile menu" })).toBeVisible();
+    }
     await page.getByRole("button", { name: "Open profile menu" }).click();
     await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
     await expect(page).toHaveURL(/\/sign-in|\/$/);
@@ -103,6 +106,7 @@ test("provider deletion supersedes an open user request and completes cleanup", 
 });
 
 test("a deleted account's email can open checkout again on a new account", { tag: "@critical" }, async ({ page }) => {
+  test.skip(!appConfig.billing, "billing is off in app.config.ts");
   const first = await createClerkTestUser(local);
   const polar = createPolar({ accessToken: local.env.POLAR_ACCESS_TOKEN, environment: "sandbox", organizationId: local.env.POLAR_ORGANIZATION_ID });
   const { client: admin } = billingTestAdmin();

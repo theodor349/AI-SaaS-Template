@@ -76,7 +76,8 @@ deployment, ask Theodor which region it goes in. If it isn't the EU, change the
 Convex entry in [`lib/legal/subprocessors.ts`](../lib/legal/subprocessors.ts) to
 match.
 
-On the Convex project's **production deployment**, set:
+On the Convex project's **production deployment**, set the variables below. An
+app [without billing](#running-without-billing) leaves out every `POLAR_*` one.
 
 | Variable | Value |
 | --- | --- |
@@ -224,6 +225,35 @@ for bootstrap's `polar listen` and `pnpm polar:trigger`, `discounts:read` and
 `discounts:write` for the discount-code E2E test, which skips without them, and
 `products:write` to create the sandbox products through the API. When code starts calling another Polar endpoint, add its scope here.
 
+## Running without billing
+
+`billing: false` in [`app.config.ts`](../app.config.ts) launches the app free for
+everyone, with no Polar account. Every signed-in user passes the paid-access
+checks. Pricing, the Billing page and menu item, checkout, and the payment,
+withdrawal, and Polar parts of the terms and privacy policy disappear. Signed-in
+visitors to `/billing` and `/checkout` get a 404, because the app has nothing
+there; signed-out ones get the usual sign-in redirect first. Public billing
+functions fail with `BILLING_DISABLED`, and the billing cron jobs aren't
+registered.
+
+Leave every `POLAR_*` variable unset on Convex, and skip the Polar webhook, the
+Polar tokens, and the Polar Depot secrets. Bootstrap runs as with `--no-polar` and
+gives the local backend no Polar token, `pnpm setup:check` skips Polar, and the
+integration and E2E suites skip their billing tests. Account deletion skips its
+Polar cleanup while Polar isn't configured. The privacy policy then lists neither
+Polar nor Resend, because the template only emails withdrawal receipts. When the
+app sends other email, remove `billing: true` from Resend in
+[`lib/legal/subprocessors.ts`](../lib/legal/subprocessors.ts).
+
+To start selling, set `billing: true` and set up Polar as this page describes: the
+Convex variables, the hosted webhook, the tokens, the Depot secrets, and one
+`syncCatalog` run. The terms and privacy policy gain their payment sections, so
+bump both versions and tell users before the change applies.
+
+Turn billing off only before anyone has paid. In an app that has sold plans, Polar
+keeps renewing subscriptions and a pending withdrawal still owes a refund, so cancel
+the subscriptions and finish the refunds in Polar first.
+
 ## Pausing the app
 
 Pause the app during a migration or any other change that must not race with
@@ -294,7 +324,8 @@ history: `printf '%s' "$VALUE" | depot ci secrets add NAME --repo owner/repo`.
 | `POLAR_PRODUCT_MONTHLY`, `POLAR_PRODUCT_YEARLY`, `POLAR_PRODUCT_LIFETIME` | The sandbox product IDs. |
 
 Polar is required because the suites check the synced catalog, signed Polar
-webhooks, and sandbox customers. Without the secrets, as on fork pull requests,
+webhooks, and sandbox customers. An app [without billing](#running-without-billing)
+needs only the Clerk secrets. Without the secrets, as on fork pull requests,
 the workflow reports a notice and skips. Do not make it a required check, since
 unlabeled pull requests never run it.
 

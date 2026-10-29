@@ -1,6 +1,6 @@
 import { SignUp } from "@clerk/nextjs";
 import type { Metadata } from "next";
-import { isBillingModel } from "@/convex/billing/plans";
+import { billingEnabled, isBillingModel } from "@/convex/billing/plans";
 import { maintenanceMode } from "@/lib/maintenance";
 import { noIndex } from "@/lib/seo";
 import { MaintenanceNotice } from "../../_components/maintenance-notice";
@@ -10,7 +10,7 @@ export const metadata: Metadata = { title: "Sign up", robots: noIndex };
 
 // Pricing sends visitors here with `redirect_url=/checkout?plan=<plan>`.
 function chosenPlan(redirectUrl: string | string[] | undefined) {
-  if (typeof redirectUrl !== "string") return null;
+  if (!billingEnabled || typeof redirectUrl !== "string") return null;
   try {
     const url = new URL(redirectUrl, "https://app.invalid");
     const plan = url.searchParams.get("plan");

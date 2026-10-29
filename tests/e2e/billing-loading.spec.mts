@@ -1,11 +1,14 @@
 import { clerk } from "@clerk/testing/playwright";
 import { expect, test, type Page } from "@playwright/test";
+import { appConfig } from "../../app.config";
 import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 import { interceptConvexSync } from "./convex-sync.mjs";
 import { captureEvidence } from "./evidence.mjs";
 
 const local = resolveLocalTestConfig();
+
+test.skip(!appConfig.billing, "billing is off in app.config.ts");
 const catalog = (["monthly", "yearly", "lifetime"] as const).map((model) => ({
   model, name: model, amount: 2000, currency: "USD", taxBehavior: "provider",
 }));

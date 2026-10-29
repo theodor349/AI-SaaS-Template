@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import type { Doc } from "../_generated/dataModel";
-import { accountForUser, requirePro, scheduledRetries, syncForCustomer } from "./lib";
+import { accountForUser, requireBilling, requirePro, scheduledRetries, syncForCustomer } from "./lib";
 import { billingModel, recurringModel } from "./plans";
 import { exportMany, exportOne, exportTime, noRows } from "../lib/dataExport";
 import { internalQuery, query, type QueryCtx } from "../lib/functions";
@@ -60,6 +60,7 @@ export const syncStatus = query({
   args: {},
   returns: v.object({ failure: v.union(v.string(), v.null()), retrying: v.boolean() }),
   handler: async (ctx) => {
+    requireBilling();
     const user = await getCurrentUser(ctx);
     const account = user ? await accountForUser(ctx, user._id) : null;
     const sync = account ? await syncForCustomer(ctx, account.customerId) : null;

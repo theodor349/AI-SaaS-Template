@@ -49,6 +49,12 @@ jobs:
       available: ${{ steps.check.outputs.available }}
       suite: ${{ steps.check.outputs.suite }}
     steps:
+      # Only for the billing switch, which decides whether Polar secrets are required.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          sparse-checkout: app.config.ts
+          sparse-checkout-cone-mode: false
       - name: Check required secrets
         id: check
         env:
@@ -63,7 +69,8 @@ jobs:
           DISPATCHED_SUITE: ${{ inputs.suite }}
           PR_ACTION: ${{ github.event.action }}
         # Integration asserts the three synced Polar products and signed Polar
-        # webhooks, and billing E2E calls the sandbox API, so Polar is required.
+        # webhooks, and billing E2E calls the sandbox API, so Polar is required
+        # unless app.config.ts sets `billing: false`, which skips those tests.
         run: |
           suite=full
           if [ "$GITHUB_EVENT_NAME" = schedule ] && [ "$SCHEDULE" != "17 2 * * 0" ]; then suite=critical; fi
@@ -71,9 +78,12 @@ jobs:
           # Adding the label runs the full suite, including at pull request creation.
           if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$PR_ACTION" != labeled ]; then suite=critical; fi
           echo "suite=$suite" >> "$GITHUB_OUTPUT"
+          required=(NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY CLERK_SECRET_KEY)
+          if ! grep -Eq '^\s*billing:\s*false\s*,?\s*$' app.config.ts; then
+            required+=(POLAR_ACCESS_TOKEN POLAR_PRODUCT_MONTHLY POLAR_PRODUCT_YEARLY POLAR_PRODUCT_LIFETIME)
+          fi
           missing=()
-          for name in NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY CLERK_SECRET_KEY POLAR_ACCESS_TOKEN \
-            POLAR_PRODUCT_MONTHLY POLAR_PRODUCT_YEARLY POLAR_PRODUCT_LIFETIME; do
+          for name in "${required[@]}"; do
             [ -n "${!name}" ] || missing+=("$name")
           done
           if [ ${#missing[@]} -eq 0 ]; then

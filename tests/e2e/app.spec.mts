@@ -1,6 +1,7 @@
 import { clerk } from "@clerk/testing/playwright";
 import { expect, test } from "@playwright/test";
 import { ConvexHttpClient } from "convex/browser";
+import { appConfig } from "../../app.config";
 import { api } from "../../convex/_generated/api";
 import { createClerkTestUser as createUnpaidTestUser } from "../../scripts/clerk-test-user.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
@@ -31,6 +32,21 @@ test("Clerk identity reaches paid local Convex and persists across reloads", { t
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();
     await clerk.signOut({ page });
     await expect(page.getByRole("heading", { name: "Notes", exact: true })).toHaveCount(0);
+  } finally { await user.cleanup(); }
+});
+
+test("without billing, a new account uses the application and billing pages are not found", { tag: "@critical" }, async ({ page }) => {
+  test.skip(appConfig.billing, "billing is on in app.config.ts");
+  const user = await createUnpaidTestUser(local);
+  try {
+    await page.goto("/");
+    await expect(page.locator("#pricing")).toHaveCount(0);
+    await clerk.signIn({ page, emailAddress: user.email });
+    await page.goto("/app");
+    await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();
+    for (const path of ["/billing", "/checkout?plan=monthly"]) {
+      expect((await page.goto(path))?.status(), path).toBe(404);
+    }
   } finally { await user.cleanup(); }
 });
 
@@ -182,14 +198,16 @@ test("slow Clerk token acquisition shows loading and sends no protected query", 
     });
     await clerk.signIn({ page, emailAddress: user.email });
     // The landing page's signed-in pricing waits for Convex instead of showing guest plans.
-    await expect(page.getByRole("status").filter({ hasText: "Loading paid plans…" })).toHaveText("Loading paid plans…");
+    if (appConfig.billing) await expect(page.getByRole("status").filter({ hasText: "Loading paid plans…" })).toHaveText("Loading paid plans…");
     await expect(page.getByRole("button", { name: "Sign in", exact: true })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "Dashboard", exact: true })).toHaveCount(0);
     expect(sync.hasSubscribed("billing/account:status")).toBe(false);
     expect(sync.hasSubscribed("billing/account:application")).toBe(false);
     await page.evaluate(() => window.dispatchEvent(new Event("release-auth-test")));
-    await expect(page.getByRole("button", { name: "Current" })).toBeDisabled();
-    expect(sync.hasSubscribed("billing/account:status")).toBe(true);
+    if (appConfig.billing) {
+      await expect(page.getByRole("button", { name: "Current" })).toBeDisabled();
+      expect(sync.hasSubscribed("billing/account:status")).toBe(true);
+    }
     await page.getByRole("link", { name: "Dashboard", exact: true }).click();
     await expect(page).toHaveURL(`${local.config.env.APP_URL}${authenticatedDestination}`);
     await expect(page.getByRole("heading", { name: "Notes", exact: true })).toBeVisible();

@@ -15,9 +15,15 @@ This policy explains how we process personal data when you use {{APP_NAME}} at {
 
 | Data | Why we use it | Legal basis |
 | --- | --- | --- |
+{{#if BILLING}}
 | Your email address, name, sign-in method, and sessions | To create your account, keep you signed in, and email you receipts, such as for a withdrawal | Contract (GDPR art. 6(1)(b)) |
 | What you create in {{APP_NAME}}, your display name, and your plan | To provide the service | Contract (art. 6(1)(b)) |
 | Your orders, subscription status, and withdrawals | To give you the plan you paid for, handle withdrawals and refunds, and answer billing questions | Contract (art. 6(1)(b)) and our bookkeeping duties (art. 6(1)(c)) |
+{{/if}}
+{{#unless BILLING}}
+| Your email address, name, sign-in method, and sessions | To create your account and keep you signed in | Contract (GDPR art. 6(1)(b)) |
+| What you create in {{APP_NAME}} and your display name | To provide the service | Contract (art. 6(1)(b)) |
+{{/unless}}
 | Your IP address, browser details, request logs, and server error reports | To keep the service secure and working and to fix errors | Our legitimate interest in a secure, reliable service (art. 6(1)(f)) |
 {{#if ANALYTICS}}
 | Error and performance data from your browser | To find and fix problems in the app | Your consent (art. 6(1)(a)), which you can withdraw at any time |
@@ -25,13 +31,15 @@ This policy explains how we process personal data when you use {{APP_NAME}} at {
 
 We only use analytics in your browser if you consent to it; see the [Cookie Policy](/cookies). We don't sell your data, use it for advertising, or make automated decisions about you that have legal or similarly significant effects.
 
+{{#if BILLING}}
 ## Payments
 
 Polar Software, Inc. sells our plans as merchant of record. Polar collects your payment details, billing address, and tax information, handles the payment, invoice, and VAT, and is responsible for that data under its own [privacy policy](https://polar.sh/legal/privacy-policy). We receive your order and subscription details from Polar, but never your full card details.
 
+{{/if}}
 ## Who we share data with
 
-We use these providers to run {{APP_NAME}}. They process data on our behalf, except Polar, which also acts on its own behalf as merchant of record:
+We use these providers to run {{APP_NAME}}. They process data on our behalf{{#if BILLING}}, except Polar, which also acts on its own behalf as merchant of record{{/if}}:
 
 {{block:subprocessors}}
 
@@ -39,8 +47,10 @@ These providers are companies based in the United States. The table shows where 
 
 ## How long we keep it
 
-- **Your account and application data:** for as long as you have an account. When you delete your account on the Account page, you have 7 days to change your mind. After that, we erase your profile and application data, delete your sign-in account at Clerk, and delete your customer record at Polar, which removes your name, email, and billing address from it. We keep a record without your name or email that the account was deleted, so that delayed messages from our providers can't recreate it.
+- **Your account and application data:** for as long as you have an account. When you delete your account on the Account page, you have 7 days to change your mind. After that, we erase your profile and application data{{#if BILLING}}, delete your sign-in account at Clerk, and delete your customer record at Polar, which removes your name, email, and billing address from it{{/if}}{{#unless BILLING}} and delete your sign-in account at Clerk{{/unless}}. We keep a record without your name or email that the account was deleted, so that delayed messages from our providers can't recreate it.
+{{#if BILLING}}
 - **Billing records:** Polar keeps its own payment and tax records as merchant of record, including your orders and invoices after you delete your account. We keep our accounting records for 5 years after the end of the financial year, as the Danish Bookkeeping Act (bogføringsloven) requires.
+{{/if}}
 - **Logs and error reports:** for a limited time, normally no more than 90 days.
 
 ## Your rights

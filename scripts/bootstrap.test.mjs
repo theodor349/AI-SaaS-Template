@@ -10,6 +10,7 @@ import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { parseEnv } from "node:util";
 import * as bootstrap from "./bootstrap.mjs";
+import { billingEnabled } from "./bootstrap/config.mjs";
 import {
   assertPortsAvailable,
   childEnvironment,
@@ -64,6 +65,20 @@ test("billing startup requires every plan while --no-polar works without product
     assert.throws(() => worktreeCredentials(fixture, fixture, true, {}), (error) =>
       error.message.includes(`Add these lines to ${join(fixture, ".env.bootstrap.local")}`) &&
       /^ {2}POLAR_PRODUCT_MONTHLY=<product ID>$/m.test(error.message) && !error.message.includes("POLAR_PRODUCT_YEARLY"));
+  } finally { rmSync(fixture, { recursive: true, force: true }); }
+});
+
+test("the billing switch is read from the checkout's app.config.ts", () => {
+  const fixture = realpathSync(mkdtempSync(join(tmpdir(), "bootstrap billing ")));
+  const config = (line) => writeFileSync(join(fixture, "app.config.ts"),
+    `export type AppConfig = {\n  // billing: false hides pricing\n  billing: boolean;\n};\nexport const appConfig = {\n  appName: "Example",\n${line}\n};\n`);
+  try {
+    config("  billing: false,");
+    assert.equal(billingEnabled(fixture), false);
+    config("  billing: true");
+    assert.equal(billingEnabled(fixture), true);
+    config("  billing: process.env.BILLING === \"1\",");
+    assert.throws(() => billingEnabled(fixture), /must set `billing: true,` or `billing: false,`/);
   } finally { rmSync(fixture, { recursive: true, force: true }); }
 });
 
