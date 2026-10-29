@@ -9,9 +9,9 @@ import {
 } from "./bootstrap/config.mjs";
 import { assertPortsAvailable, waitForServer } from "./bootstrap/network.mjs";
 import { preflight } from "./doctor.mjs";
-import { createSupervisor, superviseConvex, superviseNext, superviseWorktree, watchConvexPush } from "./bootstrap/processes.mjs";
+import { createSupervisor, exitReason, superviseConvex, superviseNext, superviseWorktree, watchConvexPush } from "./bootstrap/processes.mjs";
 import { reclaim } from "./bootstrap/reclaim.mjs";
-import { bootstrapPaths, createStateRecorder, inspectState, liveStatuses, openLog, readState } from "./bootstrap/state.mjs";
+import { bootstrapPaths, createStateRecorder, inspectState, liveStatuses, missedWebhooks, openLog, readState } from "./bootstrap/state.mjs";
 import { chooseNetwork, cleanupProxies, readTailscaleStatus, serveWorktree, tailscaleConfig } from "./bootstrap/tailscale.mjs";
 
 export {
@@ -151,9 +151,37 @@ async function setEnvironmentBeforePush({ root, env, controller, log, healthUrl,
   }
 }
 
+// polar listen reconnects after its event stream drops, but exits when the
+// reconnect gets an error response, such as a 503 while Polar's sandbox API
+// restarts. That exit restarts the forwarder instead of stopping the stack.
+// Polar does not resend webhooks a listener missed, so each gap goes to the log
+// and to the state file, where pnpm bootstrap:status shows it.
+function forwardPolarWebhooks({ supervisor, args, tool, say, onServices, onForwarding }) {
+  let missed = [];
+  let restarts = 0;
+  let stopped;
+  return supervisor.keep(tool("polar"), args, {
+    onExit: async (exit, delayMs) => {
+      stopped = { from: new Date().toISOString(), reason: exitReason(exit) };
+      onForwarding({ status: "restarting", since: stopped.from, reason: stopped.reason, restarts, missed });
+      say(`Bootstrap: Polar webhook forwarding stopped (${stopped.reason}). Restarting it in ${delayMs / 1000}s.`, process.stderr);
+      onServices(await supervisor.recordServiceGroups());
+    },
+    onRestart: async () => {
+      const to = new Date().toISOString();
+      onServices(await supervisor.recordServiceGroups());
+      // Keep the latest gaps; a forwarder that keeps failing would grow the state file.
+      missed = [...missed, { ...stopped, to }].slice(-20);
+      restarts += 1;
+      onForwarding({ status: "running", restarts, missed });
+      say(`Bootstrap: Polar webhook forwarding restarted. ${missedWebhooks(missed.at(-1))}`, process.stderr);
+    },
+  });
+}
+
 // Starts Convex, Next.js, and Polar under the supervisor, then waits until stopped.
 // env is shared with the supervisor; the Polar secret added here reaches later services.
-async function runServices({ root, config, credentials, polar, browserEnv, env, supervisor, controller, log, say, onServices, onReady }) {
+async function runServices({ root, config, credentials, polar, browserEnv, env, supervisor, controller, log, say, onServices, onForwarding, onReady }) {
   const fileEnv = { ...childEnvironment(config, credentials, {}), ...browserEnv };
   const localFile = join(root, ".env.local");
   const stateFile = convexStateFile(root);
@@ -239,7 +267,7 @@ async function runServices({ root, config, credentials, polar, browserEnv, env, 
     saveWatchEnvironment();
     if (envApplied) await setBackendEnvironment(supervisor);
     if (polar) {
-      supervisor.start(tool("polar"), ["listen", config.env.POLAR_WEBHOOK_URL, ...orgArgs], { persistent: true });
+      void forwardPolarWebhooks({ supervisor, args: ["listen", config.env.POLAR_WEBHOOK_URL, ...orgArgs], tool, say, onServices, onForwarding });
       onServices(await supervisor.recordServiceGroups());
       say(`Polar sandbox webhooks: ${config.env.POLAR_WEBHOOK_URL}`);
     }
@@ -338,6 +366,7 @@ export async function bootstrap({ argv = process.argv.slice(2) } = {}) {
       root, config, credentials, polar: options.polar, browserEnv, env, supervisor, controller, log, say,
       // Recorded so a later bootstrap or bootstrap:stop can reclaim them if this process is killed.
       onServices: (services) => state.update({ services }),
+      onForwarding: (polarForwarding) => state.update({ polarForwarding }),
       onReady: async (appUrl) => {
         if (remote) {
           await waitForServer(remote.env.APP_URL, controller.signal);

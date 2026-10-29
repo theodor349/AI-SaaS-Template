@@ -5,7 +5,7 @@ import { gitRoot } from "./bootstrap/config.mjs";
 import { occupiedPorts } from "./bootstrap/network.mjs";
 import { processStart } from "./bootstrap/processes.mjs";
 import { reclaim } from "./bootstrap/reclaim.mjs";
-import { bootstrapPaths, inspectState, isVerifiedSupervisor, liveStatuses, logTail, readCurrentState, readState } from "./bootstrap/state.mjs";
+import { bootstrapPaths, describeForwarding, inspectState, isVerifiedSupervisor, liveStatuses, logTail, readCurrentState, readState } from "./bootstrap/state.mjs";
 
 const usage = `pnpm bootstrap:status [--json]   Show this worktree's bootstrap status, URLs, and log path.
 pnpm bootstrap:wait [--timeout <seconds>]   Wait until ready (default 300 seconds).
@@ -53,6 +53,7 @@ function describe(state, paths) {
     `App: ${state.urls.app}`, `Convex: ${state.urls.convex}`, `Site: ${state.urls.site}`,
   ];
   if (state.error) lines.push(`Error: ${state.error}`);
+  lines.push(...describeForwarding(state.polarForwarding));
   if (state.status === "stale") lines.push("Run pnpm bootstrap:stop to reclaim the services and routes it recorded.");
   lines.push(`Log: ${state.log}`, `State: ${paths.state}`);
   return lines.join("\n");
