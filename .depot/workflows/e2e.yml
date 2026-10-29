@@ -45,6 +45,7 @@ jobs:
     timeout-minutes: 2
     permissions:
       checks: read
+      contents: read
     outputs:
       available: ${{ steps.check.outputs.available }}
       suite: ${{ steps.check.outputs.suite }}
