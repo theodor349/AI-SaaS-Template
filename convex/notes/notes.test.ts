@@ -6,6 +6,12 @@ import schema from "../schema";
 import { modules } from "../test.setup";
 import { noteLimits } from "./validation";
 
+// The paid access check needs billing turned on, whatever app.config.ts sets.
+vi.mock("../../app.config", async (importOriginal) => {
+  const { appConfig } = await importOriginal<typeof import("../../app.config")>();
+  return { appConfig: { ...appConfig, billing: true } };
+});
+
 const issuer = "https://clerk.example";
 
 // Tests move the clock with later(), so notes edited in sequence never tie on updatedAt.

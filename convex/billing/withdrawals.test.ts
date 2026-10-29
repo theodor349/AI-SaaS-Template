@@ -10,6 +10,12 @@ import { withdrawalDeadline } from "./withdrawalPeriod";
 import schema from "../schema";
 import { modules } from "../test.setup";
 
+// These tests cover billing turned on, whatever app.config.ts sets.
+vi.mock("../../app.config", async (importOriginal) => {
+  const { appConfig } = await importOriginal<typeof import("../../app.config")>();
+  return { appConfig: { ...appConfig, billing: true } };
+});
+
 const provider = vi.hoisted(() => ({
   customers: { get: vi.fn() },
   subscriptions: { iterList: vi.fn(), get: vi.fn(), revoke: vi.fn() },
