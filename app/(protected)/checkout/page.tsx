@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
-import { isBillingModel } from "@/convex/billing/plans";
+import { notFound, redirect } from "next/navigation";
+import { billingEnabled, isBillingModel } from "@/convex/billing/plans";
 import { PaymentRedirect } from "./_components/payment-redirect";
 
 export const metadata: Metadata = { title: "Checkout" };
@@ -9,6 +9,7 @@ export const metadata: Metadata = { title: "Checkout" };
 export default async function CheckoutPage({ searchParams }: {
   searchParams: Promise<{ plan?: string | string[] }>;
 }) {
+  if (!billingEnabled) notFound();
   const { plan } = await searchParams;
   if (!isBillingModel(plan)) redirect("/#pricing");
 

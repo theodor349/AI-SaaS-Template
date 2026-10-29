@@ -1,5 +1,6 @@
 import { clerk } from "@clerk/testing/playwright";
 import { expect, test, type Page } from "@playwright/test";
+import { appConfig } from "../../app.config";
 import { allChoices, CONSENT_COOKIE, consentCookieValue } from "../../lib/consent/cookie";
 import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
@@ -43,8 +44,10 @@ test("signing in, live data, and consented Sentry run without CSP violations", {
     await page.goto("/account");
     // Profile data arrives over Convex's WebSocket.
     await expect(page.getByLabel("Display name", { exact: true })).not.toHaveValue("");
-    await page.goto("/billing");
-    await expect(page.getByRole("heading", { name: "Billing", exact: true })).toBeVisible();
+    if (appConfig.billing) {
+      await page.goto("/billing");
+      await expect(page.getByRole("heading", { name: "Billing", exact: true })).toBeVisible();
+    }
 
     // With analytics granted, the next page load starts Sentry, which reports the load.
     const envelopes: string[] = [];

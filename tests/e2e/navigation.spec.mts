@@ -1,11 +1,16 @@
 import { clerk } from "@clerk/testing/playwright";
 import { expect, test } from "@playwright/test";
+import { appConfig } from "../../app.config";
 import { resolveAuthenticatedDestination } from "../../lib/auth";
 import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 
 const local = resolveLocalTestConfig();
 const authenticatedDestination = resolveAuthenticatedDestination(local.env.NEXT_PUBLIC_AUTHENTICATED_DESTINATION);
+// The page the profile menu opens: Billing, or the privacy policy in an app without billing.
+const menuPage = appConfig.billing
+  ? { label: "Billing", path: /\/billing$/ }
+  : { label: "Privacy Policy", path: /\/privacy$/ };
 
 test("profile navigation, public policies, and sign-out work at 1280px and 390px", async ({ page }) => {
   const user = await createClerkTestUser(local);
@@ -41,9 +46,10 @@ test("profile navigation, public policies, and sign-out work at 1280px and 390px
       await expect(trigger).toBeFocused();
 
       await trigger.click();
-      await page.getByRole("menuitem", { name: "Billing", exact: true }).click();
-      await expect(page).toHaveURL(/\/billing$/);
-      await expect(page.getByRole("heading", { name: "Billing", exact: true })).toBeVisible();
+      if (!appConfig.billing) await expect(page.getByRole("menuitem", { name: "Billing" })).toHaveCount(0);
+      await page.getByRole("menuitem", { name: menuPage.label, exact: true }).click();
+      await expect(page).toHaveURL(menuPage.path);
+      await expect(page.getByRole("heading", { name: menuPage.label, exact: true })).toBeVisible();
       // The menu's history entry gives way to the page it opened.
       await page.goBack();
       await expect(page).toHaveURL(/\/account$/);
@@ -57,7 +63,7 @@ test("profile navigation, public policies, and sign-out work at 1280px and 390px
       const dashboard = page.waitForURL(`${local.config.env.APP_URL}${authenticatedDestination}`);
       await page.getByRole("link", { name: "Dashboard", exact: true }).click();
       await dashboard;
-      await page.goto("/billing");
+      if (appConfig.billing) await page.goto("/billing");
       await trigger.click();
       await page.getByRole("menuitem", { name: "Cookie Preferences" }).click();
       await expect(dialog).toBeVisible();
@@ -116,7 +122,8 @@ test("failed Convex authentication keeps Dashboard reachable without exposing pr
     });
     await clerk.signIn({ page, emailAddress: user.email });
     const recovery = page.getByRole("alert").filter({ hasText: "We couldn’t load your account" });
-    await expect(recovery).toBeVisible();
+    // On the landing page, the plans are what wait for the account.
+    if (appConfig.billing) await expect(recovery).toBeVisible();
     await expect(page.getByRole("link", { name: "Dashboard", exact: true })).toBeVisible();
     await page.getByRole("link", { name: "Dashboard", exact: true }).click();
     await expect(page).toHaveURL(`${local.config.env.APP_URL}${authenticatedDestination}`);

@@ -16,6 +16,8 @@ import { captureEvidence } from "./evidence.mjs";
 const { createClerkClient } = createRequire(import.meta.url)("@clerk/nextjs/server");
 const local = resolveLocalTestConfig();
 
+test.skip(!appConfig.billing, "billing is off in app.config.ts");
+
 test("public plans lead to signup with the selected plan at 1280px and 390px", { tag: "@critical" }, async ({ page }) => {
   await setupClerkTestingToken({ page });
   const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL);

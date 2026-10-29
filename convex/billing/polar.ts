@@ -11,14 +11,19 @@ import {
   isFixtureCustomer,
   isWorktreeExternalId,
   productModel,
+  requireBilling,
   timestamp,
 } from "./lib";
-import { billingModel, billingModels, recurringModel, type BillingModel } from "./plans";
+import { billingEnabled, billingModel, billingModels, recurringModel, type BillingModel } from "./plans";
 import { appError } from "../lib/errors";
 import { getDisplayName } from "../lib/profile";
 import { action, internalAction, type ActionCtx } from "../lib/functions";
 
 type Polar = ReturnType<typeof createPolar>;
+
+function polarConfigured() {
+  return !!env.POLAR_ACCESS_TOKEN && !!env.POLAR_ENVIRONMENT;
+}
 
 function client() {
   if (!env.POLAR_ACCESS_TOKEN || !env.POLAR_ENVIRONMENT) {
@@ -71,7 +76,10 @@ function notFound(error: unknown) {
   return error instanceof PolarClientError && error.statusCode === 404;
 }
 
+// Every public action runs through here, which also refuses them all when the
+// app doesn't sell plans.
 async function userFacing<T>(ctx: ActionCtx, operation: () => Promise<T>): Promise<T> {
+  requireBilling();
   try {
     return await operation();
   } catch (error) {
@@ -633,10 +641,19 @@ export const cleanupAccount = internalAction({
   handler: (ctx, { userId }) => withoutProviderDetails(ctx, async (): Promise<{ complete: boolean; progress?: boolean }> => {
     ctx.log.setUser(userId);
     const { user, account } = await ctx.runQuery(internal.billing.state.cleanupContext, { userId });
+    const cancelling = user.lifecycle === "active";
+    // An app that never sold plans has no Polar customer to clean up. With
+    // Polar still configured, cleanup runs, since earlier sales may have one.
+    if (!billingEnabled && !polarConfigured()) {
+      ctx.log.decision("cleanup", { result: "billing_disabled" });
+      if (account && !cancelling) {
+        await ctx.runMutation(internal.billing.state.confirmProviderCleanup, { userId });
+      }
+      return { complete: true };
+    }
     const p = client();
     await spend(ctx, 5);
     const externalId = externalCustomerId(user.tokenIdentifier);
-    const cancelling = user.lifecycle === "active";
     const customer = account
       ? await retry(() => p.customers.get(account.customerId)).catch((error: unknown) => {
         if (notFound(error)) return null;

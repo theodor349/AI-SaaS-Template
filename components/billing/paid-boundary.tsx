@@ -6,6 +6,7 @@ import { useEffect, type ReactNode } from "react";
 import { api } from "@/convex/_generated/api";
 import { AuthPending } from "@/components/auth/auth-boundary";
 import { Spinner } from "@/components/ui/spinner";
+import { billingEnabled } from "@/convex/billing/plans";
 import { useAction } from "@/lib/convex";
 import { cn } from "@/lib/utils";
 
@@ -24,8 +25,9 @@ export function PaidBoundary({ children }: { children: ReactNode }) {
   const router = useRouter();
   const deleting = status?.readiness === "deleting";
   const ready = status?.readiness === "ready";
-  const active = status?.state === "active";
-  const paidThrough = status?.paidThrough;
+  // Mirrors requirePro, which lets every active user in when billing is off.
+  const active = !billingEnabled || status?.state === "active";
+  const paidThrough = billingEnabled ? status?.paidThrough : null;
   useEffect(() => {
     if (deleting) router.replace("/account");
     else if (ready && !active) router.replace("/billing");

@@ -12,11 +12,18 @@ test("variables, blocks, and optional sections are filled in", () => {
   expect(renderTemplate(body, values)).toBe("Use Example.\n\n- one\n- two\n\nKept.\nEnd.");
 });
 
+test("unless sections keep their text only when the flag is off", () => {
+  const body = "A{{#unless OFF}} kept{{/unless}}{{#unless ON}} dropped{{/unless}}.\n{{#unless ON}}\nDropped.\n{{/unless}}\nEnd.";
+  expect(renderTemplate(body, values)).toBe("A kept.\nEnd.");
+});
+
 test.each([
   ["{{COMPANY_NAME}}", "Unknown variable in legal document: COMPANY_NAME"],
   ["{{block:missing}}", "Unknown block in legal document: missing"],
   ["{{#if MISSING}}\nText\n{{/if}}", "Unknown flag in legal document: MISSING"],
   ["{{#if ON}}\nText", "Unknown variable in legal document: #if ON"],
+  ["{{#if ON}}\nText\n{{/unless}}", "Unknown variable in legal document: #if ON"],
+  ["{{#unless MISSING}}\nText\n{{/unless}}", "Unknown flag in legal document: MISSING"],
   ["{{toString}}", "Unknown variable in legal document: toString"],
 ])("%s fails instead of rendering literally", (body, message) => {
   expect(() => renderTemplate(body, values)).toThrow(message);

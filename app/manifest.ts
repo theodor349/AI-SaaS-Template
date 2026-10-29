@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { appConfig } from "@/app.config";
+import { billingEnabled } from "@/convex/billing/plans";
 import { AUTHENTICATED_DESTINATION } from "@/lib/auth";
 import { manifestIcons, manifestScreenshots } from "@/lib/pwa/assets";
 import { themeColors } from "@/lib/theme";
@@ -22,6 +23,6 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color: themeColors.light,
     icons: manifestIcons(),
     screenshots: manifestScreenshots(),
-    shortcuts: [billingShortcut, accountShortcut],
+    shortcuts: billingEnabled ? [billingShortcut, accountShortcut] : [accountShortcut],
   };
 }

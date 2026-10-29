@@ -50,3 +50,23 @@ test("effective dates must be real calendar dates", () => {
     expect(() => effectiveDate(value)).toThrow("effective date");
   }
 });
+
+test("an app without billing publishes no terms for purchases or payment providers", () => {
+  const config = { ...appConfig, billing: false };
+  for (const slug of legalSlugs) {
+    const { markdown, description } = loadLegalDocument(slug, { config, appUrl });
+    expect(`${description}\n${markdown}`).not.toMatch(/Polar|Resend|withdrawal|subscription|refund|payment|purchase|\/billing|buy/i);
+  }
+  const billed = loadLegalDocument("privacy", { appUrl, config: { ...appConfig, billing: true } }).markdown;
+  expect(billed).toContain("[Polar](https://polar.sh/legal/privacy-policy)");
+  expect(billed).toContain("## Payments");
+});
+
+test("terms number their sections without gaps, with or without billing", () => {
+  for (const billing of [true, false]) {
+    const { markdown } = loadLegalDocument("terms", { appUrl, config: { ...appConfig, billing } });
+    const numbers = [...markdown.matchAll(/^## (\d+)\. /gm)].map(([, number]) => Number(number));
+    expect(numbers).toEqual(numbers.map((_, index) => index + 1));
+    expect(numbers.length).toBe(billing ? 13 : 9);
+  }
+});

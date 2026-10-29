@@ -35,6 +35,14 @@ export function mainCheckoutRoot(root) {
 
 const pathHash = (root) => createHash("sha256").update(root).digest("hex");
 
+// The `billing` setting in the checkout's app.config.ts. Read as text because
+// Node warns on every run when a script imports that TypeScript module.
+export function billingEnabled(root) {
+  const matches = [...readFileSync(join(root, "app.config.ts"), "utf8").matchAll(/^\s*billing:\s*(true|false)\s*,?\s*$/gm)];
+  if (matches.length !== 1) throw new Error("app.config.ts must set `billing: true,` or `billing: false,` on a line of its own.");
+  return matches[0][1] === "true";
+}
+
 export function worktreeId(root) {
   return `wt-${pathHash(root).slice(0, 12)}`;
 }

@@ -11,11 +11,12 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { CookiePreferences } from "@/components/consent/cookie-preferences";
 import { useInstallPrompt } from "@/components/pwa/use-install-prompt";
 import { api } from "@/convex/_generated/api";
+import { billingEnabled } from "@/convex/billing/plans";
 import styles from "./site-navigation.module.css";
 
 const accountPages = [
   { href: "/account", label: "Account", icon: Settings },
-  { href: "/billing", label: "Billing", icon: CreditCard },
+  ...billingEnabled ? [{ href: "/billing", label: "Billing", icon: CreditCard }] : [],
 ];
 const legalPages = [
   { href: "/privacy", label: "Privacy Policy", icon: Shield },

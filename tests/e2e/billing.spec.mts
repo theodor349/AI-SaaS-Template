@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { clerk } from "@clerk/testing/playwright";
 import { expect, test } from "@playwright/test";
+import { appConfig } from "../../app.config";
 import { ConvexHttpClient } from "convex/browser";
 import { createPolar } from "@polar-sh/sdk/2026-10";
 import { api, internal } from "../../convex/_generated/api";
@@ -16,6 +17,8 @@ import { interceptConvexSync } from "./convex-sync.mjs";
 import { captureEvidence } from "./evidence.mjs";
 
 const local = resolveLocalTestConfig();
+
+test.skip(!appConfig.billing, "billing is off in app.config.ts");
 const authenticatedDestination = resolveAuthenticatedDestination(local.env.NEXT_PUBLIC_AUTHENTICATED_DESTINATION);
 
 test("selected plan opens checkout once after authentication; success URL alone cannot grant access", { tag: "@critical" }, async ({ page }) => {

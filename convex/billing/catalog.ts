@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation, query } from "../lib/functions";
 import schema from "../schema";
+import { requireBilling } from "./lib";
 import { billingModel } from "./plans";
 
 export const products = query({
@@ -13,6 +14,7 @@ export const products = query({
     taxBehavior: v.string(),
   })),
   handler: async (ctx) => {
+    requireBilling();
     const rows = await ctx.db.query("billingProducts").take(3);
     return rows.map(({ model, name, amount, currency, taxBehavior }) => ({
       model,

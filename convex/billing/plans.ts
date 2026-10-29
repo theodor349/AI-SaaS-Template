@@ -1,7 +1,14 @@
 import { v, type Infer } from "convex/values";
+import { appConfig } from "../../app.config";
 
 // Shared by Convex functions and the Next app, so keep this module free of
 // server-only imports such as `_generated/server`.
+
+// Whether the app sells plans, from app.config.ts. When it doesn't, every
+// active user has paid access and the billing functions refuse with
+// BILLING_DISABLED. Check it at boundaries, not inside billing internals.
+export const billingEnabled = appConfig.billing;
+
 const monthly = v.literal("monthly");
 const yearly = v.literal("yearly");
 const lifetime = v.literal("lifetime");

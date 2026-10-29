@@ -35,6 +35,8 @@ async function prepareFixture(t, { linked = false, typecheckError = false } = {}
   if (typecheckError) await writeFile(join(fixture, "typecheck-error"), "yes");
   for (const name of ["bootstrap.mjs", "bootstrap-output-guard.mjs", "bootstrap-control.mjs", "doctor.mjs"]) await copyFile(script(`./${name}`), join(fixture, name));
   await cp(script("./bootstrap"), join(fixture, "bootstrap"), { recursive: true });
+  // Bootstrap reads the billing switch from the checkout it runs in. These runs sell plans.
+  await writeFile(join(fixture, "app.config.ts"), "export const appConfig = {\n  billing: true,\n};\n");
   // A previous run's derived issuer must not block a different app's key override.
   await writeFile(join(fixture, ".env.local"), environmentFile({
     ...config.env,

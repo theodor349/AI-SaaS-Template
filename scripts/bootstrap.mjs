@@ -4,7 +4,7 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
-  assertIsolatedConvexState, backendEnvKeys, childEnvironment, convexStateFile, gitRoot, mainCheckoutRoot,
+  assertIsolatedConvexState, backendEnvKeys, billingEnabled, childEnvironment, convexStateFile, gitRoot, mainCheckoutRoot,
   readEnvironment, saveEnvironment, worktreeConfig, worktreeCredentials,
 } from "./bootstrap/config.mjs";
 import { assertPortsAvailable, waitForServer } from "./bootstrap/network.mjs";
@@ -30,7 +30,8 @@ and loopback URLs otherwise or when CI is set.
 
 --local      Use loopback URLs without checking Tailscale.
 --tailscale  Require Tailscale HTTPS URLs.
---no-polar   Start without billing credentials or webhook forwarding.
+--no-polar   Start without billing credentials or webhook forwarding. Always
+             on when app.config.ts sets billing: false.
 --detach     Run in the background, detached from this terminal, and return once
              the run has started. Output goes only to the log. Stop it with
              pnpm bootstrap:stop; it also stops when the worktree is removed.
@@ -205,6 +206,8 @@ async function runServices({ root, config, credentials, polar, browserEnv, env, 
     const setBackendEnvironment = async (runner) => {
       await runner.run(["env", "set", "--from-file", backendEnvFile, "--force"], { command: tool("convex") });
       if (!backendEnv.MAINTENANCE_MODE) await runner.run(["env", "remove", "MAINTENANCE_MODE"], { command: tool("convex") });
+      // Without a token the backend treats Polar as unconfigured, even after a run that set one.
+      if (!backendEnv.POLAR_ACCESS_TOKEN) await runner.run(["env", "remove", "POLAR_ACCESS_TOKEN"], { command: tool("convex") });
     };
     // Lives beside the database, so pnpm db:reset clears it with the environment it records.
     const appliedEnvFile = join(dirname(stateFile), "bootstrap-env.sha256");
@@ -273,6 +276,9 @@ export async function bootstrap({ argv = process.argv.slice(2) } = {}) {
   }
   const root = gitRoot();
   process.chdir(root);
+  // An app that doesn't sell plans never needs Polar, as if run with --no-polar.
+  const billing = billingEnabled(root);
+  if (!billing) options.polar = false;
   const config = worktreeConfig(root);
   const network = resolveNetwork(config, options);
   if (options.print) {
@@ -314,6 +320,8 @@ export async function bootstrap({ argv = process.argv.slice(2) } = {}) {
     for (const warning of checks.warnings) say(`Warning: ${warning}`, process.stderr);
     if (checks.errors.length) throw new Error(`${checks.errors.join(" ")} Run pnpm setup:check for details.`);
     const credentials = worktreeCredentials(root, mainRoot, options.polar);
+    // Its local backend also gets no Polar token, like a deployment without Polar.
+    if (!billing) for (const key of Object.keys(credentials)) if (key.startsWith("POLAR_")) delete credentials[key];
     assertIsolatedConvexState(root);
     await assertPortsAvailable(config.ports);
     controller.signal.throwIfAborted();

@@ -3,7 +3,7 @@ import { appConfig } from "../../app.config";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { env } from "../_generated/server";
-import { accountForCustomer, accountForUser, productModel, scheduledRetries } from "./lib";
+import { accountForCustomer, accountForUser, productModel, requireBilling, scheduledRetries } from "./lib";
 import { billingModel, planLabels } from "./plans";
 import { exportMany, exportTime } from "../lib/dataExport";
 import { sendEmail } from "../lib/email";
@@ -50,6 +50,7 @@ export const purchases = query({
     })),
   })),
   handler: async (ctx) => {
+    requireBilling();
     const user = await getCurrentUser(ctx);
     const account = user?.lifecycle === "active" ? await accountForUser(ctx, user._id) : null;
     if (!user || !account) {
@@ -207,6 +208,7 @@ export const request = mutation({
   returns: v.null(),
   alwaysLog: true,
   handler: async (ctx, { orderId }) => {
+    requireBilling();
     const user = await requireUser(ctx);
     const account = await accountForUser(ctx, user._id);
     if (!account) {

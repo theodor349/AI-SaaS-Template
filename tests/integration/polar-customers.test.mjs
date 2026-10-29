@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { createPolar } from "@polar-sh/sdk/2026-10";
+import { billingEnabled } from "../../scripts/bootstrap/config.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 import { testTokenIdentifier } from "../../scripts/test-identity.mjs";
 
@@ -16,7 +17,7 @@ async function eventually(read, done) {
 
 // The unit tests mock Polar, so this pins the provider behavior that
 // customerByExternalId in convex/billing/polar.ts relies on.
-test("Polar search finds a customer by an external ID holding the issuer URL, and stops after deletion", async () => {
+test("Polar search finds a customer by an external ID holding the issuer URL, and stops after deletion", { skip: !billingEnabled(process.cwd()) && "billing is off in app.config.ts" }, async () => {
   const local = resolveLocalTestConfig();
   const polar = createPolar({
     accessToken: local.env.POLAR_ACCESS_TOKEN, environment: "sandbox", organizationId: local.env.POLAR_ORGANIZATION_ID,

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { ConvexHttpClient } from "convex/browser";
 import { internal } from "../convex/_generated/api.js";
+import { billingEnabled } from "./bootstrap/config.mjs";
 import { resolveLocalTestConfig } from "./local-test-config.mjs";
 import { testExternalCustomerId } from "./test-identity.mjs";
 
@@ -47,11 +48,13 @@ export async function seedPaidTestUser(user, model = "lifetime", paid = true, { 
     firstName: user.name, updatedAt: Date.now() }, eventAt: Date.now() });
   const customerId = `fixture-${local.config.id}-${user.id}`;
   const externalId = testExternalCustomerId(local, user.id);
+  const subscriptionId = `fixture-sub-${user.id}`;
+  // Without billing every provisioned user already has paid access.
+  if (!billingEnabled(local.config.root)) return { customerId, externalId, subscriptionId };
   await client.mutation(internal.billing.state.enqueue, { customerId, externalId });
   const now = Date.now();
   const productId = local.env[`POLAR_PRODUCT_${model.toUpperCase()}`];
   if (!productId) throw new Error("Billing fixtures need configured sandbox products");
-  const subscriptionId = `fixture-sub-${user.id}`;
   await publishBillingSnapshot({
     customerId, externalId,
     subscriptions: model === "lifetime" ? [] : [{ id: subscriptionId, productId, status: "active",

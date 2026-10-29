@@ -23,6 +23,10 @@ export type AppConfig = {
   keywords?: string[];
   // The Open Graph image, app icon, and install screenshot colors, as hex. Match app/icon.svg.
   brandColors: { background: `#${string}`; foreground: `#${string}`; muted: `#${string}` };
+  // Whether the app sells Pro plans through Polar. With false, every signed-in user
+  // gets full access, no Polar setting is needed, and pricing, billing, checkout,
+  // and the payment parts of the legal documents disappear. See docs/deployment.md.
+  billing: boolean;
 };
 
 export const appConfig = {
@@ -37,4 +41,5 @@ export const appConfig = {
   socialProfiles: [],
   xHandle: null,
   brandColors: { background: "#161b1d", foreground: "#f9fbfb", muted: "#a3b1b5" },
+  billing: true,
 } satisfies AppConfig;

@@ -3,7 +3,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
-import { worktreeConfig, worktreeCredentials } from "./bootstrap/config.mjs";
+import { billingEnabled, worktreeConfig, worktreeCredentials } from "./bootstrap/config.mjs";
 import { assertPortsAvailable } from "./bootstrap/network.mjs";
 import { bootstrapPaths, inspectState, liveStatuses, readState } from "./bootstrap/state.mjs";
 
@@ -164,7 +164,7 @@ export function preflight({ polar = true, root, mainRoot, env = process.env } = 
   return { warnings, errors };
 }
 
-function credentialChecks(root, mainRoot) {
+function credentialChecks(root, mainRoot, billing) {
   const settings = settingsCheck(root, mainRoot, false);
   const results = [settings.check];
   let credentials;
@@ -174,6 +174,10 @@ function credentialChecks(root, mainRoot) {
     return { results };
   }
   results.push(ok("Clerk keys", `pk_test_… and sk_test_… for ${new URL(credentials.CLERK_JWT_ISSUER_DOMAIN).host}`));
+  if (!billing) {
+    results.push(skip("Polar", "billing is off in app.config.ts, so no Polar settings are needed"));
+    return { results, credentials };
+  }
   const polarFix = "Billing stays off until set; `pnpm bootstrap --no-polar` works meanwhile.";
   results.push(credentials.POLAR_ACCESS_TOKEN
     ? ok("Polar token", "POLAR_ACCESS_TOKEN is set")
@@ -308,12 +312,13 @@ export async function doctor({ offline = false } = {}) {
   const { root, mainRoot } = checkoutRoots();
   const packageJson = readPackageJson(root);
   const config = worktreeConfig(root);
-  const { results: credentialResults, credentials } = credentialChecks(root, mainRoot);
+  const billing = billingEnabled(root);
+  const { results: credentialResults, credentials } = credentialChecks(root, mainRoot, billing);
   const network = (checks) => offline ? undefined : checks();
   const [pnpm, clerk, polar, tailscale, gh, playwright, ports] = await Promise.all([
     pnpmVersion(),
     credentials ? network(() => clerkChecks(credentials)) : [skip("Clerk API", "Clerk keys do not resolve")],
-    network(() => polarChecks(credentials)),
+    billing ? network(() => polarChecks(credentials)) : [],
     command("tailscale", ["status", "--json"]).then(output => {
       try { return tailscaleChecks(JSON.parse(output)); } catch { return tailscaleChecks(); }
     }),

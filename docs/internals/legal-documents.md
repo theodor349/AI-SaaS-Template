@@ -2,11 +2,13 @@
 
 The privacy, terms, and cookie documents are shared Markdown in [content/legal](../../content/legal), filled in from the app config, `NEXT_PUBLIC_APP_URL`, and two registries: the [consent service registry](../../lib/consent/services.ts) for the cookie table and analytics section and [subprocessors](../../lib/legal/subprocessors.ts) for the privacy policy. The [template syntax](../../lib/legal/template.ts) throws on any unknown name, and the pages render while prerendering, so a typo or a missing `NEXT_PUBLIC_APP_URL` fails the build. When a service starts storing anything in the browser, or a new provider processes personal data, register it there; the documents follow.
 
+Text about purchases, payments, withdrawal, and Polar sits in `{{#if BILLING}}` sections, with `{{#unless BILLING}}` for the free app's wording, and subprocessors marked `billing` are listed only when the app sells plans. An app with `billing: false` in the app config publishes no terms for purchases it doesn't sell. The terms' headings carry no numbers in the source; front matter `numbered: true` numbers them while rendering, so a dropped section leaves no gap. Name a terms section rather than citing its number.
+
 The app doesn't ask users to accept the terms or privacy policy and doesn't record acceptance, because nothing it does needs explicit consent. The terms apply when someone starts using the app, so sign-up leads straight to checkout or the product. If a future feature needs explicit consent, collect it in Clerk's sign-up, which can require accepting legal documents and records when the user did, rather than adding a page or a Convex record.
 
-Bump a document's front matter `version` for a material change; corrections only change `effective`. Terms section 11 promises to tell users about a material change before it applies, by email or in the app, and to refund prepaid time to users who cancel because of it.
+Bump a document's front matter `version` for a material change; corrections only change `effective`. The terms' "Changes to these terms" section promises to tell users about a material change before it applies, by email or in the app, and to refund prepaid time to users who cancel because of it.
 
-Section 4 of the terms states that checkout doesn't ask buyers to waive the 14-day withdrawal right, so withdrawal always gives a full refund. If checkout ever adds an express request to start the service immediately, rewrite that section and the [withdrawal flow](../../convex/billing/withdrawals.ts) to match: Danish consumer law then allows a proportionate charge, and the buyer needs a confirmation on a durable medium.
+The terms' "Your 14-day right of withdrawal" section states that checkout doesn't ask buyers to waive the 14-day withdrawal right, so withdrawal always gives a full refund. If checkout ever adds an express request to start the service immediately, rewrite that section and the [withdrawal flow](../../convex/billing/withdrawals.ts) to match: Danish consumer law then allows a proportionate charge, and the buyer needs a confirmation on a durable medium.
 
 ## Withdrawal function
 

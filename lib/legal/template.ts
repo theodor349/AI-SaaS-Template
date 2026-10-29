@@ -1,11 +1,13 @@
 // Legal documents are Markdown with front matter and three kinds of placeholder,
 // all resolved before rendering:
 //
-//   {{APP_NAME}}                a variable
-//   {{block:subprocessors}}     generated Markdown, written on its own line
-//   {{#if ANALYTICS}}…{{/if}}   a section kept only when the flag is on
+//   {{APP_NAME}}                      a variable
+//   {{block:subprocessors}}           generated Markdown, written on its own line
+//   {{#if ANALYTICS}}…{{/if}}         a section kept only when the flag is on
+//   {{#unless BILLING}}…{{/unless}}   a section kept only when the flag is off
 //
-// An unknown name throws, so a typo fails the build instead of rendering literally.
+// Each section marker also removes the line break right after it, so sections
+// can sit on their own lines. An unknown name throws, so a typo fails the build instead of rendering literally.
 export type TemplateValues = {
   variables: Record<string, string>;
   blocks: Record<string, string>;
@@ -13,7 +15,7 @@ export type TemplateValues = {
 };
 
 const frontMatterPattern = /^---\n([\s\S]*?)\n---\n/;
-const sectionPattern = /\{\{#if ([^}]*)\}\}\n?([\s\S]*?)\{\{\/if\}\}\n?/g;
+const sectionPattern = /\{\{#(if|unless) ([^}]*)\}\}\n?([\s\S]*?)\{\{\/\1\}\}\n?/g;
 const placeholderPattern = /\{\{([^}]*)\}\}/g;
 
 // Reads flat `key: value` front matter; values are plain strings.
@@ -38,8 +40,8 @@ function lookup<T>(values: Record<string, T>, kind: string, name: string) {
 export function renderTemplate(body: string, { variables, blocks, flags }: TemplateValues) {
   // Sections do not nest; a nested or unmatched marker is left for the
   // placeholder pass below, which rejects it.
-  const sections = body.replace(sectionPattern, (_, name: string, content: string) =>
-    lookup(flags, "flag", name) ? content : "");
+  const sections = body.replace(sectionPattern, (_, kind: string, name: string, content: string) =>
+    lookup(flags, "flag", name) === (kind === "if") ? content : "");
   return sections.replace(placeholderPattern, (_, token: string) => {
     if (token.startsWith("block:")) return lookup(blocks, "block", token.slice("block:".length)).trimEnd();
     return lookup(variables, "variable", token);

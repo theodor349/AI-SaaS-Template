@@ -1,4 +1,6 @@
 import { CreditCard, Database, UserRound } from "lucide-react";
+import { billingEnabled } from "@/convex/billing/plans";
+import { cn } from "@/lib/utils";
 
 const features = [
   {
@@ -11,11 +13,11 @@ const features = [
     title: "A realtime foundation",
     description: "Next.js and Convex connect the interface to live data, with Shadcn and Tailwind providing the building blocks.",
   },
-  {
+  ...billingEnabled ? [{
     icon: CreditCard,
     title: "Paid access, connected",
     description: "Polar handles checkout and subscriptions. Manage your plan and billing from the customer portal.",
-  },
+  }] : [],
 ];
 
 export function LandingFeatures() {
@@ -26,7 +28,7 @@ export function LandingFeatures() {
         <h2 id="features-heading" className="text-3xl font-semibold tracking-tight sm:text-4xl">The essentials, already in place.</h2>
         <p className="max-w-xl leading-relaxed text-muted-foreground">A shared foundation for AI SaaS projects, ready to shape around your own product.</p>
       </div>
-      <div className="grid gap-8 border-y py-8 sm:grid-cols-3">
+      <div className={cn("grid gap-8 border-y py-8", billingEnabled ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
         {features.map(({ icon: Icon, title, description }) => (
           <article key={title} className="flex flex-col items-start gap-4">
             <Icon aria-hidden="true" size={24} strokeWidth={1.5} />

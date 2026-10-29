@@ -1,6 +1,6 @@
-import type { Doc, Id } from "../_generated/dataModel";
+import type { Id } from "../_generated/dataModel";
 import { env } from "../_generated/server";
-import { billingModels, type BillingModel } from "./plans";
+import { billingEnabled, billingModels, type BillingModel } from "./plans";
 import { appError } from "../lib/errors";
 import type { QueryCtx } from "../lib/functions";
 import { isActive, requireUser } from "../lib/users";
@@ -78,17 +78,30 @@ export async function operationForUser(ctx: Pick<QueryCtx, "db">, userId: Id<"us
     .unique();
 }
 
+// Every public billing function starts here, so an app that sells nothing
+// refuses them before any provider request.
+export function requireBilling() {
+  if (!billingEnabled) {
+    throw appError("BILLING_DISABLED");
+  }
+}
+
 // Paid queries use materialized expiry, maintained by a durable scheduled mutation.
 // Mutations/actions also verify the deadline at execution time.
 export async function requirePro(ctx: QueryCtx, now?: number) {
   const user = await requireUser(ctx);
-  if (!hasPaidAccess(await accountForUser(ctx, user._id), now)) {
+  if (!await hasPaidAccess(ctx, user._id, now)) {
     throw appError("PAID_ACCESS_REQUIRED");
   }
   return user;
 }
 
-function hasPaidAccess(account: Doc<"billingAccounts"> | null, now?: number) {
+// With billing off every user has paid access, and no billing row is read.
+async function hasPaidAccess(ctx: Pick<QueryCtx, "db">, userId: Id<"users">, now?: number) {
+  if (!billingEnabled) {
+    return true;
+  }
+  const account = await accountForUser(ctx, userId);
   const expired = now !== undefined && account?.paidThrough !== undefined && account.paidThrough <= now;
   return account?.status === "active" && !expired;
 }
@@ -98,7 +111,7 @@ function hasPaidAccess(account: Doc<"billingAccounts"> | null, now?: number) {
 // Applies requirePro's rule and never throws. Pass `now` from mutations and
 // actions, as with requirePro.
 export async function hasPaidPro(ctx: Pick<QueryCtx, "db">, userId: Id<"users">, now?: number) {
-  return hasPaidAccess(await accountForUser(ctx, userId), now) && isActive(await ctx.db.get("users", userId));
+  return await hasPaidAccess(ctx, userId, now) && isActive(await ctx.db.get("users", userId));
 }
 
 export function billingReturnUrl(value: string) {
