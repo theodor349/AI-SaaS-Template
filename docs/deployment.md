@@ -86,7 +86,7 @@ On the Convex project's **production deployment**, set:
 | `CLERK_SECRET_KEY` | Matching Clerk development secret key. |
 | `CLERK_WEBHOOK_SIGNING_SECRET` | Signing secret of the dedicated hosted Clerk webhook below. |
 | `POLAR_ENVIRONMENT` | `sandbox`. |
-| `POLAR_ACCESS_TOKEN` | A token for the existing Polar sandbox organization, including the `refunds:read` and `refunds:write` scopes for withdrawals. |
+| `POLAR_ACCESS_TOKEN` | The production app token from [Polar tokens](#polar-tokens), created in the existing Polar sandbox organization. |
 | `POLAR_ORGANIZATION_ID` | That sandbox organization's ID. |
 | `POLAR_PRODUCT_MONTHLY` | Monthly fixed-price sandbox product ID. |
 | `POLAR_PRODUCT_YEARLY` | Yearly fixed-price sandbox product ID. |
@@ -145,6 +145,84 @@ Keep the local bootstrap's Polar forwarding separate. The hosted endpoint needs
 to receive events even when no local environment is running. Shared sandbox
 events reach multiple listeners; billing ignores customers from other deployment
 namespaces. Changing shared products affects every environment using them.
+
+## Polar tokens
+
+An app needs up to three Polar organization access tokens. Organization tokens
+can't create other tokens, so the maintainer creates each one: on the
+organization's **Settings > Access Tokens** page, choose **Create token**, give it
+a name, pick the expiry and select the scopes. The page is
+`https://sandbox.polar.sh/dashboard/<organization>/settings/access-tokens` in the
+sandbox and `https://polar.sh/dashboard/<organization>/settings/access-tokens` in
+production. Sandbox and production organizations can share a name, so check the
+organization ID before using a token.
+
+Each token's scopes below are grouped one resource to a line, sorted
+alphabetically, so you can find each one in Polar's scope list.
+
+### Sandbox development token
+
+Create it in the sandbox organization. It goes in the main checkout's
+`.env.bootstrap.local` as `POLAR_ACCESS_TOKEN`, and the same value goes in the
+`POLAR_ACCESS_TOKEN` [Depot CI secret](#checks-and-launch). Choose 365 days, and
+renew it in both places.
+
+- `checkouts:read`, `checkouts:write`
+- `customer_sessions:write`
+- `customers:read`, `customers:write`
+- `discounts:read`, `discounts:write`
+- `orders:read`
+- `organizations:read`
+- `products:read`, `products:write`
+- `refunds:read`, `refunds:write`
+- `subscriptions:read`, `subscriptions:write`
+- `webhooks:read`, `webhooks:write`
+
+### Production app token
+
+Create it in the production organization. A deployment that runs on the sandbox,
+like this repository's `cloud-dev`, gets its own token from the sandbox
+organization instead. It goes in the Convex production deployment's
+`POLAR_ACCESS_TOKEN`. Choose no expiration: an expired token stops checkout, the
+customer portal and withdrawal refunds until someone replaces it.
+
+- `checkouts:read`, `checkouts:write`
+- `customer_sessions:write`
+- `customers:read`, `customers:write`
+- `orders:read`
+- `organizations:read`
+- `products:read`
+- `refunds:read`, `refunds:write`
+- `subscriptions:read`, `subscriptions:write`
+
+### Production setup token
+
+Create it in the production organization for setting up products, discount codes
+and the webhook endpoint. It goes in a credentials file under
+`$(git rev-parse --git-common-dir)`, such as a migration's `credentials.env`, as
+`POLAR_PRODUCTION_SETUP_TOKEN`, never on Convex or in `.env.bootstrap.local`.
+Choose 7 days, or 30 days when a migration needs it until cutover, and revoke it
+once setup is done.
+
+- `discounts:read`, `discounts:write`
+- `organizations:read`
+- `products:read`, `products:write`
+- `webhooks:read`, `webhooks:write`
+
+Relinking an old app's customers also needs `customers:read` and
+`customers:write`. Setting the organization's default tax behavior through the
+API needs `organizations:write`.
+
+### Where the scopes come from
+
+The production app token's scopes match the calls in
+[`convex/billing/polar.ts`](../convex/billing/polar.ts): customers, checkouts,
+customer portal sessions, subscription changes, orders and refunds for
+withdrawals, and the products and organization that `syncCatalog` reads. The
+sandbox token adds what worktrees and CI use: `webhooks:read` and `webhooks:write`
+for bootstrap's `polar listen` and `pnpm polar:trigger`, `discounts:read` and
+`discounts:write` for the discount-code E2E test, which skips without them, and
+`products:write` to create the sandbox products through the API. When code starts calling another Polar endpoint, add its scope here.
 
 ## Pausing the app
 
@@ -211,7 +289,7 @@ history: `printf '%s' "$VALUE" | depot ci secrets add NAME --repo owner/repo`.
 | --- | --- |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Clerk development publishable key (`pk_test_...`). |
 | `CLERK_SECRET_KEY` | Matching Clerk development secret key (`sk_test_...`). |
-| `POLAR_ACCESS_TOKEN` | Sandbox organization access token, including the `refunds:read` and `refunds:write` scopes. The discount-code test also needs `discounts:read` and `discounts:write` to create its own code, and skips without them. |
+| `POLAR_ACCESS_TOKEN` | The sandbox development token from [Polar tokens](#polar-tokens). |
 | `POLAR_ORGANIZATION_ID` | Optional; needed when the token can access several organizations. |
 | `POLAR_PRODUCT_MONTHLY`, `POLAR_PRODUCT_YEARLY`, `POLAR_PRODUCT_LIFETIME` | The sandbox product IDs. |
 

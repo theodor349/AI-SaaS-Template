@@ -26,7 +26,7 @@ test("remote URLs resolve to lowercase owner/name for SSH and HTTPS", () => {
   assert.equal(repoFromRemoteUrl("https://gitlab.com/o/r.git"), undefined);
 });
 
-test("required checks decide what to wait for, while any failure needs action", () => {
+test("missing required checks count as pending, and without repository rules every check is required", () => {
   const checkRuns = [
     { name: "Unit tests", status: "completed", conclusion: "success", app: { slug: "github-actions" } },
     { name: "Preview", status: "in_progress", conclusion: null, app: { slug: "vercel" } },
@@ -39,10 +39,10 @@ test("required checks decide what to wait for, while any failure needs action", 
     ["Docs", "pending", false],
     ["Lint and typecheck", "pending", true],
   ]);
-  assert.equal(summary.requiredPending, 1);
+  assert.equal(summary.pending, 3);
 
   const fallback = classifyChecks({ checkRuns: checkRuns.slice(0, 2), statuses: [{ context: "Vercel", state: "failure" }], required: { known: false, contexts: [], reason: "HTTP 403" } });
-  assert.equal(fallback.requiredPending, 1);
+  assert.ok(fallback.checks.every((check) => check.required));
   assert.equal(fallback.failed, 1);
   assert.match(fallback.requiredSource, /HTTP 403.*treating all checks as required/);
 });
@@ -124,6 +124,19 @@ test("blockers and pending work map to action and waiting exit codes", () => {
   assert.equal(detachedDirty.verdict.detail, "Worktree");
   const elsewhereDirty = evaluate(snapshot({ git: { branch: "other", onPrBranch: false, localHead: older, dirty: [" M a.mjs"] } }), now);
   assert.notEqual(elsewhereDirty.verdict.detail, "Worktree");
+});
+
+test("a pending check that is not required still waits, while a skipped one passes", () => {
+  const now = minutesAfterPush(15);
+  const required = { known: true, contexts: ["Unit tests"], mergeQueue: false };
+  const unitTests = { name: "Unit tests", status: "completed", conclusion: "success", app: { slug: "github-actions" } };
+  const e2e = { name: "E2E", status: "queued", conclusion: null, app: { slug: "github-actions" } };
+  const waiting = evaluate(snapshot({ required, checkRuns: [unitTests, e2e] }), now);
+  assert.equal(waiting.verdict.code, 1);
+  assert.equal(waiting.verdict.detail, "Checks");
+
+  const skipped = evaluate(snapshot({ required, checkRuns: [unitTests, { ...e2e, status: "completed", conclusion: "skipped" }] }), now);
+  assert.equal(skipped.verdict.code, 0);
 });
 
 test("a merged PR reports its merge commit and any gate the merged head never met", () => {
