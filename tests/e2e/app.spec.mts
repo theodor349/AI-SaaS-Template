@@ -83,7 +83,8 @@ test("revoked sessions remove protected content and restored cookies cannot re-e
 
 test("signed-out application navigation preserves the requested destination and stays public at sign-in", { tag: "@critical" }, async ({ page }) => {
   await page.goto("/app?tab=profile");
-  await expect(page).toHaveURL(/\/sign-in\?/);
+  // The app's own page, not Clerk's hosted Account Portal on another origin.
+  await expect(page).toHaveURL((url) => url.href.startsWith(`${local.config.env.APP_URL}/sign-in?`));
   const returnTo = new URL(page.url()).searchParams.get("redirect_url");
   expect(returnTo).toBe(`${local.config.env.APP_URL}/app?tab=profile`);
   await clerk.loaded({ page });

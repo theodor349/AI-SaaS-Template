@@ -1,6 +1,6 @@
 import { clerkMiddleware } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
-import { isAuthPath, safeReturnTo } from "./lib/auth";
+import { isAuthPath, safeReturnTo, SIGN_IN_PATH, SIGN_UP_PATH } from "./lib/auth";
 import { consentServices } from "./lib/consent/services";
 import { contentSecurityPolicyHeaders, sentrySecurityEndpoint } from "./lib/security/csp";
 import { sentryDsn } from "./lib/sentry/options";
@@ -50,9 +50,13 @@ const securityHeaders = contentSecurityPolicyHeaders({
   }),
 });
 
+// Server-side redirects, such as auth.protect() for a signed-out visitor, read these
+// paths. Without them Clerk sends visitors to its hosted Account Portal on accounts.<domain>.
+export const clerkOptions = { signInUrl: SIGN_IN_PATH, signUpUrl: SIGN_UP_PATH };
+
 export default clerkMiddleware((_auth, request) => {
   const sanitized = withoutUnsafeReturnTo(request);
   const response = sanitized ? NextResponse.redirect(sanitized) : NextResponse.next();
   for (const [name, value] of Object.entries(securityHeaders)) response.headers.set(name, value);
   return response;
-});
+}, clerkOptions);

@@ -1,6 +1,15 @@
 // @vitest-environment node
-import { expect, test } from "vitest";
-import { withoutUnsafeReturnTo } from "./proxy";
+import { type ClerkMiddlewareAuth, clerkMiddleware } from "@clerk/nextjs/server";
+import { type NextFetchEvent, NextRequest } from "next/server";
+import { expect, test, vi } from "vitest";
+import { clerkOptions, withoutUnsafeReturnTo } from "./proxy";
+
+// Clerk reads its keys when its modules load. A production key's Account Portal
+// fallback would be accounts.app.example.com.
+vi.hoisted(() => {
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = `pk_live_${btoa("clerk.app.example.com$")}`;
+  process.env.CLERK_SECRET_KEY = "sk_live_test";
+});
 
 const request = (url: string, host = new URL(url).host) => new Request(url, { headers: { host } });
 
@@ -29,4 +38,19 @@ test("the public origin replaces the loopback listener origin only when the Host
     .toBeNull();
   expect(withoutUnsafeReturnTo(request(`http://127.0.0.1:3000/sign-in?${evil}`, "other.example"), appUrl)?.href)
     .toBe("http://127.0.0.1:3000/sign-in");
+});
+
+test("signed-out visitors go to the app's own sign-in and sign-up pages with the return path", async () => {
+  const redirect = async (handler: (auth: ClerkMiddlewareAuth) => Promise<void>) => {
+    const response = await clerkMiddleware(handler, clerkOptions)(
+      new NextRequest("https://app.example.com/notes?tab=1", { headers: { "sec-fetch-dest": "document" } }),
+      {} as NextFetchEvent,
+    );
+    return response?.headers.get("location");
+  };
+  const returnTo = `redirect_url=${encodeURIComponent("https://app.example.com/notes?tab=1")}`;
+  expect(await redirect(async (auth) => { await auth.protect(); }))
+    .toBe(`https://app.example.com/sign-in?${returnTo}`);
+  expect(await redirect(async (auth) => (await auth()).redirectToSignUp()))
+    .toBe(`https://app.example.com/sign-up?${returnTo}`);
 });
