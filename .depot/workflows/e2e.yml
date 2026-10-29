@@ -6,10 +6,11 @@ name: E2E
 # so pull requests only run when they carry the `run-e2e` label. Adding the label
 # runs the full suite, and later pushes to the labeled pull request run only the
 # tests tagged @critical. A push cancels a full run still in progress, so to get a
-# full run on the latest commit, remove the label and add it back. Main runs the
-# critical tests nightly rather than on every merge to save CI minutes, and the
-# full suite weekly so tests that rarely run don't go stale. Manual runs use the
-# full suite unless they pick critical.
+# full run on the latest commit, remove the label and add it back. Reopening a
+# labeled pull request also runs the critical tests. Main runs the critical tests
+# nightly rather than on every merge to save CI minutes, and the full suite weekly
+# so tests that rarely run don't go stale. Manual runs use the full suite unless
+# they pick critical.
 on:
   workflow_dispatch:
     inputs:
@@ -23,7 +24,11 @@ on:
     - cron: "17 2 * * 1-6"
     - cron: "17 2 * * 0"
   pull_request:
-    types: [opened, synchronize, reopened, labeled]
+    # Not `opened`. GitHub's APIs create a pull request without labels and add
+    # them in a second call, so opening one with `run-e2e` also sends `labeled`.
+    # Running on both started two runs, and the concurrency group cancelled one,
+    # which GitHub could then show as the head's E2E check.
+    types: [synchronize, reopened, labeled]
 
 permissions:
   contents: read
@@ -63,8 +68,8 @@ jobs:
           suite=full
           if [ "$GITHUB_EVENT_NAME" = schedule ] && [ "$SCHEDULE" != "17 2 * * 0" ]; then suite=critical; fi
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "$DISPATCHED_SUITE" = critical ]; then suite=critical; fi
-          # Adding the label, or opening a pull request that has it, runs the full suite.
-          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$PR_ACTION" != labeled ] && [ "$PR_ACTION" != opened ]; then suite=critical; fi
+          # Adding the label runs the full suite, including at pull request creation.
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$PR_ACTION" != labeled ]; then suite=critical; fi
           echo "suite=$suite" >> "$GITHUB_OUTPUT"
           missing=()
           for name in NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY CLERK_SECRET_KEY POLAR_ACCESS_TOKEN \
