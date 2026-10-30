@@ -133,6 +133,14 @@ function checksGate(summary, pushedAt, now) {
   return { gate: "pass", detail: summary.checks.length ? counts : "no checks reported for head" };
 }
 
+// gh requires a method flag outside a terminal, except on a merge queue, which sets the method itself.
+function mergeCommand({ pr, required, mergeMethods }) {
+  const merge = `gh pr merge ${pr.url} --match-head-commit ${pr.headSha}`;
+  if (required.mergeQueue) return merge;
+  const method = ["squash", "merge", "rebase"].find((name) => mergeMethods[name]);
+  return method ? `${merge} --${method}` : `${merge} (could not read the repository's merge settings; add --squash, --merge or --rebase, whichever it allows)`;
+}
+
 // Pure evaluation of a collected snapshot; see collect() for the shape.
 export function evaluate(snapshot, now = Date.now()) {
   const { pr, git } = snapshot;
@@ -165,7 +173,7 @@ export function evaluate(snapshot, now = Date.now()) {
   else {
     if (blocking("action").length) verdict = { code: EXIT.action, label: "ACTION NEEDED", detail: blocking("action").join(", ") };
     else if (blocking("wait").length) verdict = { code: EXIT.wait, label: "WAITING", detail: blocking("wait").join(", ") };
-    else verdict = { code: EXIT.pass, label: "READY TO MERGE", detail: `gh pr merge ${pr.url} --match-head-commit ${pr.headSha}` };
+    else verdict = { code: EXIT.pass, label: "READY TO MERGE", detail: mergeCommand(snapshot) };
   }
   return { gates, verdict, checks, unresolved, activity: collectActivity(snapshot) };
 }
@@ -220,6 +228,16 @@ async function requiredChecks(repo, base) {
     return { known: true, contexts: [...contexts], mergeQueue: rules.some((rule) => rule.type === "merge_queue") };
   } catch (error) {
     return { known: false, contexts: [], reason: error.message, mergeQueue: false };
+  }
+}
+
+// The API omits these settings for tokens without push access, and a missing setting never selects a method.
+async function mergeMethods(repo) {
+  try {
+    const settings = await ghJson(["api", `repos/${repo}`]);
+    return { squash: settings.allow_squash_merge, merge: settings.allow_merge_commit, rebase: settings.allow_rebase_merge };
+  } catch {
+    return {};
   }
 }
 
@@ -317,9 +335,10 @@ export async function collect(options) {
     mergeCommit: view.mergeCommit?.oid, mergedAt: view.mergedAt || undefined,
   };
   const repo = `repos/${baseRepo}`;
-  const [gitInfo, required, checkRuns, statuses, suites, reviews, comments, reviewComments, threads] = await Promise.all([
+  const [gitInfo, required, methods, checkRuns, statuses, suites, reviews, comments, reviewComments, threads] = await Promise.all([
     gitState(pr),
     requiredChecks(baseRepo, pr.baseRef),
+    mergeMethods(baseRepo),
     ghList(`${repo}/commits/${pr.headSha}/check-runs?per_page=100`, "check_runs"),
     ghList(`${repo}/commits/${pr.headSha}/status?per_page=100`, "statuses"),
     ghList(`${repo}/commits/${pr.headSha}/check-suites?per_page=100`, "check_suites"),
@@ -331,7 +350,7 @@ export async function collect(options) {
   // Check suites are created when GitHub receives the push, so the earliest one approximates push time.
   let pushedAt = suites.map((suite) => suite.created_at).sort()[0];
   if (!pushedAt) pushedAt = (await ghJson(["api", `${repo}/commits/${pr.headSha}`])).commit?.committer?.date;
-  return { pr, git: gitInfo, pushedAt, required, checkRuns, statuses, reviews, comments, reviewComments, threads };
+  return { pr, git: gitInfo, pushedAt, required, mergeMethods: methods, checkRuns, statuses, reviews, comments, reviewComments, threads };
 }
 
 async function main() {

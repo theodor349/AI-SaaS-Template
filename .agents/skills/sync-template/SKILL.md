@@ -15,7 +15,7 @@ A maintainer request to sync authorizes the [complete-worktree](../complete-work
 
 Do not cherry-pick or port template commits into the app. The merge base stays where it was, and the next sync brings those commits again as conflicts.
 
-Merge the sync PR with a merge commit, `gh pr merge --merge`. A squash or rebase merge drops the template parent, and the next sync replays every template commit since the app was created.
+Merge the sync PR with a merge commit, `gh pr merge --merge`. The `pr:gate` verdict line prints `--squash` when the repository allows it, so replace that flag with `--merge`. A squash or rebase merge drops the template parent, and the next sync replays every template commit since the app was created.
 
 ## 1. Find the sync point
 
