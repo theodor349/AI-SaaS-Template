@@ -18,7 +18,7 @@ jobs:
   # when an earlier one fails, so all of them report.
   checks:
     name: Checks
-    runs-on: depot-ubuntu-24.04
+    runs-on: ubicloud-standard-2
     timeout-minutes: 15
     env:
       NEXT_TELEMETRY_DISABLED: "1"

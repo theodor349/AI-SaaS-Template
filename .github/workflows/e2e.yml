@@ -41,7 +41,7 @@ jobs:
       github.event_name != 'pull_request' ||
       (contains(github.event.pull_request.labels.*.name, 'run-e2e') &&
       (github.event.action != 'labeled' || github.event.label.name == 'run-e2e'))
-    runs-on: depot-ubuntu-24.04
+    runs-on: ubicloud-standard-2
     timeout-minutes: 2
     permissions:
       checks: read
@@ -90,9 +90,9 @@ jobs:
           if [ ${#missing[@]} -eq 0 ]; then
             # The nightly critical run skips a main commit that an earlier run of
             # either suite already passed. The weekly full run always runs.
-            # Depot reports each job to GitHub as a check run named "<workflow> / <job>".
+            # GitHub Actions names each job's check run after the job.
             if [ "$GITHUB_EVENT_NAME" = schedule ] && [ "$suite" = critical ]; then
-              passed=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?check_name=E2E%20%2F%20Integration%20and%20E2E" \
+              passed=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?check_name=Integration%20and%20E2E" \
                 --jq '[.check_runs[] | select(.conclusion == "success")] | length')
               if [ "$passed" -gt 0 ]; then
                 echo "::notice title=E2E skipped::$GITHUB_SHA already passed E2E."
@@ -112,7 +112,7 @@ jobs:
     name: Integration and E2E
     needs: preflight
     if: needs.preflight.outputs.available == 'true'
-    runs-on: depot-ubuntu-24.04
+    runs-on: ubicloud-standard-2
     timeout-minutes: 45
     # Job-level so skipped label events never cancel a running suite. A push to a
     # labeled pull request cancels its running full suite and runs the critical
@@ -205,7 +205,7 @@ jobs:
         if: ${{ always() && steps.bootstrap.outcome == 'success' }}
         run: pnpm clerk:sweep --older-than 0s
 
-      # Print logs into the job output, where Depot masks secret values; uploaded
+      # Print logs into the job output, where GitHub masks secret values; uploaded
       # artifacts are not masked. Playwright traces and screenshots stay off
       # because they would capture Clerk session tokens.
       - name: Show bootstrap logs

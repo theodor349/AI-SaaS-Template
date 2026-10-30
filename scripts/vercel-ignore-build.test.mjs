@@ -9,7 +9,7 @@ test("docs, agent files, CI, E2E tests, and dev scripts do not deploy", () => {
       "docs/deployment.md",
       ".agents/skills/implement/SKILL.md",
       ".claude/settings.json",
-      ".depot/workflows/ci.yml",
+      ".github/workflows/ci.yml",
       "tests/e2e/notes.spec.mts",
       "scripts/bootstrap.mjs",
       "scripts/bootstrap/state.mjs",

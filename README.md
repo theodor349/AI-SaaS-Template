@@ -61,7 +61,7 @@ is needed. Agent guidance lives in [AGENTS.md](AGENTS.md).
 
 ## CI and hosted development
 
-Depot CI runs lint, unit tests, and the Next.js build on every pull request.
+GitHub Actions on Ubicloud runners runs lint, unit tests, and the Next.js build on every pull request.
 The E2E workflow runs the integration suite and the `@critical` E2E tests
 against a local stack nightly on `main`, and the full E2E suite weekly on
 `main`. Adding the `run-e2e` label to a pull request runs the full suite, and
