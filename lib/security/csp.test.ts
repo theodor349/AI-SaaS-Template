@@ -58,6 +58,16 @@ test("hosted production allows the Convex cloud and Clerk custom domain, without
   expect(policy["object-src"]).toEqual(["'none'"]);
 });
 
+test("the Vercel toolbar can load on a deployment, and fonts still load from the app", () => {
+  const policy = directives(base);
+  expect(policy["script-src"]).toContain("https://vercel.live");
+  expect(policy["frame-src"]).toContain("https://vercel.live");
+  expect(policy["style-src"]).toContain("https://vercel.live");
+  expect(policy["connect-src"]).toEqual(expect.arrayContaining(["https://vercel.live", "wss://ws-us3.pusher.com"]));
+  expect(policy["img-src"]).toEqual(expect.arrayContaining(["https://vercel.live", "https://vercel.com"]));
+  expect(policy["font-src"]).toEqual(["'self'", "https://vercel.live", "https://assets.vercel.com"]);
+});
+
 test("a consent service's origins join the policy with no other change", () => {
   const widget = defineConsentService({
     id: "widget", category: "analytics", name: "Widget", purpose: "Test.", storage: [],

@@ -26,6 +26,10 @@ export type CspOptions = {
 const clerkChallenges = "https://challenges.cloudflare.com";
 const clerkProtect = "https://*.protect.clerk.com";
 
+// The Vercel toolbar, which loads on deployments for people logged in to Vercel.
+// Vercel lists these origins at https://vercel.com/docs/vercel-toolbar/managing-toolbar.
+const vercelToolbar = "https://vercel.live";
+
 // The Frontend API origin a Clerk publishable key encodes: clerk-js, Clerk's UI, and
 // its API all load from it, on *.clerk.accounts.dev or the production custom domain.
 export function clerkFrontendApi(publishableKey: string | undefined) {
@@ -66,18 +70,20 @@ export function contentSecurityPolicyHeaders(options: CspOptions) {
     "default-src": new Set(["'self'"]),
     // Static pages can't carry a per-request nonce, so Next's inline scripts need
     // 'unsafe-inline'; the allowlist still limits where script files load from.
-    "script-src": new Set(["'self'", "'unsafe-inline'", ...(options.development ? ["'unsafe-eval'"] : []), ...(clerk ? [clerk] : []), clerkChallenges, clerkProtect]),
+    "script-src": new Set(["'self'", "'unsafe-inline'", ...(options.development ? ["'unsafe-eval'"] : []), ...(clerk ? [clerk] : []), clerkChallenges, clerkProtect, vercelToolbar]),
     "connect-src": new Set([
       "'self'",
       ...(options.development ? withWebSocket(options.appUrl).slice(1) : []),
       ...withWebSocket(options.convexUrl),
       ...(clerk ? [clerk] : []),
       "https://clerk-telemetry.com", "https://*.clerk-telemetry.com", `${clerkProtect}:*`,
+      vercelToolbar, "wss://ws-us3.pusher.com",
     ]),
-    "img-src": new Set(["'self'", "data:", "blob:", "https://img.clerk.com"]),
-    "style-src": new Set(["'self'", "'unsafe-inline'"]),
+    "img-src": new Set(["'self'", "data:", "blob:", "https://img.clerk.com", vercelToolbar, "https://vercel.com"]),
+    "style-src": new Set(["'self'", "'unsafe-inline'", vercelToolbar]),
+    "font-src": new Set(["'self'", vercelToolbar, "https://assets.vercel.com"]),
     "worker-src": new Set(["'self'", "blob:"]),
-    "frame-src": new Set([clerkChallenges, clerkProtect]),
+    "frame-src": new Set([clerkChallenges, clerkProtect, vercelToolbar]),
     "frame-ancestors": new Set(["'none'"]),
     "form-action": new Set(["'self'"]),
     "base-uri": new Set(["'self'"]),
