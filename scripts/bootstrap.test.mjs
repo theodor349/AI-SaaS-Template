@@ -185,6 +185,12 @@ test("wildcard listeners are rejected on every service port", async (t) => {
   }
 });
 
+// Resolves on the next request for /version. The T3 Code server sends GET / to
+// newly opened ports, so tests must not treat every request as the code under test.
+async function versionRequest(server) {
+  while ((await once(server, "request"))[0].url !== "/version");
+}
+
 test("readiness waits for a successful HTTP response", async () => {
   let status = 503;
   const server = createHttpServer((request, response) => {
@@ -195,9 +201,9 @@ test("readiness waits for a successful HTTP response", async () => {
   const controller = new AbortController();
   let ready = false;
   try {
-    const pending = bootstrap.waitForServer(`http://127.0.0.1:${server.address().port}/`, controller.signal)
+    const pending = bootstrap.waitForServer(`http://127.0.0.1:${server.address().port}/version`, controller.signal)
       .then(() => { ready = true; });
-    await once(server, "request");
+    await versionRequest(server);
     assert.equal(ready, false);
     status = 200;
     await pending;
@@ -244,7 +250,7 @@ test("stopping active backend supervision preserves the shutdown reason", async 
   const reason = new Error("Bootstrap stopped.");
   try {
     const monitoring = bootstrap.superviseConvex(`http://127.0.0.1:${server.address().port}/version`, controller);
-    await once(server, "request");
+    await versionRequest(server);
     controller.abort(reason);
     await monitoring;
     assert.equal(controller.signal.reason, reason);
@@ -284,7 +290,8 @@ test("a backend that stays unhealthy or unresponsive aborts supervision", { time
 test("a backend that answers within 5 seconds on a loaded machine passes its health check", { timeout: 10000 }, async () => {
   let requests = 0;
   const server = createHttpServer((request, response) => {
-    if (++requests === 1) setTimeout(() => response.end("version"), 3000);
+    if (request.url !== "/version") response.end();
+    else if (++requests === 1) setTimeout(() => response.end("version"), 3000);
     else response.end("version");
   });
   server.listen(0, "127.0.0.1");
@@ -312,9 +319,9 @@ test("a running backend that keeps failing its health checks stops the stack onl
   const controller = new AbortController();
   const monitoring = bootstrap.superviseConvex(`http://127.0.0.1:${server.address().port}/version`, controller);
   try {
-    await once(server, "request");
+    await versionRequest(server);
     t.mock.timers.tick(59_000);
-    await once(server, "request");
+    await versionRequest(server);
     await delay(100);
     assert.equal(controller.signal.aborted, false);
     t.mock.timers.tick(1000);
@@ -335,7 +342,7 @@ test("an exited backend stops the stack at once, without waiting out the window"
   const url = `http://127.0.0.1:${server.address().port}/version`;
   const controller = new AbortController();
   const monitoring = bootstrap.superviseConvex(url, controller);
-  await once(server, "request");
+  await versionRequest(server);
   server.closeAllConnections();
   server.close();
   await once(server, "close");
@@ -349,7 +356,8 @@ test("one slow backend health check does not stop supervision", { timeout: 10000
   let requests = 0;
   const server = createHttpServer((request, response) => {
     // The first check outlasts its timeout, as /version can while a large import loads.
-    if (++requests === 1) setTimeout(() => response.end("version"), 1500);
+    if (request.url !== "/version") response.end();
+    else if (++requests === 1) setTimeout(() => response.end("version"), 1500);
     else response.end("version");
   });
   server.listen(0, "127.0.0.1");
@@ -371,7 +379,8 @@ test("one slow backend health check does not stop supervision", { timeout: 10000
 });
 
 test("Next monitoring allows brief listener restarts and stops cleanly on shutdown", { timeout: 10000 }, async () => {
-  const server = createServer((socket) => socket.end());
+  // Destroy instead of end: an unread request from another client's port probe would keep server.close() waiting.
+  const server = createServer((socket) => socket.destroy());
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const port = server.address().port;

@@ -64,16 +64,19 @@ test("activity lists only comments and reviews updated after the head push", () 
   ]);
 });
 
+const url = "https://github.com/o/r/pull/20";
+
 function snapshot(overrides = {}) {
   const value = {
     pr: {
-      number: 20, url: "https://github.com/o/r/pull/20", title: "fix", state: "OPEN", isDraft: false,
+      number: 20, url, title: "fix", state: "OPEN", isDraft: false,
       baseRepo: "o/r", baseRef: "main", headRepo: "o/r", headRef: "task", headSha: head,
       mergeable: "MERGEABLE", mergeStateStatus: "CLEAN",
     },
     git: { branch: "task", localHead: head, remoteHead: head, onPrBranch: true, dirty: [], baseLabel: "origin/main", baseSha: base, baseIsAncestor: true },
     pushedAt,
     required: { known: true, contexts: [], mergeQueue: false },
+    mergeMethods: { squash: true, merge: true, rebase: true },
     checkRuns: [{ name: "Unit tests", status: "completed", conclusion: "success", app: { slug: "github-actions" } }],
     statuses: [],
     reviews: [], comments: [], reviewComments: [], threads: [],
@@ -86,6 +89,23 @@ test("all gates green yields a ready verdict with the guarded merge command", ()
   const result = evaluate(snapshot(), minutesAfterPush(15));
   assert.deepEqual(result.verdict.code, 0);
   assert.match(result.verdict.detail, new RegExp(`--match-head-commit ${head}`));
+});
+
+test("the merge command uses a method the repository allows, preferring squash", () => {
+  const detail = (mergeMethods) => evaluate(snapshot({ mergeMethods }), minutesAfterPush(15)).verdict.detail;
+  assert.equal(detail({}), `gh pr merge ${url} --match-head-commit ${head} --squash`);
+  assert.match(detail({ squash: false }), / --merge$/);
+  assert.match(detail({ squash: false, merge: false }), / --rebase$/);
+});
+
+test("a merge queue needs no merge method", () => {
+  const result = evaluate(snapshot({ required: { mergeQueue: true } }), minutesAfterPush(15));
+  assert.equal(result.verdict.detail, `gh pr merge ${url} --match-head-commit ${head}`);
+});
+
+test("unreadable merge settings print no method and say a flag is needed", () => {
+  const result = evaluate(snapshot({ mergeMethods: { squash: undefined, merge: undefined, rebase: undefined } }), minutesAfterPush(15));
+  assert.ok(result.verdict.detail.startsWith(`gh pr merge ${url} --match-head-commit ${head} (could not read`));
 });
 
 test("blockers and pending work map to action and waiting exit codes", () => {
