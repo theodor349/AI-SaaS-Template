@@ -267,7 +267,7 @@ test("a backend that stays unhealthy or unresponsive aborts supervision", { time
       const controller = new AbortController();
       try {
         const started = Date.now();
-        await bootstrap.superviseConvex(`http://127.0.0.1:${server.address().port}/version`, controller, { unavailableMs: 1500 });
+        await bootstrap.superviseConvex(`http://127.0.0.1:${server.address().port}/version`, controller, { unavailableMs: 1500, timeoutMs: 500 });
         assert.ok(Date.now() - started >= 1500);
         assert.equal(controller.signal.aborted, true);
         assert.match(controller.signal.reason.message, /Convex backend.*unavailable/);
@@ -281,20 +281,84 @@ test("a backend that stays unhealthy or unresponsive aborts supervision", { time
   }
 });
 
-test("one slow backend health check does not stop supervision", { timeout: 10000 }, async () => {
+test("a backend that answers within 5 seconds on a loaded machine passes its health check", { timeout: 10000 }, async () => {
   let requests = 0;
   const server = createHttpServer((request, response) => {
-    // The first check outlasts its timeout, as /version can while a large import loads.
-    if (++requests === 1) setTimeout(() => response.end("version"), 2500);
+    if (++requests === 1) setTimeout(() => response.end("version"), 3000);
     else response.end("version");
   });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const controller = new AbortController();
+  const monitoring = bootstrap.superviseConvex(`http://127.0.0.1:${server.address().port}/version`, controller, { unavailableMs: 0 });
+  try {
+    await delay(4500);
+    assert.equal(controller.signal.aborted, false);
+    assert.equal(requests, 2);
+  } finally {
+    controller.abort();
+    await monitoring;
+    server.closeAllConnections();
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("a running backend that keeps failing its health checks stops the stack only after 60 seconds", { timeout: 15000 }, async (t) => {
+  t.mock.timers.enable({ apis: ["Date"] });
+  const server = createHttpServer((request, response) => response.writeHead(503).end());
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const controller = new AbortController();
   const monitoring = bootstrap.superviseConvex(`http://127.0.0.1:${server.address().port}/version`, controller);
   try {
-    // The slow check times out after 2 seconds and the next one starts a second later.
-    await delay(3500);
+    await once(server, "request");
+    t.mock.timers.tick(59_000);
+    await once(server, "request");
+    await delay(100);
+    assert.equal(controller.signal.aborted, false);
+    t.mock.timers.tick(1000);
+    await monitoring;
+    assert.match(controller.signal.reason.message, /Convex backend.*unavailable.*HTTP 503/);
+  } finally {
+    controller.abort();
+    server.closeAllConnections();
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("an exited backend stops the stack at once, without waiting out the window", { timeout: 10000 }, async () => {
+  const server = createHttpServer((request, response) => response.end("version"));
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const url = `http://127.0.0.1:${server.address().port}/version`;
+  const controller = new AbortController();
+  const monitoring = bootstrap.superviseConvex(url, controller);
+  await once(server, "request");
+  server.closeAllConnections();
+  server.close();
+  await once(server, "close");
+  const stoppedAfter = Date.now();
+  await monitoring;
+  assert.ok(Date.now() - stoppedAfter < 5000);
+  assert.match(controller.signal.reason.message, /Convex backend.*unavailable.*nothing is listening/);
+});
+
+test("one slow backend health check does not stop supervision", { timeout: 10000 }, async () => {
+  let requests = 0;
+  const server = createHttpServer((request, response) => {
+    // The first check outlasts its timeout, as /version can while a large import loads.
+    if (++requests === 1) setTimeout(() => response.end("version"), 1500);
+    else response.end("version");
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const controller = new AbortController();
+  const monitoring = bootstrap.superviseConvex(`http://127.0.0.1:${server.address().port}/version`, controller, { timeoutMs: 1000 });
+  try {
+    // The slow check times out after 1 second and the next one starts a second later.
+    await delay(2500);
     assert.equal(controller.signal.aborted, false);
     assert.equal(requests, 2);
   } finally {

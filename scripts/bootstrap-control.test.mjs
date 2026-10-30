@@ -148,3 +148,28 @@ test("a reclaimed run is marked stopped only when nothing it owned remains", asy
   };
   assert.deepEqual(await attempt({ signal: exited, removeRoutes: replacing }), { ok: false, status: "starting" });
 });
+
+test("reclaiming a failed run keeps its error and clears a cleanup failure that no longer applies", async (t) => {
+  const file = join(temporary(t, "bootstrap reclaim failed "), "bootstrap-state.json");
+  const route = { port: 51000, target: "http://127.0.0.1:20000" };
+  const recorded = {
+    version: 1, pid: 4242, processStart: "gone", status: "failed", error: "Convex backend is unavailable.",
+    proxyCleanupError: "Tailscale cleanup failed: timed out", services: [], tailscale: { hostname: "agent.example.ts.net", createdRoutes: [route] },
+  };
+  const messages = [];
+  const quiet = { log: (message) => messages.push(message), warn: () => {}, table: async () => "1 0 1\n" };
+
+  writeState(file, recorded);
+  const blocked = async () => ({ removed: [], kept: [], blocked: [route] });
+  assert.equal(await reclaim(file, recorded, { ...quiet, removeRoutes: blocked }), false);
+  assert.equal(readState(file).status, "failed");
+  assert.equal(readState(file).proxyCleanupError, recorded.proxyCleanupError);
+
+  const removed = async () => ({ removed: [route], kept: [], blocked: [] });
+  assert.equal(await reclaim(file, recorded, { ...quiet, removeRoutes: removed }), true);
+  const reclaimed = readState(file);
+  assert.equal(reclaimed.status, "stopped");
+  assert.equal(reclaimed.error, recorded.error);
+  assert.equal(reclaimed.proxyCleanupError, undefined);
+  assert.doesNotMatch(messages[0], /exited without cleaning up/);
+});

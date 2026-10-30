@@ -88,6 +88,34 @@ test("failed rollback reports cleanup failure without masking the original start
   assert.match(reported.mock.calls[0].arguments[0], /Cleanup status timed out/);
 });
 
+test("failed rollback goes to the given report, and the routes it left stay recorded", async () => {
+  const fake = fakeTailscale(remote.ports.convex);
+  let setupFailed = false;
+  const reports = [];
+  const recorded = [];
+  const command = args => {
+    if (setupFailed && args[1] === "status") throw new Error("Cleanup status timed out");
+    try { return fake.command(args); }
+    catch (error) { setupFailed = true; throw error; }
+  };
+  await assert.rejects(serveWorktree(local, remote, {
+    command, portsAvailable: portsFree, report: message => reports.push(message), onRoutes: ({ created }) => recorded.push(created.map(route => route.port)),
+  }), /Serve setup failed/);
+  assert.match(reports[0], /Tailscale cleanup failed: Cleanup status timed out/);
+  assert.deepEqual(recorded.at(-1), [remote.ports.next]);
+});
+
+test("cleanup forgets the routes it removed or no longer owns", async () => {
+  const fake = fakeTailscale();
+  const recorded = [];
+  const cleanup = await serveWorktree(local, remote, {
+    command: fake.command, portsAvailable: portsFree, onRoutes: ({ created }) => recorded.push(created.map(route => route.port)),
+  });
+  assert.deepEqual(recorded.at(-1), [remote.ports.next, remote.ports.convex, remote.ports.site]);
+  cleanup();
+  assert.deepEqual(recorded.at(-1), []);
+});
+
 test("Tailscale is used by default only with a running node and HTTPS certificates", () => {
   const running = { BackendState: "Running", Self: { DNSName: "Agent.Example.ts.net." }, CertDomains: ["agent.example.ts.net"] };
   const unused = () => { throw new Error("status must not be read"); };

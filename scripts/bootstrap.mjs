@@ -11,7 +11,7 @@ import { assertPortsAvailable, waitForServer } from "./bootstrap/network.mjs";
 import { preflight } from "./doctor.mjs";
 import { createSupervisor, exitReason, superviseConvex, superviseNext, superviseWorktree, watchConvexPush } from "./bootstrap/processes.mjs";
 import { reclaim } from "./bootstrap/reclaim.mjs";
-import { bootstrapPaths, createStateRecorder, inspectState, liveStatuses, missedWebhooks, openLog, readState } from "./bootstrap/state.mjs";
+import { bootstrapPaths, createStateRecorder, inspectState, liveStatuses, missedWebhooks, openLog, readState, reclaimableStatuses } from "./bootstrap/state.mjs";
 import { chooseNetwork, cleanupProxies, readTailscaleStatus, serveWorktree, tailscaleConfig } from "./bootstrap/tailscale.mjs";
 
 export {
@@ -62,8 +62,9 @@ function resolveNetwork(config, options) {
   return network.mode === "tailscale" ? { ...network, remote: tailscaleConfig(config, network.dnsName) } : network;
 }
 
-// A previous supervisor that died without its shutdown left services and routes
-// behind; reclaim them before this run replaces the state file that records them.
+// A previous supervisor that died without its shutdown, or whose shutdown failed,
+// left services or routes behind; reclaim them before this run replaces the state
+// file that records them.
 async function reclaimPreviousRun(stateFile) {
   const assertNotRunning = (current) => {
     if (liveStatuses.includes(current.status)) {
@@ -73,7 +74,7 @@ async function reclaimPreviousRun(stateFile) {
   const recorded = readState(stateFile);
   const current = inspectState(recorded);
   assertNotRunning(current);
-  if (current.status === "stale" && !(await reclaim(stateFile, recorded))) {
+  if (reclaimableStatuses.includes(current.status) && !(await reclaim(stateFile, recorded))) {
     // Another bootstrap may have claimed the state file meanwhile.
     assertNotRunning(inspectState(readState(stateFile)));
     throw new Error("The previous bootstrap left services or routes behind that could not be reclaimed.");
@@ -342,6 +343,12 @@ export async function bootstrap({ argv = process.argv.slice(2) } = {}) {
   const watchingWorktree = superviseWorktree([join(root, ".git"), dirname(paths.state)], controller);
   let failure;
   let cleanup;
+  // A detached run has no terminal, so this also goes to the log and the state file.
+  let proxyCleanupError;
+  const reportProxyCleanup = (message) => {
+    proxyCleanupError = message;
+    say(message, process.stderr);
+  };
   try {
     const mainRoot = mainCheckoutRoot(root);
     const checks = preflight({ polar: options.polar, root, mainRoot });
@@ -354,10 +361,12 @@ export async function bootstrap({ argv = process.argv.slice(2) } = {}) {
     await assertPortsAvailable(config.ports);
     controller.signal.throwIfAborted();
     if (remote) {
-      cleanup = await serveWorktree(config, remote);
-      state.update({ tailscale: {
-        hostname: remote.hostname, ports: remote.ports, createdRoutes: cleanup.created, preservedRoutes: cleanup.preserved,
-      } });
+      cleanup = await serveWorktree(config, remote, {
+        report: reportProxyCleanup,
+        onRoutes: ({ created, preserved }) => state.update({ tailscale: {
+          hostname: remote.hostname, ports: remote.ports, createdRoutes: created, preservedRoutes: preserved,
+        } }),
+      });
     }
     const browserEnv = remote?.env ?? {};
     const env = serviceEnvironment(config, credentials, browserEnv);
@@ -381,8 +390,8 @@ export async function bootstrap({ argv = process.argv.slice(2) } = {}) {
   } finally {
     controller.abort(new Error("Bootstrap stopped."));
     await watchingWorktree;
-    if (cleanup && !cleanupProxies(cleanup)) failure ??= new Error("Tailscale proxy cleanup failed; check tailscale serve status.");
-    state.update({ status: failure ? "failed" : "stopped", error: failure?.message });
+    if (cleanup && !cleanupProxies(cleanup, reportProxyCleanup)) failure ??= new Error("Tailscale proxy cleanup failed; check tailscale serve status.");
+    state.update({ status: failure ? "failed" : "stopped", error: failure?.message, proxyCleanupError });
     if (failure) say(`Bootstrap: ${failure.message}`, process.stderr);
     await new Promise((resolveLog) => log.end(resolveLog));
     removeStopListeners();

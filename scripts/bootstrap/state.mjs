@@ -5,6 +5,8 @@ import { processStart } from "./processes.mjs";
 // The state file is the ownership record for a running bootstrap. It lives in
 // this worktree's Git admin directory, so it is per worktree and never tracked.
 export const liveStatuses = ["starting", "ready", "stopping"];
+// Runs that ended without a verified shutdown, so their record may name leftovers.
+export const reclaimableStatuses = ["stale", "failed"];
 
 export function bootstrapPaths(root) {
   const gitPath = (name) => execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-path", name], { cwd: root, encoding: "utf8" }).trim();

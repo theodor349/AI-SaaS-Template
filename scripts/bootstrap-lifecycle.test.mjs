@@ -18,7 +18,7 @@ const processTable = () => execFileSync("ps", ["-eo", "pid=,ppid=,pgid="], { enc
 
 // Prepares a fresh repository, or a linked worktree of one, where the real
 // bootstrap runs against stand-in pnpm and ps commands.
-async function prepareFixture(t, { linked = false, typecheckError = false } = {}) {
+async function prepareFixture(t, { linked = false, typecheckError = false, tailscale = false } = {}) {
   const base = await mkdtemp(join(tmpdir(), "bootstrap lifecycle with spaces "));
   let fixture = base;
   if (linked) {
@@ -109,6 +109,27 @@ async function prepareFixture(t, { linked = false, typecheckError = false } = {}
       process.stdout.write(execFileSync(${JSON.stringify(realPs)}, process.argv.slice(2)));
     }
   `, { mode: 0o700 });
+  // Keeps its serve config in a file, and fails to remove a route while tailscale-off-fails exists.
+  if (tailscale) await writeFile(join(fixture, "bin/tailscale"), `#!/usr/bin/env node
+    const { existsSync, readFileSync, writeFileSync } = require("node:fs");
+    const args = process.argv.slice(2);
+    const serve = existsSync("tailscale-serve.json") ? JSON.parse(readFileSync("tailscale-serve.json", "utf8")) : { TCP: {}, Web: {} };
+    const hostname = "agent.example.ts.net";
+    if (args[0] === "status") console.log(JSON.stringify({ BackendState: "Running", Self: { DNSName: hostname + "." }, CertDomains: [hostname] }));
+    else if (args[1] === "status") console.log(JSON.stringify(serve));
+    else {
+      const port = args.find((arg) => arg.startsWith("--https=")).split("=")[1];
+      if (args.at(-1) !== "off") {
+        serve.TCP[port] = { HTTPS: true };
+        serve.Web[hostname + ":" + port] = { Handlers: { "/": { Proxy: args.at(-1) } } };
+      } else {
+        if (existsSync("tailscale-off-fails")) { console.error("tailscale timed out"); process.exit(1); }
+        delete serve.TCP[port];
+        delete serve.Web[hostname + ":" + port];
+      }
+      writeFileSync("tailscale-serve.json", JSON.stringify(serve));
+    }
+  `, { mode: 0o700 });
   const env = { ...process.env, PATH: `${join(fixture, "bin")}:${process.env.PATH}` };
   const gitPath = (name) => execFileSync("git", ["-C", root, "rev-parse", "--path-format=absolute", "--git-path", name], { encoding: "utf8" }).trim();
   // Starters add process groups to signal and teardown steps before the fixture is removed.
@@ -153,7 +174,7 @@ async function startFixture(t) {
 async function startDetachedFixture(t, options) {
   const fixtureState = await prepareFixture(t, options);
   const { fixture, root, env } = fixtureState;
-  const shell = spawn("sh", ["-c", '"$0" "$1" --detach --local && echo launcher-exited && sleep 60', process.execPath, join(root, "bootstrap.mjs")], {
+  const shell = spawn("sh", ["-c", '"$0" "$1" --detach "$2" && echo launcher-exited && sleep 60', process.execPath, join(root, "bootstrap.mjs"), options?.tailscale ? "--tailscale" : "--local"], {
     cwd: fixture, detached: true, stdio: ["ignore", "pipe", "pipe"], env,
   });
   const shellClosed = once(shell, "close");
@@ -357,6 +378,60 @@ test("a detached bootstrap reports a typecheck error from the first push without
   assert.ok(await exitedWithin(fixture.supervisorPid, 5000), "The supervisor stopped its services and exited");
   await assertPortsAvailable(fixture.config.ports);
   assert.equal(existsSync(join(fixture.root, "next.pid")), false);
+});
+
+test("a failed run records a Tailscale cleanup failure beside its own error, and later commands remove the routes", { timeout: 40000 }, async (t) => {
+  const fixture = await startDetachedFixture(t, { typecheckError: true, tailscale: true });
+  await writeFile(join(fixture.root, "tailscale-off-fails"), "yes");
+  const routes = async () => Object.keys(JSON.parse(await readFile(join(fixture.root, "tailscale-serve.json"), "utf8")).TCP).length;
+  const wait = await control(fixture, ["wait", "--timeout", "15"]);
+  assert.equal(wait.code, 1, wait.output);
+  assert.ok(await exitedWithin(fixture.supervisorPid, 5000), "The supervisor exited");
+
+  const failed = JSON.parse(await readFile(fixture.statePath, "utf8"));
+  assert.equal(failed.status, "failed");
+  assert.match(failed.error, /could not push the Convex functions/);
+  assert.match(failed.proxyCleanupError, /Tailscale cleanup failed.*tailscale serve/);
+  assert.equal(failed.tailscale.createdRoutes.length, 3);
+  assert.match(await readFile(fixture.logPath, "utf8"), /Tailscale cleanup failed/);
+  assert.equal(await routes(), 3);
+  assert.match((await control(fixture, ["status"])).output, /Tailscale cleanup failed[\s\S]*bootstrap:stop/);
+
+  // While Tailscale still fails, the run stays failed so a later command retries.
+  const blocked = await control(fixture, ["stop"]);
+  assert.equal(blocked.code, 1, blocked.output);
+  assert.equal(JSON.parse(await readFile(fixture.statePath, "utf8")).status, "failed");
+
+  await rm(join(fixture.root, "tailscale-off-fails"));
+  const stop = await control(fixture, ["stop"]);
+  assert.equal(stop.code, 0, stop.output);
+  assert.match(stop.output, /Removed Tailscale routes on ports/);
+  assert.equal(await routes(), 0);
+  const reclaimed = JSON.parse(await readFile(fixture.statePath, "utf8"));
+  assert.equal(reclaimed.status, "stopped");
+  assert.match(reclaimed.error, /could not push the Convex functions/);
+  assert.equal(reclaimed.proxyCleanupError, undefined);
+});
+
+test("the next bootstrap removes the routes a failed run left behind", { timeout: 40000 }, async (t) => {
+  const fixture = await startDetachedFixture(t, { typecheckError: true, tailscale: true });
+  await writeFile(join(fixture.root, "tailscale-off-fails"), "yes");
+  await control(fixture, ["wait", "--timeout", "15"]);
+  assert.ok(await exitedWithin(fixture.supervisorPid, 5000), "The supervisor exited");
+  const serveFile = join(fixture.root, "tailscale-serve.json");
+  assert.equal(Object.keys(JSON.parse(await readFile(serveFile, "utf8")).TCP).length, 3);
+  await rm(join(fixture.root, "tailscale-off-fails"));
+  await rm(join(fixture.root, "typecheck-error"));
+
+  const next = await control(fixture, ["--detach", "--local"], "bootstrap.mjs");
+  assert.equal(next.code, 0, next.output);
+  assert.match(next.output, /Removed Tailscale routes on ports/);
+  assert.equal(Object.keys(JSON.parse(await readFile(serveFile, "utf8")).TCP).length, 0);
+  const started = JSON.parse(await readFile(fixture.statePath, "utf8"));
+  fixture.groups.push(started.pid);
+  const wait = await control(fixture, ["wait", "--timeout", "10"]);
+  assert.equal(wait.code, 0, wait.output);
+  assert.equal((await control(fixture, ["stop", "--timeout", "10"])).code, 0);
 });
 
 test("a detached bootstrap stops its services when its worktree is removed", { timeout: 20000 }, async (t) => {
