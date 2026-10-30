@@ -5,20 +5,27 @@ import { setTimeout as delay } from "node:timers/promises";
 import { basename } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 
-// Stops the stack once the backend has failed every health check for unavailableMs.
-// A large import or query can keep /version from answering for a few seconds.
-export async function superviseConvex(url, controller, { unavailableMs = 10_000 } = {}) {
+// Stops the stack once the backend process has exited, or once a running backend
+// has failed every health check for unavailableMs. The Convex CLI neither restarts
+// nor exits with its backend, so a refused connection is the sign of an exit. A
+// loaded machine or a large import can keep a live backend from answering for a
+// long time, and a full listen queue makes connections time out, not get refused.
+export async function superviseConvex(url, controller, { unavailableMs = 60_000, timeoutMs = 5000 } = {}) {
   const { signal } = controller;
   let unavailableSince;
   while (!signal.aborted) {
     const checkedAt = Date.now();
     try {
-      const response = await fetch(url, { signal: AbortSignal.any([signal, AbortSignal.timeout(2000)]) });
+      const response = await fetch(url, { signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) });
       await response.body?.cancel();
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       unavailableSince = undefined;
     } catch (error) {
       if (signal.aborted) return;
+      if (error.cause?.code === "ECONNREFUSED") {
+        controller.abort(new Error(`Convex backend is unavailable at ${url}: nothing is listening, so its process has exited.`, { cause: error }));
+        return;
+      }
       unavailableSince ??= checkedAt;
       if (Date.now() - unavailableSince >= unavailableMs) {
         controller.abort(new Error(`Convex backend is unavailable at ${url}: ${error.message}`, { cause: error }));

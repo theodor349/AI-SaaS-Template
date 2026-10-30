@@ -77,7 +77,7 @@ function routesOnlyTo(serve, hostname, { port, target }) {
     handlers?.["/"]?.Proxy === target && Object.keys(handlers).length === 1;
 }
 
-// Removes routes a stopped run recorded as created, while they still point only to
+// Removes routes a stale or failed run recorded as created, while they still point only to
 // its targets and nothing listens there. Changed routes now belong to someone else
 // and are kept; unchanged routes with a listener are blocked until it stops.
 export async function removeRecordedRoutes(hostname, routes, { command = tailscaleCommand, listening = portAcceptsConnections } = {}) {
@@ -97,24 +97,28 @@ export async function removeRecordedRoutes(hostname, routes, { command = tailsca
   return { removed, kept, blocked };
 }
 
-export function cleanupProxies(cleanup) {
+export function cleanupProxies(cleanup, report = console.error) {
   try { cleanup(); return true; }
-  catch (error) { console.error(`Tailscale cleanup failed: ${error.message}`); return false; }
+  catch (error) { report(`Tailscale cleanup failed: ${error.message}`); return false; }
 }
 
-// Returns a cleanup function that removes only routes this run created.
-// Its created/preserved lists are recorded in the bootstrap state file.
-export async function serveWorktree(config, remote, { command = tailscaleCommand, portsAvailable = assertPortsAvailable } = {}) {
+// Returns a cleanup function that removes only routes this run created. onRoutes
+// receives the created and preserved lists whenever they change, for the state
+// file; created empties once cleanup succeeds. report receives a failed rollback.
+export async function serveWorktree(config, remote, { command = tailscaleCommand, portsAvailable = assertPortsAvailable, report, onRoutes = () => {} } = {}) {
   const plans = plannedProxies(config, remote, JSON.parse(command(["serve", "status", "--json"])));
   await portsAvailable(Object.fromEntries(plans.filter(p => p.create).map(p => [`tailscale-${p.port}`, p.port])));
   const created = [];
   const preserved = plans.filter(p => !p.create).map(({ port, target }) => ({ port, target }));
+  const record = () => onRoutes({ created, preserved });
   const cleanup = () => {
     const current = JSON.parse(command(["serve", "status", "--json"]));
     for (const plan of [...created].reverse()) {
       // Only remove routes we created that still point to our original target.
       if (routesOnlyTo(current, remote.hostname, plan)) command(["serve", `--https=${plan.port}`, "off"]);
     }
+    created.length = 0;
+    record();
   };
   try {
     for (const plan of plans.filter(p => p.create)) {
@@ -125,9 +129,11 @@ export async function serveWorktree(config, remote, { command = tailscaleCommand
       }
       command(["serve", "--bg", `--https=${plan.port}`, plan.target]);
       created.push({ port: plan.port, target: plan.target });
+      record();
     }
+    record();
   } catch (error) {
-    cleanupProxies(cleanup);
+    cleanupProxies(cleanup, report);
     throw error;
   }
   return Object.assign(cleanup, { created, preserved });
