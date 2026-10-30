@@ -13,15 +13,39 @@ export function clerkBackend(env) {
   return createClerkClient({ secretKey: env.CLERK_SECRET_KEY });
 }
 
-// Parallel worktrees share the development instance's provider rate limits.
-export async function withProviderRetry(operation) {
+// Clerk's client sets no request timeout, and Node's fetch waits 300 seconds for
+// response headers. Without a limit a lost answer outlasts the test, which then
+// fails with a bare test timeout that names no step.
+const PROVIDER_ATTEMPT_MS = 15_000;
+
+function withinTime(promise, attemptMs) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(Object.assign(new Error(`Clerk did not answer within ${attemptMs} ms`), { timedOut: true })), attemptMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+// Parallel worktrees share the development instance's provider rate limits. A
+// timed out call may still have taken effect, so only a call that's safe to repeat
+// passes `idempotent` to be tried again.
+export async function withProviderRetry(operation, { idempotent = false, attemptMs = PROVIDER_ATTEMPT_MS } = {}) {
   for (let attempt = 0; ; attempt++) {
     try {
-      return await operation();
+      return await withinTime(operation(), attemptMs);
     } catch (error) {
-      if (attempt >= 3 || error.status !== 429) throw error;
+      if (attempt >= 3 || !(error.status === 429 || (idempotent && error.timedOut))) throw error;
       await delay(Math.min(10_000, Math.max(1000 * 2 ** attempt, (error.retryAfter ?? 0) * 1000)));
     }
+  }
+}
+
+// A 404 means an earlier attempt deleted the user and its answer got lost.
+export async function deleteClerkUser(client, userId, options = {}) {
+  try {
+    await withProviderRetry(() => client.users.deleteUser(userId), { idempotent: true, ...options });
+  } catch (error) {
+    if (error.status !== 404) throw error;
   }
 }
 
@@ -43,7 +67,7 @@ export async function createClerkTestUser({ config, env }, { purpose = "local-ag
       publicMetadata: { WORKTREE_ID: config.id, purpose },
     }));
   } catch (error) {
-    const codes = error.errors?.map((detail) => `${detail.code}: ${detail.meta?.paramName ?? "unknown field"}`).join(", ") ?? "unknown";
+    const codes = error.errors?.map((detail) => `${detail.code}: ${detail.meta?.paramName ?? "unknown field"}`).join(", ") ?? error.message;
     throw new Error(`Could not create the dedicated Clerk development test user (${codes}). Check the worktree's Clerk credentials and instance's email/name settings.`);
   }
   return {
@@ -61,9 +85,9 @@ export async function createClerkTestUser({ config, env }, { purpose = "local-ag
     },
     async cleanup() {
       try {
-        await withProviderRetry(() => client.users.deleteUser(user.id));
-      } catch {
-        throw new Error(`Clerk test-user cleanup failed. Remove only user ${user.id} (${email}) from the development instance.`);
+        await deleteClerkUser(client, user.id);
+      } catch (error) {
+        throw new Error(`Clerk test-user cleanup failed (${error.message}). Remove only user ${user.id} (${email}) from the development instance.`);
       }
     },
   };
@@ -92,8 +116,8 @@ export async function findClerkTestUser({ env }, email, client = clerkBackend(en
     async revokeSession(sessionId) {
       try {
         await withProviderRetry(() => client.sessions.revokeSession(sessionId));
-      } catch {
-        throw new Error(`Could not end session ${sessionId} of Clerk user ${user.id}; revoke it in the development instance.`);
+      } catch (error) {
+        throw new Error(`Could not end session ${sessionId} of Clerk user ${user.id} (${error.message}); revoke it in the development instance.`);
       }
     },
   };
