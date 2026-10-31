@@ -134,6 +134,12 @@ Convex sets Sentry's user ID to the caller's Clerk token identifier, which the
 Advanced Data Scrubbing rule to that Sentry project: **Remove** **Anything** from
 `$user`.
 
+In each Sentry project, both the Next.js one and the Convex one, turn on Prevent
+Storing of IP Addresses:
+`sentry api --method PUT projects/<org>/<slug>/ --data '{"scrubIPAddresses":true}'`.
+CSP reports come straight from the browser, so without it Sentry stores the
+visitor's IP.
+
 Local worktree deployments don't report to Sentry. Their errors stay in the structured
 logs, which `pnpm bootstrap` writes to its log file.
 

@@ -76,6 +76,8 @@ Before rehearsing, stop worktree tests from reaching cloud dev. Either give clou
 
 ## Production
 
+At cutover, replace the "This repository's instance" block in `docs/deployment.md` with the app's Vercel, Convex and Sentry projects. My Cali kept the template's block, and complete-worktree reads the Vercel project name from there.
+
 1. **Prepare without downtime.** Set the new env names the old app doesn't read, create a scoped deploy key, and run a production dry run: a fresh export, the transform, then an import into a throwaway local backend and `check`. Also run every cutover script's dry run against production with the real credentials. Freeze the commit the window deploys.
 2. **Drain the old app** right before the window. Pending deletions and other scheduled work run at once on unpause.
 3. **The window:**
