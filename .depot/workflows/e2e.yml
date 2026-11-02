@@ -21,8 +21,8 @@ on:
         default: full
   schedule:
     # Keep the weekly cron in sync with the preflight step that picks the suite.
-    - cron: "17 2 * * 1-6"
-    - cron: "17 2 * * 0"
+    - cron: "0 0 * * 1-6"
+    - cron: "0 0 * * 0"
   pull_request:
     # Not `opened`. GitHub's APIs create a pull request without labels and add
     # them in a second call, so opening one with `run-e2e` also sends `labeled`.
@@ -74,7 +74,7 @@ jobs:
         # unless app.config.ts sets `billing: false`, which skips those tests.
         run: |
           suite=full
-          if [ "$GITHUB_EVENT_NAME" = schedule ] && [ "$SCHEDULE" != "17 2 * * 0" ]; then suite=critical; fi
+          if [ "$GITHUB_EVENT_NAME" = schedule ] && [ "$SCHEDULE" != "0 0 * * 0" ]; then suite=critical; fi
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "$DISPATCHED_SUITE" = critical ]; then suite=critical; fi
           # Adding the label runs the full suite, including at pull request creation.
           if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$PR_ACTION" != labeled ]; then suite=critical; fi
