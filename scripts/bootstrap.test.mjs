@@ -149,7 +149,7 @@ test("an occupied port fails instead of choosing a different worktree URL", asyn
   }
 });
 
-// Some CI sandboxes, such as Depot's, have no IPv6 and refuse to listen on "::".
+// Some CI machines have no IPv6 and refuse to listen on "::".
 async function ipv6Available() {
   const server = createServer();
   try {

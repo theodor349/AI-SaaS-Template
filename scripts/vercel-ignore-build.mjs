@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
 const notDeployed = [
   /^\.agents\//,
   /^\.claude\//,
-  /^\.depot\//,
+  /^\.github\//,
   /^docs\//,
   /^tests\//,
   /^scripts\/(?!sync-maintenance-mode\.mjs$)/,

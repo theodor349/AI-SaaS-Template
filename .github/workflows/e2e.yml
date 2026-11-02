@@ -41,7 +41,7 @@ jobs:
       github.event_name != 'pull_request' ||
       (contains(github.event.pull_request.labels.*.name, 'run-e2e') &&
       (github.event.action != 'labeled' || github.event.label.name == 'run-e2e'))
-    runs-on: depot-ubuntu-24.04
+    runs-on: [self-hosted, ulm]
     timeout-minutes: 2
     permissions:
       checks: read
@@ -90,9 +90,8 @@ jobs:
           if [ ${#missing[@]} -eq 0 ]; then
             # The nightly critical run skips a main commit that an earlier run of
             # either suite already passed. The weekly full run always runs.
-            # Depot reports each job to GitHub as a check run named "<workflow> / <job>".
             if [ "$GITHUB_EVENT_NAME" = schedule ] && [ "$suite" = critical ]; then
-              passed=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?check_name=E2E%20%2F%20Integration%20and%20E2E" \
+              passed=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?check_name=Integration%20and%20E2E" \
                 --jq '[.check_runs[] | select(.conclusion == "success")] | length')
               if [ "$passed" -gt 0 ]; then
                 echo "::notice title=E2E skipped::$GITHUB_SHA already passed E2E."
@@ -112,7 +111,7 @@ jobs:
     name: Integration and E2E
     needs: preflight
     if: needs.preflight.outputs.available == 'true'
-    runs-on: depot-ubuntu-24.04
+    runs-on: [self-hosted, ulm]
     timeout-minutes: 45
     # Job-level so skipped label events never cancel a running suite. A push to a
     # labeled pull request cancels its running full suite and runs the critical
@@ -139,27 +138,15 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: ${{ env.APP_DIR }}/.node-version
-          cache: pnpm
-          cache-dependency-path: ${{ env.APP_DIR }}/pnpm-lock.yaml
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Resolve Playwright version
-        id: playwright
-        run: echo "version=$(pnpm exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
-      - name: Cache Playwright browsers
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
-      - name: Cache Convex local backend
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/convex
-          key: convex-${{ runner.os }}-${{ hashFiles(format('{0}/pnpm-lock.yaml', env.APP_DIR)) }}
-          restore-keys: convex-${{ runner.os }}-
+      # The runner keeps the pnpm store, Playwright browsers and the Convex local
+      # backend in its home directory between runs, so nothing needs caching.
+      # Chromium's system libraries take sudo to install, so ulm has them
+      # installed once instead of through --with-deps.
       - name: Install Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install chromium
 
       - name: Write bootstrap credentials
         env:
@@ -205,7 +192,7 @@ jobs:
         if: ${{ always() && steps.bootstrap.outcome == 'success' }}
         run: pnpm clerk:sweep --older-than 0s
 
-      # Print logs into the job output, where Depot masks secret values; uploaded
+      # Print logs into the job output, where GitHub masks secret values; uploaded
       # artifacts are not masked. Playwright traces and screenshots stay off
       # because they would capture Clerk session tokens.
       - name: Show bootstrap logs
@@ -218,3 +205,9 @@ jobs:
           cat "$(git rev-parse --path-format=absolute --git-path bootstrap.log)" || true
           echo "::endgroup::"
 
+      # The runner keeps its workspace, so remove this run's checkout, which holds
+      # the credentials file and the local Convex database.
+      - name: Remove run checkout
+        if: always()
+        working-directory: ${{ github.workspace }}
+        run: rm -rf "$APP_DIR"

@@ -33,7 +33,7 @@ Merge the sync PR with a merge commit, `gh pr merge --merge`. The `pr:gate` verd
 
   The template version is usually the later one, reworked in the template's review.
 
-- Check the template's E2E result on `main`: `gh api "repos/theodor349/AI-SaaS-Template/commits/main/check-runs?check_name=E2E%20%2F%20Integration%20and%20E2E" --jq '.check_runs[].conclusion'`. The nightly run tests the newest commit with the `@critical` tests and the weekly run with the full suite, so a commit merged since then has no result yet; check its parent. A failure there comes into the app with the merge; fix it in the template as well.
+- Check the template's E2E result on `main`: `gh api "repos/theodor349/AI-SaaS-Template/commits/main/check-runs?check_name=Integration%20and%20E2E" --jq '.check_runs[].conclusion'`. The nightly run tests the newest commit with the `@critical` tests and the weekly run with the full suite, so a commit merged since then has no result yet; check its parent. A failure there comes into the app with the merge; fix it in the template as well.
 - Skills this one links to, such as add-feature, may not exist in the app until the merge brings them. Read them from the template meanwhile: `git show template/main:.agents/skills/add-feature/SKILL.md`.
 
 ## 2. Merge and resolve
@@ -61,7 +61,7 @@ List these in the PR description and hold the merge until the maintainer answers
 ## 4. Verify and complete
 
 - Run `pnpm test:unit`, `pnpm lint` and `pnpm build`. A sync touches shared backend and browser flows, so also run `pnpm test:integration` and `pnpm test:e2e:critical` against this worktree's bootstrap, plus the specs for areas the incoming template commits changed, using the area table in `AGENTS.md`. Leave the full suite to CI. Add whatever else the app's `AGENTS.md` asks for. Template UI changes that the app's users will see need before and after captures.
-- PR E2E runs on Depot only with the `run-e2e` label, so add it to a sync PR. Every test cleanup spends from the local Polar budget, so a full run started soon after another can find it spent. The E2E checkout and recovery steps wait out one `RATE_LIMITED` rejection and retry, so a test that still fails with `RATE_LIMITED` hit the limit twice. Wait a minute for the budget to refill and rerun that test alone before treating it as a regression.
+- PR E2E runs only with the `run-e2e` label, so add it to a sync PR. Every test cleanup spends from the local Polar budget, so a full run started soon after another can find it spent. The E2E checkout and recovery steps wait out one `RATE_LIMITED` rejection and retry, so a test that still fails with `RATE_LIMITED` hit the limit twice. Wait a minute for the budget to refill and rerun that test alone before treating it as a regression.
 - For before captures, stop bootstrap, `git switch --detach origin/main` in this worktree, and start it again. If tests already wrote fields the old schema lacks, `convex dev` refuses the old schema; stop bootstrap and run `pnpm db:reset --yes` first. Switch back to the task branch and restart bootstrap afterwards.
 - Continue into complete-worktree in this session. Title the PR `chore: sync with AI-SaaS-Template`. The description lists the incoming template PRs with links, how each conflicted area was resolved, and the open decisions. Pass along that the merge must use `--merge`.
 
