@@ -18,7 +18,8 @@ jobs:
   # when an earlier one fails, so all of them report.
   checks:
     name: Checks
-    runs-on: depot-ubuntu-24.04
+    # A self-hosted runner on ulm; see docs/deployment.md.
+    runs-on: [self-hosted, ulm]
     timeout-minutes: 15
     env:
       NEXT_TELEMETRY_DISABLED: "1"
@@ -30,7 +31,6 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: .node-version
-          cache: pnpm
       - name: Install dependencies
         id: install
         run: pnpm install --frozen-lockfile

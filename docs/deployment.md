@@ -63,7 +63,7 @@ Leave `ALLOW_SEARCH_INDEXING` unset. Without it, `robots.txt` disallows every
 page, so search engines skip this shared development deployment and worktrees.
 Do not set `CONVEX_DEPLOYMENT` or copy a worktree's `.env.local` into Vercel.
 `convex deploy` supplies `NEXT_PUBLIC_CONVEX_URL` to the Next.js build. Backend
-secrets belong on Convex, not in browser variables or Depot CI; only the
+secrets belong on Convex, not in browser variables or GitHub Actions; only the
 E2E workflow below holds development credentials there.
 
 `pnpm build:vercel` runs application unit tests and lint before invoking
@@ -178,7 +178,7 @@ alphabetically, so you can find each one in Polar's scope list.
 
 Create it in the sandbox organization. It goes in the main checkout's
 `.env.bootstrap.local` as `POLAR_ACCESS_TOKEN`, and the same value goes in the
-`POLAR_ACCESS_TOKEN` [Depot CI secret](#checks-and-launch). Choose 365 days, and
+`POLAR_ACCESS_TOKEN` [GitHub Actions secret](#checks-and-launch). Choose 365 days, and
 renew it in both places.
 
 - `checkouts:read`, `checkouts:write`
@@ -250,7 +250,7 @@ functions fail with `BILLING_DISABLED`, and the billing cron jobs aren't
 registered.
 
 Leave every `POLAR_*` variable unset on Convex, and skip the Polar webhook, the
-Polar tokens, and the Polar Depot secrets. Bootstrap runs as with `--no-polar` and
+Polar tokens, and the Polar GitHub Actions secrets. Bootstrap runs as with `--no-polar` and
 gives the local backend no Polar token, `pnpm setup:check` skips Polar, and the
 integration and E2E suites skip their billing tests. Account deletion skips its
 Polar cleanup while Polar isn't configured. The privacy policy then lists neither
@@ -259,7 +259,7 @@ app sends other email, remove `billing: true` from Resend in
 [`lib/legal/subprocessors.ts`](../lib/legal/subprocessors.ts).
 
 To start selling, set `billing: true` and set up Polar as this page describes: the
-Convex variables, the hosted webhook, the tokens, the Depot secrets, and one
+Convex variables, the hosted webhook, the tokens, the GitHub Actions secrets, and one
 `syncCatalog` run. The terms and privacy policy gain their payment sections, so
 bump both versions and tell users before the change applies.
 
@@ -299,8 +299,8 @@ deployment to match.
 
 ## Checks and launch
 
-[Depot CI](https://depot.dev/docs/ci/overview) runs the workflows in
-[`.depot/workflows`](../.depot/workflows). The [CI workflow](../.depot/workflows/ci.yml)
+GitHub Actions runs the workflows in [`.github/workflows`](../.github/workflows)
+on a [self-hosted runner](#the-ci-runner) on ulm. The [CI workflow](../.github/workflows/ci.yml)
 runs `Lint and typecheck`, `Unit tests`, and `Next.js build` as steps of one
 `Checks` job on every pull request, regardless of source or target branch. It does not run again after a merge: complete-worktree merges a pull
 request only once it contains the latest `main`, so the merge commit holds the
@@ -312,7 +312,7 @@ an earlier one fails, so each reports its failures, and new pushes cancel outdat
 runs. The checks share a job so dependencies install once. Integration and
 browser tests need bootstrap services and run in the E2E workflow below.
 
-The separate [E2E workflow](../.depot/workflows/e2e.yml) runs `pnpm test:integration`
+The separate [E2E workflow](../.github/workflows/e2e.yml) runs `pnpm test:integration`
 and the browser tests against a local bootstrap stack. The nightly run on `main`
 covers only the tests tagged `@critical` and skips a commit that already passed.
 The full suite runs weekly on `main` and on manual dispatch, and a manual run can
@@ -323,10 +323,10 @@ pull request runs the critical tests. A push cancels a full run still in
 progress. To run the full suite on the latest commit, remove the label and add
 it back with `gh pr edit <pr> --remove-label run-e2e` and then
 `gh pr edit <pr> --add-label run-e2e`. A failed nightly run shows as a failed check
-on that `main` commit and in `depot ci run list --status failed`. It needs these
-Depot CI secrets, using the same values as a local `.env.bootstrap.local`. Add
-each one scoped to the repository, piping the value in so it stays out of shell
-history: `printf '%s' "$VALUE" | depot ci secrets add NAME --repo owner/repo`.
+on that `main` commit and in `gh run list --workflow e2e.yml --status failure`. It
+needs these GitHub Actions secrets, using the same values as a local
+`.env.bootstrap.local`. Add each one to the repository, piping the value in so it
+stays out of shell history: `printf '%s' "$VALUE" | gh secret set NAME --repo owner/repo`.
 
 | Secret | Value |
 | --- | --- |
@@ -342,14 +342,12 @@ needs only the Clerk secrets. Without the secrets, as on fork pull requests,
 the workflow reports a notice and skips. Do not make it a required check, since
 unlabeled pull requests never run it.
 
-Jobs run on Depot's `depot-ubuntu-24.04` sandboxes, which are fresh for every
-job and have no IPv6. Depot needs its Code Access GitHub app installed on the
-repository; it reports each job back to GitHub as a check run named
-`<workflow> / <job>`, such as `CI / Checks`. Require `CI / Checks` in a GitHub
-branch ruleset for `main` if merges should be blocked on failures.
+GitHub names each job's check run after the job, such as `Checks`. Require
+`Checks` from GitHub Actions in a GitHub branch ruleset for `main` if merges
+should be blocked on failures.
 
 Vercel independently runs `pnpm test:app` and `pnpm lint` before deployment.
-The dev-server fixtures in `test:bootstrap` run in Depot CI and locally:
+The dev-server fixtures in `test:bootstrap` run in CI and locally:
 Vercel's build worker does not reliably support the
 fixture's loopback rewrite. Application test or lint failures still stop the
 Vercel build before Convex deployment.
@@ -376,3 +374,42 @@ Provider references: [Convex on Vercel](https://docs.convex.dev/production/hosti
 [Vercel Git configuration](https://vercel.com/docs/project-configuration/git-configuration),
 [Clerk environments](https://clerk.com/docs/guides/development/managing-environments),
 [Polar sandbox](https://polar.sh/docs/integrate/sandbox).
+
+## The CI runner
+
+Every job runs on a self-hosted runner on ulm, labeled `self-hosted` and `ulm`,
+so CI uses no GitHub Actions minutes. GitHub registers self-hosted runners per
+repository for personal accounts, so each repository has its own runner in
+`~/actions-runner/<repo>`, run by the systemd user service
+`actions-runner@<repo>`. A runner takes one job at a time, so a running E2E suite
+holds that repository's `Checks` until it ends.
+
+Jobs run as the `ulm` user and can read its files, including the CLI logins in
+its home directory. Register a runner only for a private repository whose pull
+requests come from the maintainers and their agents, and leave the repository's
+"Run workflows from fork pull requests" setting off, as GitHub does by default.
+The runner keeps its workspace and caches between jobs, so the E2E job checks
+out into a per-run directory and removes it, with its credentials file and local
+database, when it ends. Installing Chromium's system libraries takes sudo, which
+jobs don't have, so a maintainer installed them on ulm once with
+`sudo pnpm exec playwright install-deps chromium`.
+
+To give a new app a runner, unpack the runner into its directory, register it,
+and start its service:
+
+```sh
+repo=<repo>
+mkdir ~/actions-runner/$repo
+tar xzf ~/actions-runner/_dist/actions-runner-linux-x64-*.tar.gz -C ~/actions-runner/$repo
+token=$(gh api -X POST repos/theodor349/$repo/actions/runners/registration-token --jq .token)
+~/actions-runner/$repo/config.sh --unattended --url https://github.com/theodor349/$repo \
+  --token "$token" --name ulm-$repo --labels ulm
+systemctl --user enable --now actions-runner@$repo
+```
+
+The service is `~/.config/systemd/user/actions-runner@.service`. It copies the
+runner's own systemd template, which needs root to install, and runs
+`%h/actions-runner/%i/bin/runsvc.sh` with `Restart=always`. The runner updates
+itself when GitHub releases a new version. Lingering is on for `ulm`, so the
+services start at boot without a login. To see whether a repository's runner is
+online, run `gh api repos/theodor349/<repo>/actions/runners`.
