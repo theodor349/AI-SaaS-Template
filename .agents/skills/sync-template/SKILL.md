@@ -33,7 +33,7 @@ Merge the sync PR with a merge commit, `gh pr merge --merge`. The `pr:gate` verd
 
   The template version is usually the later one, reworked in the template's review.
 
-- Check the template's E2E result on `main`: `gh api "repos/theodor349/AI-SaaS-Template/commits/main/check-runs?check_name=Integration%20and%20E2E" --jq '.check_runs[].conclusion'`. The nightly run tests the newest commit with the `@critical` tests and the weekly run with the full suite, so a commit merged since then has no result yet; check its parent. A failure there comes into the app with the merge; fix it in the template as well.
+- Check the template's E2E result on `main`: `gh api "repos/theodor349/AI-SaaS-Template/commits/main/check-runs?check_name=Integration%20and%20E2E" --jq '.check_runs[].conclusion'`. The nightly run, named `Nightly E2E` and started at 00:00 UTC by the `nightly-e2e.timer` unit on ulm, tests the newest commit with the `@critical` tests, and with the full suite on Sundays (UTC). A commit merged since then has no result yet; check its parent. A failure there comes into the app with the merge; fix it in the template as well.
 - Skills this one links to, such as add-feature, may not exist in the app until the merge brings them. Read them from the template meanwhile: `git show template/main:.agents/skills/add-feature/SKILL.md`.
 
 ## 2. Merge and resolve

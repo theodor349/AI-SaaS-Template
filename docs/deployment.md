@@ -315,16 +315,20 @@ browser tests need bootstrap services and run in the E2E workflow below.
 The separate [E2E workflow](../.github/workflows/e2e.yml) runs `pnpm test:integration`
 and the browser tests against a local bootstrap stack. The nightly run on `main`
 covers only the tests tagged `@critical` and skips a commit that already passed.
-The full suite runs weekly on `main` and on manual dispatch, and a manual run can
-pick the critical suite instead. Pull requests run E2E only with the `run-e2e`
-label, so they don't spend the Clerk and Polar rate limits that local agents
+On Sundays (UTC) the nightly runs the full suite instead. Manual dispatch runs
+the full suite unless it picks `critical`; picking `nightly` repeats the nightly
+run's choice. The nightly starts from ulm rather than GitHub's `schedule`
+trigger, as [the CI runner](#the-ci-runner) describes. Pull requests run E2E
+only with the `run-e2e` label, so they don't spend the Clerk and Polar rate limits that local agents
 share. Adding the label runs the full suite, and each later push to the labeled
 pull request runs the critical tests. A push cancels a full run still in
 progress. To run the full suite on the latest commit, remove the label and add
 it back with `gh pr edit <pr> --remove-label run-e2e` and then
 `gh pr edit <pr> --add-label run-e2e`. A failed nightly run shows as a failed check
-on that `main` commit and in `gh run list --workflow e2e.yml --status failure`. It
-needs these GitHub Actions secrets, using the same values as a local
+on that `main` commit and in `gh run list --workflow e2e.yml --status failure`.
+Nightly runs are named `Nightly E2E`, so
+`gh run list --workflow E2E --json displayTitle,conclusion,createdAt` tells them
+apart from pull request and other manual runs. The workflow needs these GitHub Actions secrets, using the same values as a local
 `.env.bootstrap.local`. Add each one to the repository, piping the value in so it
 stays out of shell history: `printf '%s' "$VALUE" | gh secret set NAME --repo owner/repo`.
 
@@ -413,3 +417,11 @@ runner's own systemd template, which needs root to install, and runs
 itself when GitHub releases a new version. Lingering is on for `ulm`, so the
 services start at boot without a login. To see whether a repository's runner is
 online, run `gh api repos/theodor349/<repo>/actions/runners`.
+
+GitHub started `schedule` runs five to six hours late in late 2026, and the app
+health check at 02:00 UTC reads that night's E2E result. So the nightly starts
+from the `nightly-e2e.timer` systemd user unit on ulm instead. At 00:00 UTC it
+runs `gh workflow run E2E --repo theodor349/<repo> --ref main -f suite=nightly`
+for each repository in its list. fleet-management's `SETUP.md` describes the
+unit. When you give a new app a runner, also add the app to that timer's
+repository list, or its nightly never runs.

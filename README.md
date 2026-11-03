@@ -64,8 +64,8 @@ is needed. Agent guidance lives in [AGENTS.md](AGENTS.md).
 GitHub Actions runs lint, unit tests, and the Next.js build on every pull request,
 on a self-hosted runner on ulm.
 The E2E workflow runs the integration suite and the `@critical` E2E tests
-against a local stack nightly on `main`, and the full E2E suite weekly on
-`main`. Adding the `run-e2e` label to a pull request runs the full suite, and
+against a local stack nightly on `main`, and the full E2E suite on Sundays.
+A systemd timer on ulm starts the nightly run. Adding the `run-e2e` label to a pull request runs the full suite, and
 later pushes to that pull request run the `@critical` tests. Only `main`
 deploys to Vercel and Convex. See
 [deployment setup](docs/deployment.md) for the hosted environment, its checks,

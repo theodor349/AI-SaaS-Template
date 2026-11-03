@@ -1,4 +1,8 @@
 name: E2E
+# The nightly app health check finds nightly runs by this name. An empty
+# run-name falls back to GitHub's default: the pull request title, or the
+# workflow name for other manual runs.
+run-name: ${{ inputs.suite == 'nightly' && 'Nightly E2E' || '' }}
 
 # Runs the integration and browser suites against a real local stack: bootstrap's
 # local Convex backend, the shared Clerk development instance, and the shared
@@ -7,22 +11,22 @@ name: E2E
 # runs the full suite, and later pushes to the labeled pull request run only the
 # tests tagged @critical. A push cancels a full run still in progress, so to get a
 # full run on the latest commit, remove the label and add it back. Reopening a
-# labeled pull request also runs the critical tests. Main runs the critical tests
-# nightly rather than on every merge to save CI minutes, and the full suite weekly
-# so tests that rarely run don't go stale. Manual runs use the full suite unless
-# they pick critical.
+# labeled pull request also runs the critical tests.
+#
+# Main runs the critical tests nightly rather than on every merge to save CI
+# minutes, and the full suite on Sundays (UTC) so tests that rarely run don't go
+# stale. GitHub starts `schedule` runs hours late, so the `nightly-e2e.timer`
+# systemd user unit on ulm starts the nightly at 00:00 UTC instead, with
+# `gh workflow run E2E --ref main -f suite=nightly`. Manual runs use the full
+# suite unless they pick critical.
 on:
   workflow_dispatch:
     inputs:
       suite:
-        description: The full suite, or only the tests tagged @critical
+        description: The full suite, only the tests tagged @critical, or nightly, which picks by weekday
         type: choice
-        options: [full, critical]
+        options: [full, critical, nightly]
         default: full
-  schedule:
-    # Keep the weekly cron in sync with the preflight step that picks the suite.
-    - cron: "0 0 * * 1-6"
-    - cron: "0 0 * * 0"
   pull_request:
     # Not `opened`. GitHub's APIs create a pull request without labels and add
     # them in a second call, so opening one with `run-e2e` also sends `labeled`.
@@ -50,12 +54,6 @@ jobs:
       available: ${{ steps.check.outputs.available }}
       suite: ${{ steps.check.outputs.suite }}
     steps:
-      # Only for the billing switch, which decides whether Polar secrets are required.
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-          sparse-checkout: app.config.ts
-          sparse-checkout-cone-mode: false
       - name: Check required secrets
         id: check
         env:
@@ -66,7 +64,6 @@ jobs:
           POLAR_PRODUCT_YEARLY: ${{ secrets.POLAR_PRODUCT_YEARLY }}
           POLAR_PRODUCT_LIFETIME: ${{ secrets.POLAR_PRODUCT_LIFETIME }}
           GH_TOKEN: ${{ github.token }}
-          SCHEDULE: ${{ github.event.schedule }}
           DISPATCHED_SUITE: ${{ inputs.suite }}
           PR_ACTION: ${{ github.event.action }}
         # Integration asserts the three synced Polar products and signed Polar
@@ -74,13 +71,24 @@ jobs:
         # unless app.config.ts sets `billing: false`, which skips those tests.
         run: |
           suite=full
-          if [ "$GITHUB_EVENT_NAME" = schedule ] && [ "$SCHEDULE" != "0 0 * * 0" ]; then suite=critical; fi
-          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "$DISPATCHED_SUITE" = critical ]; then suite=critical; fi
+          nightly=false
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            [ "$DISPATCHED_SUITE" = nightly ] && nightly=true
+            # The nightly runs the full suite on Sundays (UTC) and the critical tests otherwise.
+            if [ "$DISPATCHED_SUITE" = critical ] || { [ "$nightly" = true ] && [ "$(date -u +%u)" != 7 ]; }; then
+              suite=critical
+            fi
+          fi
           # Adding the label runs the full suite, including at pull request creation.
           if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$PR_ACTION" != labeled ]; then suite=critical; fi
           echo "suite=$suite" >> "$GITHUB_OUTPUT"
           required=(NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY CLERK_SECRET_KEY)
-          if ! grep -Eq '^\s*billing:\s*false\s*,?\s*$' app.config.ts; then
+          # Read the billing switch through the API rather than a checkout. The
+          # runner keeps its workspace between jobs, and a sparse checkout here
+          # left it sparse for the next CI job, which then found only this file.
+          config=$(gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/$GITHUB_REPOSITORY/contents/app.config.ts?ref=$GITHUB_SHA")
+          if ! grep -Eq '^\s*billing:\s*false\s*,?\s*$' <<< "$config"; then
             required+=(POLAR_ACCESS_TOKEN POLAR_PRODUCT_MONTHLY POLAR_PRODUCT_YEARLY POLAR_PRODUCT_LIFETIME)
           fi
           missing=()
@@ -88,9 +96,9 @@ jobs:
             [ -n "${!name}" ] || missing+=("$name")
           done
           if [ ${#missing[@]} -eq 0 ]; then
-            # The nightly critical run skips a main commit that an earlier run of
-            # either suite already passed. The weekly full run always runs.
-            if [ "$GITHUB_EVENT_NAME" = schedule ] && [ "$suite" = critical ]; then
+            # The nightly critical run skips a commit that an earlier run of
+            # either suite already passed. The Sunday full run always runs.
+            if [ "$nightly" = true ] && [ "$suite" = critical ]; then
               passed=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?check_name=Integration%20and%20E2E" \
                 --jq '[.check_runs[] | select(.conclusion == "success")] | length')
               if [ "$passed" -gt 0 ]; then
