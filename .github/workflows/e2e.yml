@@ -54,12 +54,6 @@ jobs:
       available: ${{ steps.check.outputs.available }}
       suite: ${{ steps.check.outputs.suite }}
     steps:
-      # Only for the billing switch, which decides whether Polar secrets are required.
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-          sparse-checkout: app.config.ts
-          sparse-checkout-cone-mode: false
       - name: Check required secrets
         id: check
         env:
@@ -89,7 +83,12 @@ jobs:
           if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$PR_ACTION" != labeled ]; then suite=critical; fi
           echo "suite=$suite" >> "$GITHUB_OUTPUT"
           required=(NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY CLERK_SECRET_KEY)
-          if ! grep -Eq '^\s*billing:\s*false\s*,?\s*$' app.config.ts; then
+          # Read the billing switch through the API rather than a checkout. The
+          # runner keeps its workspace between jobs, and a sparse checkout here
+          # left it sparse for the next CI job, which then found only this file.
+          config=$(gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/$GITHUB_REPOSITORY/contents/app.config.ts?ref=$GITHUB_SHA")
+          if ! grep -Eq '^\s*billing:\s*false\s*,?\s*$' <<< "$config"; then
             required+=(POLAR_ACCESS_TOKEN POLAR_PRODUCT_MONTHLY POLAR_PRODUCT_YEARLY POLAR_PRODUCT_LIFETIME)
           fi
           missing=()
