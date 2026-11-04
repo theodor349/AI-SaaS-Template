@@ -394,7 +394,10 @@ requests come from the maintainers and their agents, and leave the repository's
 "Run workflows from fork pull requests" setting off, as GitHub does by default.
 The runner keeps its workspace and caches between jobs, so the E2E job checks
 out into a per-run directory and removes it, with its credentials file and local
-database, when it ends. Installing Chromium's system libraries takes sudo, which
+database, when it ends. The runners for all repositories share the `ulm` home
+directory, where concurrent installs into `pnpm/action-setup`'s default
+`~/setup-pnpm` failed with `ENOTEMPTY`, so each job installs pnpm into its
+runner's temporary directory, which the runner clears between jobs. Installing Chromium's system libraries takes sudo, which
 jobs don't have, so a maintainer installed them on ulm once with
 `sudo pnpm exec playwright install-deps chromium`.
 

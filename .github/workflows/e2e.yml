@@ -143,6 +143,8 @@ jobs:
       - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
         with:
           package_json_file: ${{ env.APP_DIR }}/package.json
+          # Jobs from every runner on ulm share the default ~/setup-pnpm and collide there.
+          dest: ${{ runner.temp }}/setup-pnpm
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: ${{ env.APP_DIR }}/.node-version
