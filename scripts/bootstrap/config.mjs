@@ -20,7 +20,8 @@ export const backendEnvKeys = [
   // Read from this worktree's .env.bootstrap.local, so it can try the paused app.
   "MAINTENANCE_MODE",
 ];
-const localBlocks = 12000;
+// Keeps local ports (10000 + block * 3) below 32768, where Linux starts handing out ports for outgoing connections.
+const localBlocks = 7500;
 const tailscaleBlocks = 5000;
 export const portBlockHelp = `set BOOTSTRAP_PORT_BLOCK=<0-${localBlocks - 1}> in this worktree's .env.bootstrap.local to use a different port block`;
 
