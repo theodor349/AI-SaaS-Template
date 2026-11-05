@@ -642,8 +642,8 @@ test("BOOTSTRAP_PORT_BLOCK moves loopback and Tailscale ports without changing t
     assert.equal(moved.id, derived.id);
     assert.equal(moved.env.APP_URL, "http://127.0.0.1:10021");
     assert.equal(worktreeConfig(worktreeRoot, { portBlock: 5007 }).portBlock.tailscale, 7);
-    for (const value of ["-1", "12000", "1.5", "next"]) {
-      assert.throws(() => bootstrap.portBlockOverride(worktreeRoot, { BOOTSTRAP_PORT_BLOCK: value }), /0 to 11999/);
+    for (const value of ["-1", "7500", "1.5", "next"]) {
+      assert.throws(() => bootstrap.portBlockOverride(worktreeRoot, { BOOTSTRAP_PORT_BLOCK: value }), /0 to 7499/);
     }
   } finally { rmSync(fixture, { recursive: true, force: true }); }
 });
@@ -653,7 +653,7 @@ test("an occupied port explains how to choose another port block", async () => {
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   try {
-    await assert.rejects(assertPortsAvailable({ next: server.address().port }), /BOOTSTRAP_PORT_BLOCK=<0-11999>.*\.env\.bootstrap\.local/);
+    await assert.rejects(assertPortsAvailable({ next: server.address().port }), /BOOTSTRAP_PORT_BLOCK=<0-7499>.*\.env\.bootstrap\.local/);
   } finally {
     server.close();
     await once(server, "close");

@@ -37,7 +37,7 @@ and loopback URLs otherwise or when CI is set.
              pnpm bootstrap:stop; it also stops when the worktree is removed.
 --print      Print the effective configuration without changing anything.
 
-BOOTSTRAP_PORT_BLOCK=<0-11999> in this worktree's .env.bootstrap.local (or the
+BOOTSTRAP_PORT_BLOCK=<0-7499> in this worktree's .env.bootstrap.local (or the
 environment) moves the worktree to another port block when its ports collide.
 Use pnpm bootstrap:status, bootstrap:wait, and bootstrap:stop to control a run.`;
 
