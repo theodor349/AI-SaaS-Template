@@ -48,12 +48,13 @@ test("public pages and JSON/TXT/XML assets stay public while application routes 
       await response.body?.cancel();
       assert.equal(response.status, 200, path);
     }
-    // The proxy does not gate these; the protected group's layout sends signed-out visitors to sign-in.
+    // The proxy sends signed-out visitors to sign-in, with a relative Location for the app's own page.
     for (const path of ["/app", "/app?tab=profile", "/billing", "/checkout?plan=yearly", "/account"]) {
       const response = await fetch(`${config.env.APP_URL}${path}`, { redirect: "manual" });
       await response.body?.cancel();
       assert.equal(response.status, 307, path);
-      const location = new URL(response.headers.get("location"));
+      const location = new URL(response.headers.get("location"), config.env.APP_URL);
+      assert.equal(location.origin, new URL(config.env.APP_URL).origin);
       assert.equal(location.pathname, "/sign-in");
       assert.equal(location.searchParams.get("redirect_url"), `${config.env.APP_URL}${path}`);
     }
