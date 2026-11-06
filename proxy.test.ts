@@ -2,7 +2,7 @@
 import { type ClerkMiddlewareAuth, clerkMiddleware } from "@clerk/nextjs/server";
 import { type NextFetchEvent, NextRequest } from "next/server";
 import { expect, test, vi } from "vitest";
-import { clerkOptions, withoutUnsafeReturnTo } from "./proxy";
+import proxy, { clerkOptions, withoutUnsafeReturnTo } from "./proxy";
 
 // Clerk reads its keys when its modules load. A production key's Account Portal
 // fallback would be accounts.app.example.com.
@@ -53,4 +53,36 @@ test("signed-out visitors go to the app's own sign-in and sign-up pages with the
     .toBe(`https://app.example.com/sign-in?${returnTo}`);
   expect(await redirect(async (auth) => (await auth()).redirectToSignUp()))
     .toBe(`https://app.example.com/sign-up?${returnTo}`);
+});
+
+const post = (contentType: string, actionId?: string) => proxy(
+  new NextRequest("https://app.example.com/index", {
+    method: "POST",
+    headers: { "content-type": contentType, ...(actionId && { "next-action": actionId }) },
+    body: "a=b",
+  }),
+  {} as NextFetchEvent,
+);
+
+test("URL-encoded server action requests get Next's not-found answer instead of a render", async () => {
+  // Next renders its not-found tree without the root layout for these, which throws without ClerkProvider.
+  for (const contentType of ["application/x-www-form-urlencoded", "Application/X-WWW-Form-Urlencoded; charset=UTF-8"]) {
+    const response = await post(contentType, "x");
+    expect(response?.status).toBe(404);
+    expect(response?.headers.get("content-type")).toBe("text/plain");
+    expect(response?.headers.get("x-nextjs-action-not-found")).toBe("1");
+    expect(response?.headers.get("content-security-policy")).toBeTruthy();
+    expect(await response?.text()).toBe("Server action not found.");
+  }
+});
+
+test("other POST requests continue to the app", async () => {
+  for (const response of [
+    await post("application/x-www-form-urlencoded"),
+    await post("text/plain;charset=UTF-8", "x"),
+    await post("multipart/form-data; boundary=x", "x"),
+  ]) {
+    expect(response?.status).toBe(200);
+    expect(response?.headers.get("x-nextjs-action-not-found")).toBeNull();
+  }
 });

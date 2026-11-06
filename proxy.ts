@@ -34,6 +34,20 @@ export function withoutUnsafeReturnTo(request: Request, appUrl = process.env.NEX
   return url;
 }
 
+// Next doesn't support URL-encoded server actions and renders its not-found tree for them,
+// which has no root layout and throws without ClerkProvider. Real clients never send them,
+// so answer like Next does for an unknown action. Scanners probe with these requests.
+function isUrlEncodedServerAction(request: Request) {
+  const mediaType = request.headers.get("content-type")?.split(";")[0].trim().toLowerCase();
+  return request.method === "POST" && request.headers.has("next-action")
+    && mediaType === "application/x-www-form-urlencoded";
+}
+
+const serverActionNotFound = () => new NextResponse("Server action not found.", {
+  status: 404,
+  headers: { "content-type": "text/plain", "x-nextjs-action-not-found": "1" },
+});
+
 // Set here rather than in next.config.js so the policy can read the consent registry,
 // and per response without making static pages dynamic. CSP_REPORT_ONLY=1 reports
 // violations without blocking them, for rolling out a change to the policy.
@@ -54,9 +68,14 @@ const securityHeaders = contentSecurityPolicyHeaders({
 // paths. Without them Clerk sends visitors to its hosted Account Portal on accounts.<domain>.
 export const clerkOptions = { signInUrl: SIGN_IN_PATH, signUpUrl: SIGN_UP_PATH };
 
-export default clerkMiddleware((_auth, request) => {
+function proxyResponse(request: Request) {
+  if (isUrlEncodedServerAction(request)) return serverActionNotFound();
   const sanitized = withoutUnsafeReturnTo(request);
-  const response = sanitized ? NextResponse.redirect(sanitized) : NextResponse.next();
+  return sanitized ? NextResponse.redirect(sanitized) : NextResponse.next();
+}
+
+export default clerkMiddleware((_auth, request) => {
+  const response = proxyResponse(request);
   for (const [name, value] of Object.entries(securityHeaders)) response.headers.set(name, value);
   return response;
 }, clerkOptions);
