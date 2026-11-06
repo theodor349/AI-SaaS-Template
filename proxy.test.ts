@@ -1,5 +1,7 @@
 // @vitest-environment node
+import { readdirSync } from "node:fs";
 import { expect, test } from "vitest";
+import { isSignedInPath, SIGNED_IN_ROUTES } from "./lib/auth";
 import { withoutUnsafeReturnTo } from "./proxy";
 
 const request = (url: string, host = new URL(url).host) => new Request(url, { headers: { host } });
@@ -29,4 +31,17 @@ test("the public origin replaces the loopback listener origin only when the Host
     .toBeNull();
   expect(withoutUnsafeReturnTo(request(`http://127.0.0.1:3000/sign-in?${evil}`, "other.example"), appUrl)?.href)
     .toBe("http://127.0.0.1:3000/sign-in");
+});
+
+// A route group adds nothing to the URL, so the proxy needs the folder list.
+test("every top-level route in app/(protected) sends signed-out visitors to sign-in", () => {
+  const routes = readdirSync(new URL("./app/(protected)", import.meta.url), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !/^[_(]/.test(entry.name))
+    .map((entry) => `/${entry.name}`);
+  expect([...SIGNED_IN_ROUTES].sort()).toEqual(routes.sort());
+});
+
+test("only signed-in routes and their nested paths redirect", () => {
+  for (const path of ["/app", "/app/settings", "/account", "/billing", "/checkout"]) expect(isSignedInPath(path), path).toBe(true);
+  for (const path of ["/", "/apple-icon", "/application", "/terms", "/sign-in", "/checkouts"]) expect(isSignedInPath(path), path).toBe(false);
 });
