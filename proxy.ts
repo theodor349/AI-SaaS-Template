@@ -1,6 +1,6 @@
 import { clerkMiddleware } from "@clerk/nextjs/server";
 import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
-import { isAuthPath, isSignedInPath, safeReturnTo } from "./lib/auth";
+import { isAuthPath, isSignedInPath, safeReturnTo, SIGN_IN_PATH, SIGN_UP_PATH } from "./lib/auth";
 import { consentServices } from "./lib/consent/services";
 import { contentSecurityPolicyHeaders, sentrySecurityEndpoint } from "./lib/security/csp";
 import { sentryDsn } from "./lib/sentry/options";
@@ -58,6 +58,10 @@ const clerk = clerkMiddleware(async (auth, request) => {
   if (isSignedInPath(request.nextUrl.pathname)) await auth.protect();
   const sanitized = withoutUnsafeReturnTo(request);
   return sanitized ? NextResponse.redirect(sanitized) : undefined;
+}, {
+  // Without these, Clerk's redirects go to its hosted Account Portal instead of the app's pages.
+  signInUrl: SIGN_IN_PATH,
+  signUpUrl: SIGN_UP_PATH,
 });
 
 // Clerk turns auth.protect() and its session handshake into redirects of its own, which
