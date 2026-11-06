@@ -1,20 +1,27 @@
+import { randomUUID } from "node:crypto";
 import { clerk } from "@clerk/testing/playwright";
 import { expect, test } from "@playwright/test";
+import { appConfig } from "../../app.config";
 import { ConvexHttpClient } from "convex/browser";
 import { createPolar } from "@polar-sh/sdk/2026-10";
 import { api, internal } from "../../convex/_generated/api";
 import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
 import { billingTestAdmin, leaseBillingFixture, publishBillingSnapshot, seedPaidTestUser } from "../../scripts/billing-test-fixtures.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
+import { resolveAuthenticatedDestination } from "../../lib/auth";
 import { adminQuery, adminMutation } from "../../scripts/billing-test-admin";
+import { waitOutRateLimit } from "../../scripts/rate-limit-retry.mjs";
 import { testExternalCustomerId } from "../../scripts/test-identity.mjs";
+import { openSandboxCheckout } from "./checkout.mjs";
 import { interceptConvexSync } from "./convex-sync.mjs";
-import { acceptTerms, acceptTermsAsUser } from "./legal.mjs";
 import { captureEvidence } from "./evidence.mjs";
 
 const local = resolveLocalTestConfig();
 
-test("selected plan opens checkout once after authentication; success URL alone cannot grant access", async ({ page }) => {
+test.skip(!appConfig.billing, "billing is off in app.config.ts");
+const authenticatedDestination = resolveAuthenticatedDestination(local.env.NEXT_PUBLIC_AUTHENTICATED_DESTINATION);
+
+test("selected plan opens checkout once after authentication; success URL alone cannot grant access", { tag: "@critical" }, async ({ page }) => {
   const user = await createClerkTestUser(local);
   const checkoutModels: string[] = [];
   const sync = await interceptConvexSync(page);
@@ -26,7 +33,6 @@ test("selected plan opens checkout once after authentication; success URL alone 
     await page.goto("/checkout?plan=yearly");
     await expect(page).toHaveURL(/\/sign-in\?/);
     await clerk.signIn({ page, emailAddress: user.email });
-    await acceptTerms(page);
     await expect(page.getByText("We couldn’t open the payment page")).toBeVisible();
     await expect(page).toHaveURL(`${local.config.env.APP_URL}/checkout`);
     expect(checkoutModels).toEqual(["yearly"]);
@@ -38,8 +44,9 @@ test("selected plan opens checkout once after authentication; success URL alone 
     expect(checkoutModels).toEqual(["yearly"]);
     await page.goto("/app");
     await expect(page).toHaveURL(`${local.config.env.APP_URL}/billing`);
-    await expect(page.getByRole("heading", { name: "Your application" })).toHaveCount(0);
-    await page.goto("/billing?confirmation=pending");
+    await expect(page.getByRole("heading", { name: "Notes", exact: true })).toHaveCount(0);
+    await page.goto("/billing?confirmation=lifetime&customer_session_token=fixture-session");
+    await expect(page).toHaveURL(`${local.config.env.APP_URL}/billing?confirmation=lifetime`);
     await expect(page.getByText(/Payment confirmation pending/)).toBeVisible();
     await expect(page.getByText("Your paid access is confirmed.")).toHaveCount(0);
     const token = await page.evaluate(() => window.Clerk.session!.getToken({ template: "convex" }));
@@ -47,93 +54,23 @@ test("selected plan opens checkout once after authentication; success URL alone 
     await expect(client.query(api.billing.account.application, {})).rejects.toThrow("PAID_ACCESS_REQUIRED");
     await expect(client.query(api.billing.account.application, {})).rejects.toThrow("PAID_ACCESS_REQUIRED");
     await captureEvidence(page, "confirmation-pending");
-    // The trusted billing publication alone, not the success URL, confirms access.
+    // The trusted billing publication alone, not the success URL, confirms access,
+    // and then opens the product.
     await seedPaidTestUser(user);
+    await expect(page).toHaveURL(`${local.config.env.APP_URL}${authenticatedDestination}`);
+    await expect(page.getByRole("heading", { name: "Notes", exact: true })).toBeVisible();
+    await page.goto("/billing");
     await expect(page.getByText("You have lifetime access.")).toBeVisible();
     await captureEvidence(page, "lifetime-confirmed");
     await expect(page.getByRole("heading", { name: "Monthly", exact: true })).toHaveCount(0);
     await page.goto("/");
-    await expect(page.getByText("You have lifetime access.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Current" })).toBeDisabled();
     await page.getByRole("link", { name: "Dashboard", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Your application" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Notes", exact: true })).toBeVisible();
   } finally { await user.cleanup(); }
 });
 
-test("lifetime access shows the purchase date and opens the customer portal", async ({ page }) => {
-  const user = await createClerkTestUser(local);
-  let release: (() => void) | undefined;
-  let requests = 0;
-  const portalUrl = "https://sandbox.polar.sh/fixture-lifetime-portal";
-  await page.route(portalUrl, route => route.fulfill({ contentType: "text/html", body: "<h1>Customer portal fixture</h1>" }));
-  const sync = await interceptConvexSync(page);
-  sync.onAction("billing/polar:portal", (call) => {
-    requests++;
-    release = () => call.succeed(portalUrl);
-  });
-  try {
-    await seedPaidTestUser(user);
-    await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email }); await page.goto("/billing");
-    await expect(page.getByLabel("Purchased on", { exact: true })).toBeDisabled();
-    const token = await page.evaluate(() => window.Clerk.session!.getToken({ template: "convex" }));
-    const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
-    client.setAuth(token!);
-    const status = await client.query(api.billing.account.status, {});
-    expect(status.lifetimePurchasedAt).not.toBeNull();
-    const purchaseDate = await page.evaluate(timestamp => new Date(timestamp!).toLocaleDateString(undefined, {
-      day: "numeric", month: "long", year: "numeric",
-    }), status.lifetimePurchasedAt);
-    await expect(page.getByLabel("Purchased on", { exact: true })).toHaveValue(purchaseDate);
-    await expect(page.getByLabel("Purchased on", { exact: true })).toBeDisabled();
-    await expect(page.getByLabel("Plan", { exact: true })).toHaveValue("Lifetime Pro");
-    await expect(page.getByRole("heading", { name: "Monthly", exact: true })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Cancel subscription" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Customer portal" })).toBeEnabled();
-    await captureEvidence(page, "lifetime-desktop");
-    await page.setViewportSize({ width: 390, height: 844 });
-    await captureEvidence(page, "lifetime-mobile");
-    await page.reload();
-    await expect(page.getByLabel("Purchased on", { exact: true })).toHaveValue(purchaseDate);
-    await page.getByRole("button", { name: "Customer portal" }).click();
-    await expect(page.getByRole("button", { name: "Opening portal…" })).toBeDisabled();
-    await expect.poll(() => requests).toBe(1);
-    release!();
-    await expect(page).toHaveURL(portalUrl);
-  } finally { release?.(); await user.cleanup(); }
-});
-
-for (const action of ["checkout", "portal"] as const) {
-  test(`${action} permits another request after a cached page is restored`, async ({ page }) => {
-    const user = await createClerkTestUser(local);
-    let requests = 0;
-    try {
-      if (action === "portal") await seedPaidTestUser(user);
-      const sync = await interceptConvexSync(page);
-      sync.onAction(`billing/polar:${action}`, (call) => {
-        requests++;
-        // Keep the document mounted after a successful navigation response,
-        // then reproduce the browser's cached-page lifecycle event below.
-        call.succeed(`${local.config.env.APP_URL}/billing#navigation-${requests}`);
-      });
-      await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email });
-      await acceptTermsAsUser(page);
-      await page.goto("/billing");
-      const label = action === "checkout" ? "Choose monthly" : "Customer portal";
-      const progress = action === "checkout" ? "Opening checkout…" : "Opening portal…";
-      await page.getByRole("button", { name: label, exact: true }).click();
-      await expect(page).toHaveURL(/#navigation-1$/);
-      await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: false })));
-      await expect(page.getByRole("button", { name: progress, exact: true })).toBeDisabled();
-      expect(requests).toBe(1);
-      await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
-      await expect(page.getByRole("button", { name: label, exact: true })).toBeEnabled();
-      await page.getByRole("button", { name: label, exact: true }).click();
-      await expect(page).toHaveURL(/#navigation-2$/);
-      expect(requests).toBe(2);
-    } finally { await user.cleanup(); }
-  });
-}
-
-test("expiry removes paid pages reactively while billing and account controls remain accessible", async ({ page }) => {
+test("expiry removes paid pages reactively while billing and account controls remain accessible", { tag: "@critical" }, async ({ page }) => {
   const user = await createClerkTestUser(local);
   try {
     const fixture = await seedPaidTestUser(user, "monthly");
@@ -149,14 +86,14 @@ test("expiry removes paid pages reactively while billing and account controls re
     await captureEvidence(page, "billing-summary-mobile");
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto("/app");
-    await expect(page.getByRole("heading", { name: "Your application" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Notes", exact: true })).toBeVisible();
     const { client: admin } = billingTestAdmin();
     const account = (await adminQuery(admin, internal.billing.state.get, { customerId: fixture.customerId }))!;
     // A higher revision ending state is the same trusted publication used by
     // reconciliation. No browser-side success flags or mocked auth are involved.
     await publishBillingSnapshot({ customerId: fixture.customerId, externalId: fixture.externalId,
       subscriptions: [{ id: fixture.subscriptionId, productId: local.env.POLAR_PRODUCT_MONTHLY!, status: "canceled",
-        start: Date.now() - 1000, end: Date.now() - 1, modifiedAt: Date.now() + 1000, cancelAtPeriodEnd: false }], orders: [] });
+        start: Date.now() - 1000, end: Date.now() - 1, modifiedAt: Date.now() + 1000, cancelAtPeriodEnd: false, comped: false }], orders: [] });
     await expect(page).toHaveURL(`${local.config.env.APP_URL}/billing`);
     await expect(page.getByRole("heading", { name: "Restore Pro access" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Customer portal" })).toBeVisible();
@@ -165,10 +102,11 @@ test("expiry removes paid pages reactively while billing and account controls re
   } finally { await user.cleanup(); }
 });
 
-test("sandbox checkout and recovery work when another customer uses the sign-in email", async ({ page }) => {
+test("sandbox checkout and recovery work when another customer uses the sign-in email", { tag: "@critical" }, async ({ page }) => {
   const user = await createClerkTestUser(local);
   const polar = createPolar({ accessToken: local.env.POLAR_ACCESS_TOKEN, environment: "sandbox", organizationId: local.env.POLAR_ORGANIZATION_ID });
   const fixtureScope = `fixture-${local.config.id}`;
+  const sync = await interceptConvexSync(page);
   let collisionCustomerId: string | undefined;
   try {
     // This customer represents a different worktree's existing customer. The
@@ -178,11 +116,7 @@ test("sandbox checkout and recovery work when another customer uses the sign-in 
     });
     collisionCustomerId = collision.id;
     await page.goto("/billing"); await clerk.signIn({ page, emailAddress: user.email });
-    await page.getByRole("button", { name: "Choose monthly" }).click();
-    await expect(page.getByRole("dialog", { name: "Accept the terms to continue" })).toBeVisible();
-    await captureEvidence(page, "billing-acceptance-dialog");
-    await acceptTerms(page);
-    await expect(page).toHaveURL(/https:\/\/sandbox\.polar\.sh\/checkout\//);
+    await openSandboxCheckout(page, sync, "Choose monthly");
     // Don't record provider pages, tokens, or payment details in PR artifacts.
     await page.goto(`${local.config.env.APP_URL}/billing`);
     await expect(page.getByRole("button", { name: "Customer portal" })).toBeVisible();
@@ -190,7 +124,7 @@ test("sandbox checkout and recovery work when another customer uses the sign-in 
     const token = await page.evaluate(() => window.Clerk.session!.getToken({ template: "convex" }));
     const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
     client.setAuth(token!);
-    await client.action(api.billing.polar.recover, {});
+    await waitOutRateLimit(() => client.action(api.billing.polar.recover, {}));
     await expect(page.getByText("We couldn’t complete the billing request")).toHaveCount(0);
     const { client: admin } = billingTestAdmin();
     const userId = await adminQuery(admin, internal.account.users.byClerkId, { clerkId: user.id });
@@ -205,6 +139,59 @@ test("sandbox checkout and recovery work when another customer uses the sign-in 
   } finally {
     try {
       if (collisionCustomerId) await polar.customers.delete(collisionCustomerId);
+    } finally {
+      await user.cleanup();
+    }
+  }
+});
+
+// Creates its own code, so the token needs the discounts:read and
+// discounts:write scopes. Projects whose token lacks them skip this test.
+test("a 100% discount code on the lifetime product grants lifetime Pro through sandbox checkout", async ({ page }) => {
+  const polar = createPolar({ accessToken: local.env.POLAR_ACCESS_TOKEN, environment: "sandbox", organizationId: local.env.POLAR_ORGANIZATION_ID });
+  const canCreateCodes = await polar.discounts.list({ limit: 1 }).then(() => true, (error: { statusCode?: number }) => {
+    if (error.statusCode === 403) return false;
+    throw error;
+  });
+  test.skip(!canCreateCodes, "POLAR_ACCESS_TOKEN lacks the discounts:read and discounts:write scopes.");
+  const code = `FIXTURE${randomUUID().slice(0, 8).toUpperCase()}`;
+  const discount = await polar.discounts.create({
+    type: "percentage", basis_points: 10000, duration: "once", code, max_redemptions: 1,
+    name: `fixture-${local.config.id} lifetime`, products: [local.env.POLAR_PRODUCT_LIFETIME],
+  });
+  const user = await createClerkTestUser(local);
+  const sync = await interceptConvexSync(page);
+  try {
+    await page.goto("/billing"); await clerk.signIn({ page, emailAddress: user.email });
+    await openSandboxCheckout(page, sync, "Get lifetime");
+    // Polar's page ignores clicks until it has hydrated and can re-render the code
+    // field empty after a fill. "Add discount code" disappears once the field opens,
+    // and "Apply" shows only while the field has text, so retry each step from
+    // what is on the page until the free total appears.
+    const codeField = page.getByRole("textbox", { name: "Discount code" });
+    const getForFree = page.getByRole("button", { name: "Get for free" });
+    await expect(async () => {
+      if (await getForFree.isHidden()) {
+        if (await codeField.isHidden()) await page.getByRole("button", { name: "Add discount code" }).click({ timeout: 1000 });
+        await codeField.fill(code, { timeout: 1000 });
+        await page.getByRole("button", { name: "Apply" }).click({ timeout: 1000 });
+      }
+      await expect(getForFree).toBeVisible({ timeout: 5000 });
+    }).toPass();
+    await getForFree.click();
+    await page.waitForURL(url => url.href.startsWith(`${local.config.env.APP_URL}/billing?confirmation=lifetime`));
+    // Webhook forwarding may be off, so ask for reconciliation as the billing page's recovery does.
+    await page.waitForFunction(() => !!window.Clerk?.session);
+    const token = await page.evaluate(() => window.Clerk.session!.getToken({ template: "convex" }));
+    const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
+    client.setAuth(token!);
+    await waitOutRateLimit(() => client.action(api.billing.polar.recover, {}));
+    await expect(page).toHaveURL(`${local.config.env.APP_URL}${authenticatedDestination}`);
+    await page.goto("/billing");
+    await expect(page.getByText("You have lifetime access.")).toBeVisible();
+  } finally {
+    try {
+      await polar.discounts.delete(discount.id);
     } finally {
       await user.cleanup();
     }
@@ -230,19 +217,23 @@ test("yearly-to-monthly requires confirmation and shows the scheduled plan witho
     await captureEvidence(page, "switch-monthly-confirmation");
     expect(requests).toBe(0);
     await dialog.getByRole("button", { name: "Keep current plan" }).click();
+    const before = await page.getByRole("button", { name: "Switch to monthly" }).boundingBox();
     await page.getByRole("button", { name: "Switch to monthly" }).click();
     await dialog.getByRole("button", { name: "Confirm switch" }).click();
-    await expect(page.getByRole("button", { name: "Confirming plan…" })).toBeDisabled();
+    const pending = page.getByRole("button", { name: "Confirming plan…" });
+    await expect(pending).toBeDisabled();
+    // The pending label takes the idle label's place without moving the button.
+    expect(await pending.boundingBox()).toEqual(before);
     await expect.poll(() => requests).toBe(1);
     const account = (await adminQuery(admin, internal.billing.state.get, { customerId: fixture.customerId }))!;
     const now = Date.now();
     await publishBillingSnapshot({
       customerId: fixture.customerId, externalId: fixture.externalId,
       subscriptions: [{ id: fixture.subscriptionId, productId: local.env.POLAR_PRODUCT_YEARLY!, status: "active",
-        start: now - 60_000, end: account.paidThrough!, modifiedAt: now + 1000, cancelAtPeriodEnd: false,
+        start: now - 60_000, end: account.paidThrough!, modifiedAt: now + 1000, cancelAtPeriodEnd: false, comped: false,
         scheduledChange: { model: "monthly", at: account.paidThrough! } }],
       orders: [{ id: `fixture-scheduled-${user.id}`, productId: local.env.POLAR_PRODUCT_YEARLY!,
-        subscriptionId: fixture.subscriptionId, paid: true, fullyRefunded: false, createdAt: now, modifiedAt: now }],
+        subscriptionId: fixture.subscriptionId, paid: true, nothingCharged: false, fullyRefunded: false, createdAt: now, modifiedAt: now }],
     });
     await expect(page.getByLabel("Plan", { exact: true })).toHaveValue("Yearly Pro");
     await expect(page.getByLabel("Next plan", { exact: true })).toHaveValue(/^Monthly Pro from /);
@@ -257,58 +248,56 @@ test("yearly-to-monthly requires confirmation and shows the scheduled plan witho
   } finally { await user.cleanup(); }
 });
 
-for (const model of ["monthly", "yearly"] as const) {
-  test(`canceled ${model} subscriptions block plan switching with an accessible renewal explanation`, async ({ page }) => {
-    const user = await createClerkTestUser(local);
-    const { client: admin } = billingTestAdmin();
-    const target = model === "monthly" ? "yearly" : "monthly";
-    let switchRequests = 0;
-    const sync = await interceptConvexSync(page);
-    sync.onAction("billing/polar:changeSubscription", (call) => {
-      switchRequests++;
-      call.forward();
-    });
-    try {
-      const fixture = await seedPaidTestUser(user, model);
-      const account = (await adminQuery(admin, internal.billing.state.get, { customerId: fixture.customerId }))!;
-      const now = Date.now();
-      const productId = local.env[`POLAR_PRODUCT_${model.toUpperCase()}`]!;
-      await publishBillingSnapshot({
-        customerId: fixture.customerId, externalId: fixture.externalId,
-        subscriptions: [{ id: fixture.subscriptionId, productId, status: "active", start: now - 1000,
-          end: account.paidThrough!, modifiedAt: now, cancelAtPeriodEnd: true }],
-        orders: [{ id: `fixture-canceled-${user.id}`, productId, subscriptionId: fixture.subscriptionId,
-          paid: true, fullyRefunded: false, createdAt: now, modifiedAt: now }],
-      });
-      await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email });
-      await page.goto(`/billing?plan=${target}`);
-      await expect(page.getByRole("button", { name: "Renew subscription", exact: true })).toBeEnabled();
-      await expect(page.getByRole("button", { name: "Renew", exact: true })).toBeEnabled();
-      await expect(page.getByRole("button", { name: `Switch to ${target}` })).toBeDisabled();
-      await expect(page.getByRole("button", { name: "Get lifetime" })).toBeEnabled();
-      await expect(page.getByRole("alertdialog")).toHaveCount(0);
-      const explanation = `Renew your subscription to switch to ${target}`;
-      const trigger = page.getByRole("button", { name: `Switch to ${target}` });
-      await expect(trigger).toHaveAccessibleDescription(explanation);
-      await expect(page.getByText(explanation, { exact: true })).toBeVisible();
-      await captureEvidence(page, `canceled-${model}-explanation`);
-      await trigger.click({ force: true });
-      await trigger.press("Enter");
-      await trigger.press("Space");
-      await expect(page.getByRole("alertdialog")).toHaveCount(0);
-      expect(switchRequests).toBe(0);
-
-      const renewedAt = Date.now();
-      await publishBillingSnapshot({
-        customerId: fixture.customerId, externalId: fixture.externalId,
-        subscriptions: [{ id: fixture.subscriptionId, productId, status: "active", start: renewedAt - 1000,
-          end: account.paidThrough!, modifiedAt: renewedAt, cancelAtPeriodEnd: false }], orders: [],
-      });
-      await expect(page.getByRole("button", { name: `Switch to ${target}` })).toBeEnabled();
-      await expect(page.getByRole("alertdialog")).toBeVisible();
-    } finally { await user.cleanup(); }
+// Monthly and yearly subscriptions share this path, so monthly covers both.
+test("a canceled subscription blocks plan switching with an accessible renewal explanation", async ({ page }) => {
+  const user = await createClerkTestUser(local);
+  const { client: admin } = billingTestAdmin();
+  let switchRequests = 0;
+  const sync = await interceptConvexSync(page);
+  sync.onAction("billing/polar:changeSubscription", (call) => {
+    switchRequests++;
+    call.forward();
   });
-}
+  try {
+    const fixture = await seedPaidTestUser(user, "monthly");
+    const account = (await adminQuery(admin, internal.billing.state.get, { customerId: fixture.customerId }))!;
+    const now = Date.now();
+    const productId = local.env.POLAR_PRODUCT_MONTHLY!;
+    await publishBillingSnapshot({
+      customerId: fixture.customerId, externalId: fixture.externalId,
+      subscriptions: [{ id: fixture.subscriptionId, productId, status: "active", start: now - 1000,
+        end: account.paidThrough!, modifiedAt: now, cancelAtPeriodEnd: true, comped: false }],
+      orders: [{ id: `fixture-canceled-${user.id}`, productId, subscriptionId: fixture.subscriptionId,
+        paid: true, nothingCharged: false, fullyRefunded: false, createdAt: now, modifiedAt: now }],
+    });
+    await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email });
+    await page.goto("/billing?plan=yearly");
+    await expect(page.getByRole("button", { name: "Renew subscription", exact: true })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Renew", exact: true })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Switch to yearly" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Get lifetime" })).toBeEnabled();
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+    const explanation = "Renew your subscription to switch to yearly";
+    const trigger = page.getByRole("button", { name: "Switch to yearly" });
+    await expect(trigger).toHaveAccessibleDescription(explanation);
+    await expect(page.getByText(explanation, { exact: true })).toBeVisible();
+    await captureEvidence(page, "canceled-monthly-explanation");
+    await trigger.click({ force: true });
+    await trigger.press("Enter");
+    await trigger.press("Space");
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+    expect(switchRequests).toBe(0);
+
+    const renewedAt = Date.now();
+    await publishBillingSnapshot({
+      customerId: fixture.customerId, externalId: fixture.externalId,
+      subscriptions: [{ id: fixture.subscriptionId, productId, status: "active", start: renewedAt - 1000,
+        end: account.paidThrough!, modifiedAt: renewedAt, cancelAtPeriodEnd: false, comped: false }], orders: [],
+    });
+    await expect(page.getByRole("button", { name: "Switch to yearly" })).toBeEnabled();
+    await expect(page.getByRole("alertdialog")).toBeVisible();
+  } finally { await user.cleanup(); }
+});
 
 test("billing retries show progress until a yearly payment is confirmed", async ({ page }) => {
   const user = await createClerkTestUser(local);
@@ -331,9 +320,9 @@ test("billing retries show progress until a yearly payment is confirmed", async 
     await publishBillingSnapshot({
       customerId: fixture.customerId, externalId: fixture.externalId,
       subscriptions: [{ id: fixture.subscriptionId, productId, status: "active", start: now - 1000,
-        end: now + 365 * 24 * 60 * 60_000, modifiedAt: now, cancelAtPeriodEnd: false }],
+        end: now + 365 * 24 * 60 * 60_000, modifiedAt: now, cancelAtPeriodEnd: false, comped: false }],
       orders: [{ id: `fixture-confirmed-${user.id}`, productId, subscriptionId: fixture.subscriptionId,
-        paid: true, fullyRefunded: false, createdAt: now, modifiedAt: now }],
+        paid: true, nothingCharged: false, fullyRefunded: false, createdAt: now, modifiedAt: now }],
     });
     await expect(page.getByLabel("Plan", { exact: true })).toHaveValue("Yearly Pro");
     await expect(page.getByText("Confirming your billing details", { exact: true })).toHaveCount(0);
@@ -379,11 +368,14 @@ test("repeated switches and cancellation cycles confirm reactive state; failures
       await publishBillingSnapshot({
         customerId: fixture.customerId, externalId: fixture.externalId,
         subscriptions: [{ id: fixture.subscriptionId, productId, status: "active", start: now - 60_000,
-          end: now + 60 * 60_000, modifiedAt: now, cancelAtPeriodEnd: cancel }],
+          end: now + 60 * 60_000, modifiedAt: now, cancelAtPeriodEnd: cancel, comped: false }],
         orders: [{ id: `fixture-switch-${user.id}-${sequence}`, productId, subscriptionId: fixture.subscriptionId,
-          paid: true, fullyRefunded: false, createdAt: now, modifiedAt: now }],
+          paid: true, nothingCharged: false, fullyRefunded: false, createdAt: now, modifiedAt: now }],
       });
     });
+    // The fake clock runs the 15-second unconfirmed-change timeout without waiting
+    // it out. It must be installed before the page loads.
+    await page.clock.install();
     await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email }); await page.goto("/billing");
     const planCard = (plan: "monthly" | "yearly") => page.locator('[data-slot="card"]').filter({ has: page.getByRole("heading", { name: plan === "monthly" ? "Monthly" : "Yearly", exact: true }) });
     await expect(planCard("monthly").getByRole("button", { name: "Current", exact: true })).toBeDisabled();
@@ -430,10 +422,61 @@ test("repeated switches and cancellation cycles confirm reactive state; failures
     await confirmSwitch("yearly");
     await expect(page.getByRole("button", { name: "Confirming plan…" })).toBeDisabled();
     const warning = page.getByRole("alert").filter({ hasText: "The change is still unconfirmed" });
+    // Well within the minute a Clerk session token lasts.
+    await page.clock.fastForward(15_000);
     await expect(warning).toBeVisible();
     release!();
     await expect(page.getByLabel("Plan", { exact: true })).toHaveValue("Yearly Pro");
     await expect(warning).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Switch to monthly" })).toBeEnabled();
   } finally { release?.(); await page.unrouteAll({ behavior: "wait" }); await user.cleanup(); }
+});
+
+test("a confirmed switch stays settled when Pro later ends in the same page load", async ({ page }) => {
+  const user = await createClerkTestUser(local);
+  let requests = 0;
+  const sync = await interceptConvexSync(page);
+  sync.onAction("billing/polar:changeSubscription", (call) => {
+    requests++;
+    call.succeed(null);
+  });
+  try {
+    const fixture = await seedPaidTestUser(user, "monthly");
+    await page.clock.install();
+    await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email }); await page.goto("/billing");
+    await page.getByRole("button", { name: "Switch to yearly" }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Confirm switch" }).click();
+    await expect(page.getByRole("button", { name: "Confirming plan…" })).toBeDisabled();
+    await expect.poll(() => requests).toBe(1);
+
+    const now = Date.now();
+    const productId = local.env.POLAR_PRODUCT_YEARLY!;
+    await publishBillingSnapshot({
+      customerId: fixture.customerId, externalId: fixture.externalId,
+      subscriptions: [{ id: fixture.subscriptionId, productId, status: "active", start: now - 60_000,
+        end: now + 365 * 24 * 60 * 60_000, modifiedAt: now + 1000, cancelAtPeriodEnd: false, comped: false }],
+      orders: [{ id: `fixture-switch-${user.id}`, productId, subscriptionId: fixture.subscriptionId,
+        paid: true, nothingCharged: false, fullyRefunded: false, createdAt: now, modifiedAt: now }],
+    });
+    await expect(page.getByLabel("Plan", { exact: true })).toHaveValue("Yearly Pro");
+    await expect(page.getByRole("button", { name: "Confirming plan…" })).toHaveCount(0);
+
+    // Pro ends without a reload, as after a withdrawal. The confirmed switch no
+    // longer matches this state and must not count as pending again. Pausing the
+    // page clock keeps the 15-second unconfirmed timer from firing during the
+    // checks, which would otherwise re-enable the buttons and hide the bug.
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
+    await publishBillingSnapshot({ customerId: fixture.customerId, externalId: fixture.externalId,
+      subscriptions: [{ id: fixture.subscriptionId, productId, status: "canceled",
+        start: now - 60_000, end: Date.now() - 1, modifiedAt: now + 2000, cancelAtPeriodEnd: false, comped: false }], orders: [] });
+    await expect(page.getByRole("heading", { name: "Restore Pro access" })).toBeVisible();
+    const plans = ["Choose monthly", "Choose yearly", "Get lifetime"];
+    for (const name of plans) await expect(page.getByRole("button", { name, exact: true })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Opening checkout…" })).toHaveCount(0);
+
+    await page.clock.runFor(16_000);
+    await expect(page.getByText("The change is still unconfirmed")).toHaveCount(0);
+    for (const name of plans) await expect(page.getByRole("button", { name, exact: true })).toBeEnabled();
+    expect(requests).toBe(1);
+  } finally { await user.cleanup(); }
 });

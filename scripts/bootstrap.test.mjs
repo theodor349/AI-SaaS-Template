@@ -10,6 +10,8 @@ import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { parseEnv } from "node:util";
 import * as bootstrap from "./bootstrap.mjs";
+import { billingEnabled } from "./bootstrap/config.mjs";
+import { createSupervisor, exitReason } from "./bootstrap/processes.mjs";
 import {
   assertPortsAvailable,
   childEnvironment,
@@ -64,6 +66,20 @@ test("billing startup requires every plan while --no-polar works without product
     assert.throws(() => worktreeCredentials(fixture, fixture, true, {}), (error) =>
       error.message.includes(`Add these lines to ${join(fixture, ".env.bootstrap.local")}`) &&
       /^ {2}POLAR_PRODUCT_MONTHLY=<product ID>$/m.test(error.message) && !error.message.includes("POLAR_PRODUCT_YEARLY"));
+  } finally { rmSync(fixture, { recursive: true, force: true }); }
+});
+
+test("the billing switch is read from the checkout's app.config.ts", () => {
+  const fixture = realpathSync(mkdtempSync(join(tmpdir(), "bootstrap billing ")));
+  const config = (line) => writeFileSync(join(fixture, "app.config.ts"),
+    `export type AppConfig = {\n  // billing: false hides pricing\n  billing: boolean;\n};\nexport const appConfig = {\n  appName: "Example",\n${line}\n};\n`);
+  try {
+    config("  billing: false,");
+    assert.equal(billingEnabled(fixture), false);
+    config("  billing: true");
+    assert.equal(billingEnabled(fixture), true);
+    config("  billing: process.env.BILLING === \"1\",");
+    assert.throws(() => billingEnabled(fixture), /must set `billing: true,` or `billing: false,`/);
   } finally { rmSync(fixture, { recursive: true, force: true }); }
 });
 
@@ -133,10 +149,25 @@ test("an occupied port fails instead of choosing a different worktree URL", asyn
   }
 });
 
+// Some CI machines have no IPv6 and refuse to listen on "::".
+async function ipv6Available() {
+  const server = createServer();
+  try {
+    server.listen(0, "::");
+    await once(server, "listening");
+  } catch {
+    return false;
+  }
+  server.close();
+  await once(server, "close");
+  return true;
+}
+
 test("wildcard listeners are rejected on every service port", async (t) => {
+  const ipv6 = await ipv6Available();
   for (const host of ["0.0.0.0", "::"]) {
     for (const service of ["next", "convex", "site"]) {
-      await t.test(`${service} on ${host}`, async () => {
+      await t.test(`${service} on ${host}`, { skip: host === "::" && !ipv6 && "IPv6 is unavailable" }, async () => {
         const server = createServer((socket) => socket.end());
         server.listen(0, host);
         await once(server, "listening");
@@ -154,6 +185,12 @@ test("wildcard listeners are rejected on every service port", async (t) => {
   }
 });
 
+// Resolves on the next request for /version. The T3 Code server sends GET / to
+// newly opened ports, so tests must not treat every request as the code under test.
+async function versionRequest(server) {
+  while ((await once(server, "request"))[0].url !== "/version");
+}
+
 test("readiness waits for a successful HTTP response", async () => {
   let status = 503;
   const server = createHttpServer((request, response) => {
@@ -164,9 +201,9 @@ test("readiness waits for a successful HTTP response", async () => {
   const controller = new AbortController();
   let ready = false;
   try {
-    const pending = bootstrap.waitForServer(`http://127.0.0.1:${server.address().port}/`, controller.signal)
+    const pending = bootstrap.waitForServer(`http://127.0.0.1:${server.address().port}/version`, controller.signal)
       .then(() => { ready = true; });
-    await once(server, "request");
+    await versionRequest(server);
     assert.equal(ready, false);
     status = 200;
     await pending;
@@ -186,7 +223,7 @@ test("a Convex backend crash aborts supervision even when its CLI remains alive"
   const url = `http://127.0.0.1:${server.address().port}/version`;
   const controller = new AbortController();
   try {
-    const monitoring = bootstrap.superviseConvex(url, controller);
+    const monitoring = bootstrap.superviseConvex(url, controller, { unavailableMs: 0 });
     await delay(100);
     assert.equal(controller.signal.aborted, false);
     server.closeAllConnections();
@@ -213,7 +250,7 @@ test("stopping active backend supervision preserves the shutdown reason", async 
   const reason = new Error("Bootstrap stopped.");
   try {
     const monitoring = bootstrap.superviseConvex(`http://127.0.0.1:${server.address().port}/version`, controller);
-    await once(server, "request");
+    await versionRequest(server);
     controller.abort(reason);
     await monitoring;
     assert.equal(controller.signal.reason, reason);
@@ -225,7 +262,7 @@ test("stopping active backend supervision preserves the shutdown reason", async 
   }
 });
 
-test("an unhealthy or unresponsive backend aborts supervision", { timeout: 10000 }, async (t) => {
+test("a backend that stays unhealthy or unresponsive aborts supervision", { timeout: 10000 }, async (t) => {
   for (const status of [503, null]) {
     await t.test(status ? "HTTP failure" : "request timeout", async () => {
       const server = createHttpServer((request, response) => {
@@ -235,7 +272,9 @@ test("an unhealthy or unresponsive backend aborts supervision", { timeout: 10000
       await once(server, "listening");
       const controller = new AbortController();
       try {
-        await bootstrap.superviseConvex(`http://127.0.0.1:${server.address().port}/version`, controller);
+        const started = Date.now();
+        await bootstrap.superviseConvex(`http://127.0.0.1:${server.address().port}/version`, controller, { unavailableMs: 1500, timeoutMs: 500 });
+        assert.ok(Date.now() - started >= 1500);
         assert.equal(controller.signal.aborted, true);
         assert.match(controller.signal.reason.message, /Convex backend.*unavailable/);
       } finally {
@@ -248,8 +287,100 @@ test("an unhealthy or unresponsive backend aborts supervision", { timeout: 10000
   }
 });
 
+test("a backend that answers within 5 seconds on a loaded machine passes its health check", { timeout: 10000 }, async () => {
+  let requests = 0;
+  const server = createHttpServer((request, response) => {
+    if (request.url !== "/version") response.end();
+    else if (++requests === 1) setTimeout(() => response.end("version"), 3000);
+    else response.end("version");
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const controller = new AbortController();
+  const monitoring = bootstrap.superviseConvex(`http://127.0.0.1:${server.address().port}/version`, controller, { unavailableMs: 0 });
+  try {
+    await delay(4500);
+    assert.equal(controller.signal.aborted, false);
+    assert.equal(requests, 2);
+  } finally {
+    controller.abort();
+    await monitoring;
+    server.closeAllConnections();
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("a running backend that keeps failing its health checks stops the stack only after 60 seconds", { timeout: 15000 }, async (t) => {
+  t.mock.timers.enable({ apis: ["Date"] });
+  const server = createHttpServer((request, response) => response.writeHead(503).end());
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const controller = new AbortController();
+  const monitoring = bootstrap.superviseConvex(`http://127.0.0.1:${server.address().port}/version`, controller);
+  try {
+    await versionRequest(server);
+    t.mock.timers.tick(59_000);
+    await versionRequest(server);
+    await delay(100);
+    assert.equal(controller.signal.aborted, false);
+    t.mock.timers.tick(1000);
+    await monitoring;
+    assert.match(controller.signal.reason.message, /Convex backend.*unavailable.*HTTP 503/);
+  } finally {
+    controller.abort();
+    server.closeAllConnections();
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("an exited backend stops the stack at once, without waiting out the window", { timeout: 10000 }, async () => {
+  const server = createHttpServer((request, response) => response.end("version"));
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const url = `http://127.0.0.1:${server.address().port}/version`;
+  const controller = new AbortController();
+  const monitoring = bootstrap.superviseConvex(url, controller);
+  await versionRequest(server);
+  server.closeAllConnections();
+  server.close();
+  await once(server, "close");
+  const stoppedAfter = Date.now();
+  await monitoring;
+  assert.ok(Date.now() - stoppedAfter < 5000);
+  assert.match(controller.signal.reason.message, /Convex backend.*unavailable.*nothing is listening/);
+});
+
+test("one slow backend health check does not stop supervision", { timeout: 10000 }, async () => {
+  let requests = 0;
+  const server = createHttpServer((request, response) => {
+    // The first check outlasts its timeout, as /version can while a large import loads.
+    if (request.url !== "/version") response.end();
+    else if (++requests === 1) setTimeout(() => response.end("version"), 1500);
+    else response.end("version");
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const controller = new AbortController();
+  const monitoring = bootstrap.superviseConvex(`http://127.0.0.1:${server.address().port}/version`, controller, { timeoutMs: 1000 });
+  try {
+    // The slow check times out after 1 second and the next one starts a second later.
+    await delay(2500);
+    assert.equal(controller.signal.aborted, false);
+    assert.equal(requests, 2);
+  } finally {
+    controller.abort();
+    await monitoring;
+    server.closeAllConnections();
+    server.close();
+    await once(server, "close");
+  }
+});
+
 test("Next monitoring allows brief listener restarts and stops cleanly on shutdown", { timeout: 10000 }, async () => {
-  const server = createServer((socket) => socket.end());
+  // Destroy instead of end: an unread request from another client's port probe would keep server.close() waiting.
+  const server = createServer((socket) => socket.destroy());
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const port = server.address().port;
@@ -275,6 +406,112 @@ test("Next monitoring allows brief listener restarts and stops cleanly on shutdo
       await once(server, "close");
     }
   }
+});
+
+test("removing the worktree or its Git admin directory stops a running bootstrap", async (t) => {
+  for (const removed of ["worktree", "admin"]) {
+    await t.test(removed, async () => {
+      const fixture = mkdtempSync(join(tmpdir(), "bootstrap worktree watch "));
+      const paths = [join(fixture, "worktree/.git"), join(fixture, "admin")];
+      mkdirSync(join(fixture, "worktree"));
+      writeFileSync(paths[0], "gitdir: ../admin\n");
+      mkdirSync(paths[1]);
+      const controller = new AbortController();
+      try {
+        const watching = bootstrap.superviseWorktree(paths, controller, { intervalMs: 10 });
+        await delay(50);
+        assert.equal(controller.signal.aborted, false);
+        rmSync(removed === "worktree" ? join(fixture, "worktree") : paths[1], { recursive: true });
+        await watching;
+        assert.equal(controller.signal.aborted, true);
+        assert.match(controller.signal.reason.message, /worktree was removed/);
+      } finally {
+        controller.abort();
+        rmSync(fixture, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
+test("worktree watching ends with the shutdown reason when bootstrap stops", async () => {
+  const fixture = mkdtempSync(join(tmpdir(), "bootstrap worktree watch "));
+  const controller = new AbortController();
+  const reason = new Error("Bootstrap stopped.");
+  try {
+    const watching = bootstrap.superviseWorktree([fixture], controller, { intervalMs: 60000 });
+    controller.abort(reason);
+    await watching;
+    assert.equal(controller.signal.reason, reason);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
+// Output captured from convex dev 1.47 in this template, as bootstrap's pipe receives it.
+const typecheckFailure = [
+  "- Preparing Convex functions...\n\n",
+  "\u001b[31m✖\u001b[39m TypeScript typecheck via `tsc` failed.\n",
+  "\u001b[90mTo ignore failing typecheck, use `--typecheck=disable`.\u001b[39m\n",
+  "- Collecting TypeScript errors\n\n",
+];
+const typecheckErrors = [
+  "convex/notes/notes.test.ts:42:55 - error TS2339: Property 'removedList' does not exist on type '{ list: ... }'.\n\n",
+  "42   const { page } = await caller.query(api.notes.notes.removedList, { paginationOpts: firstPage });\n",
+  "                                                         ~~~~~~~~~~~\n\nFound 1 error in convex/notes/notes.test.ts",
+  ":42\n\n",
+];
+const bundleFailure = [
+  "- Preparing Convex functions...\n\n",
+  "✘ [ERROR] Could not resolve \"./doesNotExist\"\n\n    convex/notes/notes.ts:1:7:\n      1 │ import \"./doesNotExist\";\n",
+];
+
+function pushWatch(quietMs = 50) {
+  const controller = new AbortController();
+  return { controller, watch: bootstrap.watchConvexPush(controller, { quietMs }) };
+}
+
+test("a typecheck error stops startup once convex dev has printed the errors and waits for a change", async () => {
+  const { controller, watch } = pushWatch();
+  for (const chunk of typecheckFailure) watch.write(chunk);
+  // convex dev prints the errors only after a second tsc run.
+  await delay(150);
+  assert.equal(controller.signal.aborted, false);
+  for (const chunk of typecheckErrors) watch.write(chunk);
+  await once(controller.signal, "abort");
+  assert.equal(controller.signal.reason.message,
+    "convex dev could not push the Convex functions: TypeScript typecheck via `tsc` failed. Fix the error shown in its output and start bootstrap again.");
+});
+
+test("a bundling error stops startup with esbuild's message", async () => {
+  const { controller, watch } = pushWatch();
+  for (const chunk of bundleFailure) watch.write(chunk);
+  await once(controller.signal, "abort");
+  assert.match(controller.signal.reason.message, /could not push the Convex functions: Could not resolve "\.\/doesNotExist" Fix/);
+});
+
+test("push failures convex dev retries by itself and successful pushes do not stop startup", async () => {
+  const { controller, watch } = pushWatch();
+  watch.write("- Preparing Convex functions...\n\n");
+  watch.write("✖ Schema or environment variables changed during push\nFailed due to network error, retrying in 500ms...\n");
+  watch.write("- Preparing Convex functions...\n\n✔ 08:13:03 Convex functions ready! (1.2s)\n");
+  await delay(150);
+  assert.equal(controller.signal.aborted, false);
+});
+
+test("push watching ignores failures after it is stopped", async () => {
+  const { controller, watch } = pushWatch();
+  for (const chunk of bundleFailure) watch.write(chunk);
+  watch.stop();
+  await delay(150);
+  assert.equal(controller.signal.aborted, false);
+});
+
+test("--detach is accepted alongside the network and Polar options", () => {
+  assert.deepEqual(bootstrap.parseArguments(["--detach", "--local", "--no-polar"]), {
+    help: false, local: true, tailscale: false, polar: false, print: false, detach: true,
+  });
+  assert.equal(bootstrap.parseArguments([]).detach, false);
+  assert.throws(() => bootstrap.parseArguments(["--detached"]), /Unknown argument: --detached/);
 });
 
 test("shutdown includes detached grandchildren and excludes unrelated agents", () => {
@@ -364,6 +601,26 @@ test("generated Clerk signing secrets stay local while explicit overrides can be
   }
 });
 
+test("only the worktree's own settings pause it, and removing the setting resumes it", () => {
+  const fixture = realpathSync(mkdtempSync(join(tmpdir(), "bootstrap maintenance ")));
+  const mainRoot = join(fixture, "main");
+  const worktreeRoot = join(fixture, "worktree");
+  for (const root of [mainRoot, worktreeRoot]) mkdirSync(root);
+  try {
+    writeFileSync(join(mainRoot, ".env.bootstrap.local"), environmentFile({ ...credentials, MAINTENANCE_MODE: "1" }));
+    assert.equal(worktreeCredentials(worktreeRoot, mainRoot, false, {}).MAINTENANCE_MODE, undefined);
+    writeFileSync(join(worktreeRoot, ".env.bootstrap.local"), environmentFile({ MAINTENANCE_MODE: "1" }));
+    const paused = worktreeCredentials(worktreeRoot, mainRoot, false, {});
+    assert.equal(paused.MAINTENANCE_MODE, "1");
+    // The generated .env.local from the paused run must not keep the worktree paused.
+    writeFileSync(join(worktreeRoot, ".env.local"), environmentFile({ ...paused, ...worktreeConfig(worktreeRoot).env }));
+    rmSync(join(worktreeRoot, ".env.bootstrap.local"));
+    assert.equal(worktreeCredentials(worktreeRoot, mainRoot, false, {}).MAINTENANCE_MODE, undefined);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
 test("BOOTSTRAP_PORT_BLOCK moves loopback and Tailscale ports without changing the worktree identity", () => {
   const fixture = realpathSync(mkdtempSync(join(tmpdir(), "bootstrap ports ")));
   const mainRoot = join(fixture, "main");
@@ -385,8 +642,8 @@ test("BOOTSTRAP_PORT_BLOCK moves loopback and Tailscale ports without changing t
     assert.equal(moved.id, derived.id);
     assert.equal(moved.env.APP_URL, "http://127.0.0.1:10021");
     assert.equal(worktreeConfig(worktreeRoot, { portBlock: 5007 }).portBlock.tailscale, 7);
-    for (const value of ["-1", "12000", "1.5", "next"]) {
-      assert.throws(() => bootstrap.portBlockOverride(worktreeRoot, { BOOTSTRAP_PORT_BLOCK: value }), /0 to 11999/);
+    for (const value of ["-1", "7500", "1.5", "next"]) {
+      assert.throws(() => bootstrap.portBlockOverride(worktreeRoot, { BOOTSTRAP_PORT_BLOCK: value }), /0 to 7499/);
     }
   } finally { rmSync(fixture, { recursive: true, force: true }); }
 });
@@ -396,9 +653,120 @@ test("an occupied port explains how to choose another port block", async () => {
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   try {
-    await assert.rejects(assertPortsAvailable({ next: server.address().port }), /BOOTSTRAP_PORT_BLOCK=<0-11999>.*\.env\.bootstrap\.local/);
+    await assert.rejects(assertPortsAvailable({ next: server.address().port }), /BOOTSTRAP_PORT_BLOCK=<0-7499>.*\.env\.bootstrap\.local/);
   } finally {
     server.close();
     await once(server, "close");
   }
+});
+
+// A stand-in named polar, so the supervisor treats its output as Polar's. Each
+// run appends its PID to runs and writes the secret to stderr. Runs listed in
+// failingRuns exit with code 1; the others keep running.
+function polarStandIn(t, { failingRuns }) {
+  const dir = mkdtempSync(join(tmpdir(), "bootstrap supervisor "));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const command = join(dir, "polar");
+  writeFileSync(command, `#!/usr/bin/env node
+    const { appendFileSync, existsSync, readFileSync } = require("node:fs");
+    const runs = ${JSON.stringify(join(dir, "runs"))};
+    appendFileSync(runs, process.pid + "\\n");
+    const run = readFileSync(runs, "utf8").trim().split("\\n").length;
+    console.error("▲ Update available v2.0.1 → v3.0.0\\n  Run polar update to install it");
+    console.error("Signing secret: " + process.env.POLAR_WEBHOOK_SECRET);
+    if (${JSON.stringify(failingRuns)}.includes(run)) {
+      console.error("✖ Event stream error (503)\\n    The Polar API may be having issues, try again shortly.");
+      process.exitCode = 1;
+    } else setInterval(() => {}, 1000);
+  `, { mode: 0o700 });
+  const runs = () => {
+    try { return readFileSync(join(dir, "runs"), "utf8").trim().split("\n").filter(Boolean).map(Number); }
+    catch { return []; }
+  };
+  return { dir, command, runs };
+}
+
+// Stops the supervisor after the test even when an assertion fails, so no
+// stand-in outlives it and keeps the test process running.
+function testSupervisor(t, dir) {
+  const controller = new AbortController();
+  const env = { ...process.env, POLAR_WEBHOOK_SECRET: "whsec_supervisor_example" };
+  const supervisor = createSupervisor({ root: dir, env, controller, log: null });
+  let stopped;
+  const stop = () => (stopped ??= supervisor.stop());
+  t.after(stop);
+  return { controller, supervisor, stop };
+}
+
+async function waitForRuns(polar, count) {
+  const deadline = Date.now() + 5000;
+  while (polar.runs().length < count && Date.now() < deadline) await delay(25);
+  return polar.runs();
+}
+
+test("a kept service that exits is restarted without stopping the stack, and its stderr explains why", { timeout: 10000 }, async (t) => {
+  const polar = polarStandIn(t, { failingRuns: [1] });
+  const { controller, supervisor, stop } = testSupervisor(t, polar.dir);
+  const exits = [];
+  let restarted;
+  const restart = new Promise((resolveRestart) => { restarted = resolveRestart; });
+  const kept = supervisor.keep(polar.command, ["listen"], {
+    delaysMs: [100],
+    onExit: (exit, delayMs) => { exits.push({ reason: exitReason(exit), delayMs }); },
+    onRestart: async () => restarted(await supervisor.recordServiceGroups()),
+  });
+  const groups = await restart;
+  assert.equal(controller.signal.aborted, false);
+  assert.deepEqual(exits, [{
+    reason: "exit 1: ✖ Event stream error (503) The Polar API may be having issues, try again shortly.",
+    delayMs: 100,
+  }]);
+  // The restarted stand-in records its PID once Node has started it.
+  const [first, second] = await waitForRuns(polar, 2);
+  assert.deepEqual(groups.map(({ pgid }) => pgid), [second], "Only the running restart is recorded");
+  assert.throws(() => process.kill(first, 0), { code: "ESRCH" });
+  await stop();
+  await kept;
+  assert.throws(() => process.kill(second, 0), { code: "ESRCH" });
+  assert.equal(polar.runs().length, 2);
+});
+
+// Records the restart delays of a stand-in that fails its first five runs.
+async function restartDelays(t, stableMs) {
+  const polar = polarStandIn(t, { failingRuns: [1, 2, 3, 4, 5] });
+  const { supervisor, stop } = testSupervisor(t, polar.dir);
+  const delays = [];
+  let errors = "";
+  const kept = supervisor.keep(polar.command, ["listen"], {
+    delaysMs: [10, 20, 30], stableMs,
+    onExit: (exit, delayMs) => {
+      delays.push(delayMs);
+      errors = exit.errors;
+    },
+  });
+  await waitForRuns(polar, 6);
+  await stop();
+  await kept;
+  return { delays, errors };
+}
+
+test("a kept service's restart delay grows with each quick exit and resets after a stable run", { timeout: 10000 }, async (t) => {
+  const quick = await restartDelays(t, 60_000);
+  assert.deepEqual(quick.delays, [10, 20, 30, 30, 30]);
+  // Lines before the error can hold Polar's secret; it never leaves the supervisor.
+  assert.match(quick.errors, /Signing secret: \[redacted\]/);
+  assert.doesNotMatch(quick.errors, /whsec_supervisor_example|Update available|polar update/);
+  assert.deepEqual((await restartDelays(t, 0)).delays, [10, 10, 10, 10, 10]);
+});
+
+test("stopping during a kept service's restart delay starts nothing more", { timeout: 10000 }, async (t) => {
+  const polar = polarStandIn(t, { failingRuns: [1] });
+  const { supervisor, stop } = testSupervisor(t, polar.dir);
+  let exited;
+  const exit = new Promise((resolveExit) => { exited = resolveExit; });
+  const kept = supervisor.keep(polar.command, ["listen"], { delaysMs: [5000], onExit: () => exited() });
+  await exit;
+  await stop();
+  await kept;
+  assert.equal(polar.runs().length, 1);
 });

@@ -69,7 +69,11 @@ export function AuthBoundary({
       </div>
     );
   }
-  if (convex.isLoading || convex.isRefreshing) {
+  // Only the first load or a new identity waits here. When Convex replaces an
+  // expired token after a resume or reconnect, `isRefreshing` stays true while
+  // the client keeps its last query results and holds mutations until the new
+  // token is accepted, so children stay mounted and keep their state.
+  if (convex.isLoading) {
     return renderWhilePending ? children : <AuthPending fallback={pending} />;
   }
   if (!convex.isAuthenticated) return <AuthRecovery />;

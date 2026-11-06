@@ -24,6 +24,8 @@ export type SubscriptionRecord = {
   modifiedAt: number;
   superseded: boolean;
   scheduledChange?: PlanChange;
+  // Carries a 100% forever discount, which only the operator can create.
+  comped?: boolean;
 };
 
 export type SubscriptionSnapshot = Omit<SubscriptionRecord, "superseded">;
@@ -168,9 +170,10 @@ function currentRecurring(input: EntitlementInput, subscriptions: SubscriptionRe
 // A paid, unrefunded order in the current period confirms the provider period.
 // A zero-cost or prorated switch can move the period before a paid update
 // arrives: keep already purchased time, but never extend it from an unpaid
-// renewal or a provider period change alone.
+// renewal or a provider period change alone. A comped subscription counts as
+// paid through its whole provider period, since the comp covers every invoice.
 function confirmedPaidThrough(input: EntitlementInput, subscription: SubscriptionRecord) {
-  const paid = input.orders.some((o) =>
+  const paid = subscription.comped || input.orders.some((o) =>
     o.subscriptionId === subscription.subscriptionId && o.paid && !o.fullyRefunded &&
     o.createdAt >= subscription.periodStart);
   if (paid) {

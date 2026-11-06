@@ -1,4 +1,8 @@
+import { clerk } from "@clerk/testing/playwright";
 import { expect, test, type Page } from "@playwright/test";
+import { appConfig } from "../../app.config";
+import { seedPaidTestUser } from "../../scripts/billing-test-fixtures.mjs";
+import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 import { captureEvidence } from "./evidence.mjs";
 
@@ -11,17 +15,33 @@ declare global {
 
 const indicator = (page: Page) => page.getByRole("status").filter({ hasText: /Offline…|Reconnecting…/ });
 
-// The landing page's plans come from a live Convex query, so they show once it connects.
+let visitor: Awaited<ReturnType<typeof createClerkTestUser>> | undefined;
+test.afterEach(async () => {
+  await visitor?.cleanup();
+  visitor = undefined;
+});
+
+// Opens the landing page once live Convex data has arrived. Its plans come from a
+// query; an app without billing has none, so a signed-in visitor's name stands in.
 async function openConnected(page: Page) {
   await page.goto("/");
-  await expect(page.getByRole("link", { name: "Choose monthly" })).toBeVisible();
+  if (appConfig.billing) {
+    await expect(page.getByRole("link", { name: "Choose monthly" })).toBeVisible();
+    return;
+  }
+  visitor = await createClerkTestUser(local);
+  await seedPaidTestUser(visitor);
+  await clerk.signIn({ page, emailAddress: visitor.email });
+  await page.getByRole("button", { name: "Open profile menu" }).click();
+  await expect(page.getByRole("menu").getByText(visitor.name, { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
 }
 
-for (const width of [1280, 390]) {
-  test(`going offline shows the indicator after a grace period and reconnecting hides it at ${width}px`, async ({ page, context }) => {
+test("going offline shows the indicator after a grace period and reconnecting hides it at 1280px and 390px", async ({ page, context }) => {
+  await openConnected(page);
+  const heading = page.getByRole("heading", { name: `${appConfig.tagline}.` });
+  for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    await openConnected(page);
-    const heading = page.getByRole("heading", { name: "Your next idea starts here." });
     const before = await heading.boundingBox();
 
     const wentOffline = Date.now();
@@ -40,20 +60,55 @@ for (const width of [1280, 390]) {
     await context.setOffline(false);
     await expect(indicator(page)).toHaveCount(0);
     await expect(page.getByRole("status").filter({ hasText: "Back online" })).toHaveCount(1);
-  });
-}
+  }
+});
+
+test("the indicator shows and is announced above an open dialog at 1280px and 390px", async ({ page, context }) => {
+  await page.goto("/cookies");
+  await page.getByRole("button", { name: "Cookie Preferences" }).click();
+  await expect(page.getByRole("dialog", { name: "Cookie Preferences" })).toBeVisible();
+  // Hit testing skips elements with `pointer-events: none`, so let the indicator take
+  // hits to find out what is drawn on top at its center.
+  await page.addStyleTag({ content: "[role=status] p { pointer-events: auto !important; }" });
+
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await context.setOffline(true);
+    const shown = page.getByText("Offline…");
+    await expect(shown).toBeVisible();
+    await captureEvidence(page, `offline-dialog-${width}`);
+
+    const box = (await shown.boundingBox())!;
+    const onTop = await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest("[role=status]"),
+      [box.x + box.width / 2, box.y + box.height / 2]);
+    expect(onTop).toBe(true);
+
+    // The modal dialog hides the rest of the page from assistive technology; the
+    // indicator must stay in the accessibility tree to be announced.
+    await expect(indicator(page)).toHaveText("Offline…");
+    await context.setOffline(false);
+    await expect(indicator(page)).toHaveCount(0);
+    await expect(page.getByRole("status").filter({ hasText: "Back online" })).toHaveCount(1);
+  }
+});
 
 test("a disconnect shorter than the grace period shows nothing", async ({ page, context }) => {
+  // The fake clock runs the grace period without waiting it out.
+  await page.clock.install();
   await openConnected(page);
   await page.evaluate(() => {
     new MutationObserver(() => {
       if (/Offline…|Reconnecting…/.test(document.body.innerText)) window.indicatorAppeared = true;
     }).observe(document.body, { childList: true, subtree: true, characterData: true });
   });
+  // Advance the clock only once the page has seen each change.
+  const online = () => page.evaluate(() => navigator.onLine);
   await context.setOffline(true);
-  await page.waitForTimeout(GRACE_MS / 2);
+  await expect.poll(online).toBe(false);
+  await page.clock.runFor(GRACE_MS / 2);
   await context.setOffline(false);
-  await page.waitForTimeout(GRACE_MS * 1.5);
+  await expect.poll(online).toBe(true);
+  await page.clock.runFor(GRACE_MS * 1.5);
   expect(await page.evaluate(() => window.indicatorAppeared)).toBeUndefined();
 });
 

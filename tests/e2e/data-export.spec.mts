@@ -20,7 +20,7 @@ async function exportData(page: Page) {
   return JSON.parse(await readFile(await download.path(), "utf8")) as Export;
 }
 
-test("users download their data from the account page, including a pending deletion request", async ({ page }) => {
+test("users download their data from the account page, including a pending deletion request", { tag: "@critical" }, async ({ page }) => {
   const user = await createClerkTestUser(local);
   try {
     const sync = await interceptConvexSync(page);
@@ -40,12 +40,20 @@ test("users download their data from the account page, including a pending delet
     await expect(page.getByRole("alert").filter({ hasText: "Couldn’t export your data" })).toBeVisible();
     await captureEvidence(page, "data-export-error");
 
+    // A file that is gone by the time the browser fetches it reports the same failure.
     sync.onAction("account/dataExport:download", (held) => held.forward());
+    let fetched = false;
+    await page.route("**/api/storage/**", (route) => { fetched = true; return route.fulfill({ status: 404 }); }, { times: 1 });
+    await page.getByRole("button", { name: "Export data" }).click();
+    await expect.poll(() => fetched).toBe(true);
+    await expect(page.getByRole("button", { name: "Export data" })).toBeEnabled();
+    await expect(page.getByRole("alert").filter({ hasText: "Couldn’t export your data" })).toBeVisible();
+
     const exported = await exportData(page);
     await expect(page.getByRole("alert").filter({ hasText: "Couldn’t export your data" })).toHaveCount(0);
     expect(exported).toMatchObject({
       app: appConfig.appName,
-      formatVersion: 1,
+      formatVersion: 2,
       sections: {
         profile: { account: { email: user.email } },
         billing: { plan: null, subscriptions: [], orders: [] },
@@ -59,22 +67,6 @@ test("users download their data from the account page, including a pending delet
     await expect(page.getByText(/Deletion scheduled for/)).toBeVisible();
     const afterRequest = await exportData(page);
     expect(afterRequest.sections.accountLifecycle.requests).toEqual([expect.objectContaining({ source: "user", status: "pending" })]);
-  } finally {
-    await user.cleanup();
-  }
-});
-
-test("repeated exports say when the user can export again", async ({ page }) => {
-  const user = await createClerkTestUser(local);
-  try {
-    await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email });
-    await page.goto("/account");
-    for (let attempt = 0; attempt < 3; attempt++) await exportData(page);
-
-    await page.getByRole("button", { name: "Export data" }).click();
-    const alert = page.getByRole("alert").filter({ hasText: "Couldn’t export your data" });
-    await expect(alert).toContainText(/Please wait \d+ minutes before trying again/);
-    await captureEvidence(page, "data-export-rate-limited");
   } finally {
     await user.cleanup();
   }

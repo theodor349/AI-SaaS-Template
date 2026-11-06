@@ -1,9 +1,9 @@
 name: CI
 
+# Pull requests only. complete-worktree merges a pull request once it contains the
+# latest main, so a run on the merge commit would check the same tree again.
 on:
   pull_request:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -14,18 +14,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # One job installs dependencies once for all three checks. Each check runs even
+  # when an earlier one fails, so all of them report.
   checks:
-    name: ${{ matrix.name }}
-    runs-on: ubuntu-latest
+    name: Checks
+    # A self-hosted runner on ulm; see docs/deployment.md.
+    runs-on: [self-hosted, ulm]
     timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: Unit tests
-            script: test:unit
-          - name: Lint and typecheck
-            script: lint
     env:
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
@@ -33,40 +28,32 @@ jobs:
         with:
           persist-credentials: false
       - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          # Jobs from every runner on ulm share the default ~/setup-pnpm and collide there.
+          dest: ${{ runner.temp }}/setup-pnpm
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: .node-version
-          cache: pnpm
       - name: Install dependencies
+        id: install
         run: pnpm install --frozen-lockfile
-      - name: Run checks
-        run: pnpm run ${{ matrix.script }}
 
-
-  build:
-    name: Next.js build
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      NEXT_TELEMETRY_DISABLED: "1"
-      # Fake, well-formed values for variables read while building and
-      # prerendering. Nothing contacts these services during `next build`.
-      NEXT_PUBLIC_CONVEX_URL: https://ci-placeholder.convex.cloud
-      # base64("clerk.ci-placeholder.invalid$"), the shape of a Clerk test key.
-      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2xlcmsuY2ktcGxhY2Vob2xkZXIuaW52YWxpZCQ=
-      NEXT_PUBLIC_AUTHENTICATED_DESTINATION: /app
-      NEXT_PUBLIC_APP_URL: https://ci-placeholder.invalid
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      # `next build` instead of `pnpm build`: the lint job already runs `tsc`.
-      - name: Build
+      - name: Lint and typecheck
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pnpm lint
+      - name: Unit tests
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pnpm test:unit
+      # `next build` instead of `pnpm build`: the lint step already runs `tsc`.
+      - name: Next.js build
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        env:
+          # Fake, well-formed values for variables read while building and
+          # prerendering. Nothing contacts these services during `next build`.
+          # Scoped to this step: the bootstrap tests fail when a Clerk key is set.
+          NEXT_PUBLIC_CONVEX_URL: https://ci-placeholder.convex.cloud
+          # base64("clerk.ci-placeholder.invalid$"), the shape of a Clerk test key.
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2xlcmsuY2ktcGxhY2Vob2xkZXIuaW52YWxpZCQ=
+          NEXT_PUBLIC_AUTHENTICATED_DESTINATION: /app
+          NEXT_PUBLIC_APP_URL: https://ci-placeholder.invalid
         run: pnpm exec next build

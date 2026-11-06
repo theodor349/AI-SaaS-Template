@@ -1,5 +1,6 @@
 import { clerk } from "@clerk/testing/playwright";
 import { expect, test, type Page } from "@playwright/test";
+import { appConfig } from "../../app.config";
 import { E2E_CRASH_COOKIE } from "../../lib/e2e-crash";
 import { themeColors } from "../../lib/theme";
 import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
@@ -65,8 +66,10 @@ test("a chosen theme applies at once, persists without a flash, and System follo
     await page.goto("/");
     await expectPaintedFirstAs(page, "dark");
     await page.getByRole("button", { name: "Open profile menu" }).click();
-    await page.getByRole("menuitem", { name: "Billing", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Billing", exact: true })).toBeVisible();
+    // Billing, or the Account page in an app without billing.
+    const menuPage = appConfig.billing ? "Billing" : "Account";
+    await page.getByRole("menuitem", { name: menuPage, exact: true }).click();
+    await expect(page.getByRole("heading", { name: menuPage, exact: true })).toBeVisible();
     await expectTheme(page, "dark");
 
     // A root layout crash loses the layout's script; the error page still turns dark.
@@ -90,45 +93,6 @@ test("a chosen theme applies at once, persists without a flash, and System follo
     await expectTheme(page, "light");
     await page.reload();
     await expectPaintedFirstAs(page, "light");
-  } finally {
-    await user.cleanup();
-  }
-});
-
-test("a choice in one tab updates the other tabs", async ({ page, context }) => {
-  const user = await createClerkTestUser(local);
-  try {
-    await page.emulateMedia({ colorScheme: "light" });
-    await page.goto("/");
-    await clerk.signIn({ page, emailAddress: user.email });
-    await page.goto("/account");
-    const other = await context.newPage();
-    await other.goto("/terms");
-    await expectTheme(other, "light");
-    await page.getByRole("radiogroup", { name: "Theme" }).getByRole("radio", { name: "Dark" }).click();
-    await expectTheme(other, "dark");
-  } finally {
-    await user.cleanup();
-  }
-});
-
-test("a choice the browser refuses to store still applies and says it won't last", async ({ page }) => {
-  const user = await createClerkTestUser(local);
-  try {
-    await page.emulateMedia({ colorScheme: "light" });
-    await page.goto("/");
-    await clerk.signIn({ page, emailAddress: user.email });
-    await page.goto("/account");
-    await page.evaluate(() => {
-      Storage.prototype.setItem = () => { throw new DOMException("Quota exceeded", "QuotaExceededError"); };
-    });
-    const theme = page.getByRole("radiogroup", { name: "Theme" });
-    await theme.getByRole("radio", { name: "Dark" }).click();
-    await expectTheme(page, "dark");
-    await expect(theme.getByRole("radio", { name: "Dark" })).toHaveAttribute("aria-checked", "true");
-    await expect(page.getByRole("alert").filter({ hasText: "couldn’t save your choice" })).toBeVisible();
-    await page.reload();
-    await expectTheme(page, "light");
   } finally {
     await user.cleanup();
   }

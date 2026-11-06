@@ -6,10 +6,15 @@ import { PolarServerError } from "@polar-sh/sdk";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { api, components, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { legalVersions } from "../account/legalVersions";
 import { withdrawalDeadline } from "./withdrawalPeriod";
 import schema from "../schema";
 import { modules } from "../test.setup";
+
+// These tests cover billing turned on, whatever app.config.ts sets.
+vi.mock("../../app.config", async (importOriginal) => {
+  const { appConfig } = await importOriginal<typeof import("../../app.config")>();
+  return { appConfig: { ...appConfig, billing: true } };
+});
 
 const provider = vi.hoisted(() => ({
   customers: { get: vi.fn() },
@@ -30,13 +35,15 @@ let subscriptions: ReturnType<typeof providerSubscription>[];
 
 function providerOrder(model: string, id = "order-a") {
   return { id, customer_id: "customer-a", product_id: model, subscription_id: model === "lifetime" ? null : "sub-a",
-    paid: true, status: "paid", net_amount: 1000, refunded_amount: 0, refundable_amount: 1000,
+    paid: true, status: "paid", subtotal_amount: 1000, discount_amount: 0, net_amount: 1000, refunded_amount: 0,
+    refundable_amount: 1000,
     created_at: new Date(purchasedAt).toISOString(), modified_at: new Date(purchasedAt).toISOString() };
 }
 function providerSubscription(model: string) {
   return { id: "sub-a", customer_id: "customer-a", product_id: model, status: "active", cancel_at_period_end: false,
     current_period_start: new Date(purchasedAt - 1000).toISOString(), current_period_end: new Date(purchasedAt + 30 * day).toISOString(),
-    created_at: new Date(purchasedAt - 1000).toISOString(), modified_at: new Date(purchasedAt).toISOString(), pending_update: null };
+    created_at: new Date(purchasedAt - 1000).toISOString(), modified_at: new Date(purchasedAt).toISOString(), pending_update: null,
+    discount: null as { type: string; basis_points: number; duration: string } | null };
 }
 async function* iterate<T>(items: T[]) { yield* items; }
 
@@ -51,13 +58,18 @@ const as = (t: Test, name: string) => t.withIdentity({ issuer, subject: name });
 
 async function provision(t: Test, name: string) {
   return t.run(ctx => ctx.db.insert("users", { tokenIdentifier: `${issuer}|${name}`, clerkId: name,
-    email: `${name}@example.com`, lifecycle: "active", profileUpdatedAt: 1, profileEventAt: 1,
-    legalAcceptance: { ...legalVersions, acceptedAt: 1 } }));
+    email: `${name}@example.com`, lifecycle: "active", profileUpdatedAt: 1, profileEventAt: 1 }));
 }
 // Alice buys `model` through the same reconciliation that publishes real purchases.
-async function purchase(t: Test, model: "monthly" | "yearly" | "lifetime") {
+// `discount` is the part of the 1000 price a forever discount code covered at
+// checkout; 1000 is a 100% code, so nothing is charged.
+async function purchase(t: Test, model: "monthly" | "yearly" | "lifetime", discount = 0) {
   orders = [providerOrder(model)];
   subscriptions = model === "lifetime" ? [] : [providerSubscription(model)];
+  if (discount) {
+    Object.assign(orders[0], { discount_amount: discount, net_amount: 1000 - discount, refundable_amount: 1000 - discount });
+    subscriptions.forEach(s => { s.discount = { type: "percentage", basis_points: discount * 10, duration: "forever" }; });
+  }
   const userId = await provision(t, "alice");
   await t.mutation(internal.billing.state.enqueue, { customerId: "customer-a", externalId: `wt-test:${issuer}|alice` });
   await t.action(internal.billing.polar.reconcileCustomer, { customerId: "customer-a" });
@@ -117,7 +129,7 @@ test.each(["monthly", "yearly", "lifetime"] as const)("withdrawing %s refunds th
   // Repeating a received withdrawal records nothing new.
   await as(t, "alice").mutation(api.billing.withdrawals.request, { orderId: "order-a" });
   const [received] = await withdrawalsOf(t, userId);
-  expect(received).toMatchObject({ status: "pending", receivedAt: Date.now(), refundOrderIds: ["order-a"] });
+  expect(received).toMatchObject({ status: "pending", receivedAt: Date.now(), refundOrderIds: ["order-a"], nothingCharged: false });
 
   await t.action(internal.billing.polar.withdraw, { withdrawalId: received._id });
   expect(provider.refunds.create).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
@@ -129,6 +141,57 @@ test.each(["monthly", "yearly", "lifetime"] as const)("withdrawing %s refunds th
   await t.action(internal.billing.polar.reconcileCustomer, { customerId: "customer-a" });
   expect(await accountState(t)).toBe("ended");
   expect((await as(t, "alice").query(api.billing.withdrawals.purchases, {}))[0].withdrawal).toMatchObject({ status: "refunded" });
+});
+
+test.each(["monthly", "yearly", "lifetime"] as const)("withdrawing a %s purchase bought with a partial code refunds what was charged", async (model) => {
+  const t = setup();
+  const userId = await purchase(t, model, 400);
+  expect(await accountState(t)).toBe("active");
+
+  await as(t, "alice").mutation(api.billing.withdrawals.request, { orderId: "order-a" });
+  const [received] = await withdrawalsOf(t, userId);
+  expect(received).toMatchObject({ refundOrderIds: ["order-a"], nothingCharged: false });
+
+  await t.action(internal.billing.polar.withdraw, { withdrawalId: received._id });
+  expect(provider.refunds.create).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ order_id: "order-a", amount: 600 }));
+  expect(provider.subscriptions.revoke).toHaveBeenCalledTimes(model === "lifetime" ? 0 : 1);
+  await t.action(internal.billing.polar.reconcileCustomer, { customerId: "customer-a" });
+  expect(await accountState(t)).toBe("ended");
+});
+
+test.each(["monthly", "yearly", "lifetime"] as const)("withdrawing a %s purchase bought with a 100% code ends paid access without a refund", async (model) => {
+  const t = setup();
+  const userId = await purchase(t, model, 1000);
+  expect(await accountState(t)).toBe("active");
+
+  await as(t, "alice").mutation(api.billing.withdrawals.request, { orderId: "order-a" });
+  const [received] = await withdrawalsOf(t, userId);
+  expect(received).toMatchObject({ status: "pending", refundOrderIds: ["order-a"], nothingCharged: true });
+
+  await t.action(internal.billing.polar.withdraw, { withdrawalId: received._id });
+  expect(provider.refunds.create).not.toHaveBeenCalled();
+  expect(provider.subscriptions.revoke).toHaveBeenCalledTimes(model === "lifetime" ? 0 : 1);
+  expect((await withdrawalsOf(t, userId))[0]).toMatchObject({ status: "refunded", refundedAt: Date.now() });
+
+  await t.action(internal.billing.polar.reconcileCustomer, { customerId: "customer-a" });
+  expect(await accountState(t)).toBe("ended");
+  // Polar still shows the order as paid, so a later reconciliation must not restore access.
+  await t.action(internal.billing.polar.reconcileCustomer, { customerId: "customer-a" });
+  expect(await accountState(t)).toBe("ended");
+});
+
+test("a withdrawn order stays refunded when Polar later reverses its refund", async () => {
+  const t = setup();
+  const userId = await purchase(t, "lifetime");
+  await as(t, "alice").mutation(api.billing.withdrawals.request, { orderId: "order-a" });
+  await t.action(internal.billing.polar.withdraw, { withdrawalId: (await withdrawalsOf(t, userId))[0]._id });
+  await t.action(internal.billing.polar.reconcileCustomer, { customerId: "customer-a" });
+  expect(await accountState(t)).toBe("ended");
+
+  vi.setSystemTime(Date.now() + 60_000);
+  Object.assign(orders[0], { status: "paid", refunded_amount: 0, refundable_amount: 1000, modified_at: new Date().toISOString() });
+  await t.action(internal.billing.polar.reconcileCustomer, { customerId: "customer-a" });
+  expect(await accountState(t)).toBe("ended");
 });
 
 test("withdrawal is refused once the period has ended", async () => {
@@ -222,6 +285,28 @@ test("the owner is emailed once the refund is made", async () => {
   expect(email).toMatchObject({ to: ["alice@example.com"] });
   expect(email?.text).toContain("Purchase: Lifetime Pro");
   expect(email?.text).toContain("We refunded your");
+});
+
+test("a comped purchase's emails say nothing was charged instead of promising a refund", async () => {
+  vi.stubEnv("RESEND_API_KEY", "re_test"); vi.stubEnv("EMAIL_FROM", "App <receipts@example.com>");
+  const t = setup();
+  const userId = await purchase(t, "monthly", 1000);
+  await as(t, "alice").mutation(api.billing.withdrawals.request, { orderId: "order-a" });
+  const [received] = await withdrawalsOf(t, userId);
+  await t.action(internal.billing.polar.withdraw, { withdrawalId: received._id });
+  const [{ receiptEmailId, refundEmailId }] = await withdrawalsOf(t, userId);
+  const email = (emailId: string) => t.run(ctx => ctx.runQuery(components.resend.lib.get, { emailId }));
+
+  const receipt = await email(receiptEmailId!);
+  expect(receipt?.text).toContain("Withdrawal received: 15 October 2026 at 14:01:00 CEST");
+  expect(receipt?.text).toContain("You weren't charged for this purchase, so there is nothing to refund.");
+  expect(receipt?.text).not.toContain("original payment method");
+
+  const completed = await email(refundEmailId!);
+  expect(completed?.subject).toContain("your withdrawal is complete");
+  expect(completed?.text).toContain("Purchase: Monthly Pro");
+  expect(completed?.text).toContain("You weren't charged for this purchase, so there was nothing to refund.");
+  expect(completed?.text).not.toContain("We refunded");
 });
 
 test("without email configured, the withdrawal is still received", async () => {

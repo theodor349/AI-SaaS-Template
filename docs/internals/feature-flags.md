@@ -17,10 +17,10 @@ Components read flags with [`useFlag(key)`](../../lib/feature-flags.ts). All of 
 Edit the `featureFlags` table in the Convex dashboard (one row per flag: `key`, optional `override`, optional `allowlist` of `users` IDs), or run the internal mutations. Add `--prod` or `--deployment <name>` to target a hosted deployment:
 
 ```sh
-pnpm exec convex run featureFlags:setOverride '{"key":"exampleFeature","enabled":true}'   # on for everyone
-pnpm exec convex run featureFlags:setOverride '{"key":"exampleFeature","enabled":null}'   # remove the override
-pnpm exec convex run featureFlags:allowUser '{"key":"exampleFeature","userId":"<users _id>"}'
-pnpm exec convex run featureFlags:disallowUser '{"key":"exampleFeature","userId":"<users _id>"}'
+pnpm exec convex run featureFlags:setOverride '{"key":"notePinning","enabled":true}'   # on for everyone
+pnpm exec convex run featureFlags:setOverride '{"key":"notePinning","enabled":null}'   # remove the override
+pnpm exec convex run featureFlags:allowUser '{"key":"notePinning","userId":"<users _id>"}'
+pnpm exec convex run featureFlags:disallowUser '{"key":"notePinning","userId":"<users _id>"}'
 ```
 
 User IDs are `users._id` values, found in the dashboard's `users` table. The mutations reject unknown keys and users, and delete the row once it holds no state. Keep the allowlist to a handful of users, because every flag read loads the whole row.

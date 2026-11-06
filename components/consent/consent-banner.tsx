@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { appConfig } from "@/app.config";
 import { Link } from "@/components/typography/link";
 import { Button } from "@/components/ui/button";
-import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { allChoices } from "@/lib/consent/cookie";
 import { saveConsent, useConsentState } from "./consent-provider";
 import { CookiePreferences } from "./cookie-preferences";
@@ -38,21 +38,23 @@ function Banner() {
       <div ref={spacerRef} aria-hidden="true" />
       <section ref={bannerRef} aria-labelledby="consent-banner-title" className={styles.banner}>
         <div className={styles.card}>
-          <Card>
-            <CardHeader>
-              <CardTitle id="consent-banner-title" role="heading" aria-level={2}>Cookies on {appConfig.appName}</CardTitle>
-              <CardDescription>
-                We use essential cookies to keep you signed in. With your permission, we also use analytics to find and
-                fix errors. You can change your choice at any time. Read our <Link href="/cookies">Cookie Policy</Link>.
-              </CardDescription>
-            </CardHeader>
-            <CardFooter>
-              <div className="flex w-full flex-wrap justify-end gap-2">
-                <Button variant="ghost" onClick={() => setPreferencesOpen(true)}>Customize</Button>
-                <Button onClick={() => saveConsent(allChoices(false))}>Reject all</Button>
-                <Button onClick={() => saveConsent(allChoices(true))}>Accept all</Button>
+          <Card size="sm">
+            <CardContent>
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-6">
+                <p className="text-muted-foreground">
+                  <span id="consent-banner-title" role="heading" aria-level={2} className="font-medium text-foreground">
+                    Cookies on {appConfig.appName}.
+                  </span>{" "}
+                  We use essential cookies to keep you signed in and, with your permission, analytics to find and fix
+                  errors. You can change your choice at any time. <Link href="/cookies">Cookie Policy</Link>
+                </p>
+                <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setPreferencesOpen(true)}>Customize</Button>
+                  <Button size="sm" onClick={() => saveConsent(allChoices(false))}>Reject all</Button>
+                  <Button size="sm" onClick={() => saveConsent(allChoices(true))}>Accept all</Button>
+                </div>
               </div>
-            </CardFooter>
+            </CardContent>
           </Card>
         </div>
       </section>

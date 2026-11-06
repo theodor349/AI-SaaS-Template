@@ -1,15 +1,38 @@
 name: E2E
+# The nightly app health check finds nightly runs by this name. An empty
+# run-name falls back to GitHub's default: the pull request title, or the
+# workflow name for other manual runs.
+run-name: ${{ inputs.suite == 'nightly' && 'Nightly E2E' || '' }}
 
 # Runs the integration and browser suites against a real local stack: bootstrap's
 # local Convex backend, the shared Clerk development instance, and the shared
 # Polar sandbox organization. Provider rate limits are shared with local agents,
-# so pull requests only run when they carry the `run-e2e` label.
+# so pull requests only run when they carry the `run-e2e` label. Adding the label
+# runs the full suite, and later pushes to the labeled pull request run only the
+# tests tagged @critical. A push cancels a full run still in progress, so to get a
+# full run on the latest commit, remove the label and add it back. Reopening a
+# labeled pull request also runs the critical tests.
+#
+# Main runs the critical tests nightly rather than on every merge to save CI
+# minutes, and the full suite on Sundays (UTC) so tests that rarely run don't go
+# stale. GitHub starts `schedule` runs hours late, so the `nightly-e2e.timer`
+# systemd user unit on ulm starts the nightly at 00:00 UTC instead, with
+# `gh workflow run E2E --ref main -f suite=nightly`. Manual runs use the full
+# suite unless they pick critical.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
+    inputs:
+      suite:
+        description: The full suite, only the tests tagged @critical, or nightly, which picks by weekday
+        type: choice
+        options: [full, critical, nightly]
+        default: full
   pull_request:
-    types: [opened, synchronize, reopened, labeled]
+    # Not `opened`. GitHub's APIs create a pull request without labels and add
+    # them in a second call, so opening one with `run-e2e` also sends `labeled`.
+    # Running on both started two runs, and the concurrency group cancelled one,
+    # which GitHub could then show as the head's E2E check.
+    types: [synchronize, reopened, labeled]
 
 permissions:
   contents: read
@@ -22,10 +45,14 @@ jobs:
       github.event_name != 'pull_request' ||
       (contains(github.event.pull_request.labels.*.name, 'run-e2e') &&
       (github.event.action != 'labeled' || github.event.label.name == 'run-e2e'))
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ulm]
     timeout-minutes: 2
+    permissions:
+      checks: read
+      contents: read
     outputs:
       available: ${{ steps.check.outputs.available }}
+      suite: ${{ steps.check.outputs.suite }}
     steps:
       - name: Check required secrets
         id: check
@@ -36,15 +63,50 @@ jobs:
           POLAR_PRODUCT_MONTHLY: ${{ secrets.POLAR_PRODUCT_MONTHLY }}
           POLAR_PRODUCT_YEARLY: ${{ secrets.POLAR_PRODUCT_YEARLY }}
           POLAR_PRODUCT_LIFETIME: ${{ secrets.POLAR_PRODUCT_LIFETIME }}
+          GH_TOKEN: ${{ github.token }}
+          DISPATCHED_SUITE: ${{ inputs.suite }}
+          PR_ACTION: ${{ github.event.action }}
         # Integration asserts the three synced Polar products and signed Polar
-        # webhooks, and billing E2E calls the sandbox API, so Polar is required.
+        # webhooks, and billing E2E calls the sandbox API, so Polar is required
+        # unless app.config.ts sets `billing: false`, which skips those tests.
         run: |
+          suite=full
+          nightly=false
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            [ "$DISPATCHED_SUITE" = nightly ] && nightly=true
+            # The nightly runs the full suite on Sundays (UTC) and the critical tests otherwise.
+            if [ "$DISPATCHED_SUITE" = critical ] || { [ "$nightly" = true ] && [ "$(date -u +%u)" != 7 ]; }; then
+              suite=critical
+            fi
+          fi
+          # Adding the label runs the full suite, including at pull request creation.
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$PR_ACTION" != labeled ]; then suite=critical; fi
+          echo "suite=$suite" >> "$GITHUB_OUTPUT"
+          required=(NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY CLERK_SECRET_KEY)
+          # Read the billing switch through the API rather than a checkout. The
+          # runner keeps its workspace between jobs, and a sparse checkout here
+          # left it sparse for the next CI job, which then found only this file.
+          config=$(gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/$GITHUB_REPOSITORY/contents/app.config.ts?ref=$GITHUB_SHA")
+          if ! grep -Eq '^\s*billing:\s*false\s*,?\s*$' <<< "$config"; then
+            required+=(POLAR_ACCESS_TOKEN POLAR_PRODUCT_MONTHLY POLAR_PRODUCT_YEARLY POLAR_PRODUCT_LIFETIME)
+          fi
           missing=()
-          for name in NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY CLERK_SECRET_KEY POLAR_ACCESS_TOKEN \
-            POLAR_PRODUCT_MONTHLY POLAR_PRODUCT_YEARLY POLAR_PRODUCT_LIFETIME; do
+          for name in "${required[@]}"; do
             [ -n "${!name}" ] || missing+=("$name")
           done
           if [ ${#missing[@]} -eq 0 ]; then
+            # The nightly critical run skips a commit that an earlier run of
+            # either suite already passed. The Sunday full run always runs.
+            if [ "$nightly" = true ] && [ "$suite" = critical ]; then
+              passed=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?check_name=Integration%20and%20E2E" \
+                --jq '[.check_runs[] | select(.conclusion == "success")] | length')
+              if [ "$passed" -gt 0 ]; then
+                echo "::notice title=E2E skipped::$GITHUB_SHA already passed E2E."
+                echo "available=false" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
             echo "available=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -57,9 +119,11 @@ jobs:
     name: Integration and E2E
     needs: preflight
     if: needs.preflight.outputs.available == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ulm]
     timeout-minutes: 45
-    # Job-level so skipped label events never cancel a running suite.
+    # Job-level so skipped label events never cancel a running suite. A push to a
+    # labeled pull request cancels its running full suite and runs the critical
+    # tests on the new commit instead.
     concurrency:
       group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: true
@@ -79,30 +143,20 @@ jobs:
       - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
         with:
           package_json_file: ${{ env.APP_DIR }}/package.json
+          # Jobs from every runner on ulm share the default ~/setup-pnpm and collide there.
+          dest: ${{ runner.temp }}/setup-pnpm
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: ${{ env.APP_DIR }}/.node-version
-          cache: pnpm
-          cache-dependency-path: ${{ env.APP_DIR }}/pnpm-lock.yaml
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Resolve Playwright version
-        id: playwright
-        run: echo "version=$(pnpm exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
-      - name: Cache Playwright browsers
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
-      - name: Cache Convex local backend
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/convex
-          key: convex-${{ runner.os }}-${{ hashFiles(format('{0}/pnpm-lock.yaml', env.APP_DIR)) }}
-          restore-keys: convex-${{ runner.os }}-
+      # The runner keeps the pnpm store, Playwright browsers and the Convex local
+      # backend in its home directory between runs, so nothing needs caching.
+      # Chromium's system libraries take sudo to install, so ulm has them
+      # installed once instead of through --with-deps.
       - name: Install Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install chromium
 
       - name: Write bootstrap credentials
         env:
@@ -134,9 +188,12 @@ jobs:
         id: integration
         run: pnpm test:integration
       # Run the browser suite even when integration fails so both report.
-      - name: E2E tests
+      - name: E2E tests (${{ needs.preflight.outputs.suite }})
         if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
-        run: pnpm test:e2e
+        env:
+          SUITE: ${{ needs.preflight.outputs.suite }}
+        run: |
+          if [ "$SUITE" = critical ]; then pnpm test:e2e:critical; else pnpm test:e2e; fi
 
       - name: Stop bootstrap
         if: ${{ always() && steps.bootstrap.outcome == 'success' }}
@@ -157,3 +214,10 @@ jobs:
           echo "::group::bootstrap service log"
           cat "$(git rev-parse --path-format=absolute --git-path bootstrap.log)" || true
           echo "::endgroup::"
+
+      # The runner keeps its workspace, so remove this run's checkout, which holds
+      # the credentials file and the local Convex database.
+      - name: Remove run checkout
+        if: always()
+        working-directory: ${{ github.workspace }}
+        run: rm -rf "$APP_DIR"

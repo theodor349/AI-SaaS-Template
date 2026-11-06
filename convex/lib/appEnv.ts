@@ -27,4 +27,7 @@ export const appEnv = {
   LOG_SAMPLE_RATE_QUERY: v.optional(v.string()),
   LOG_SAMPLE_RATE_MUTATION: v.optional(v.string()),
   LOG_SAMPLE_RATE_ACTION: v.optional(v.string()),
+  // "1" refuses public mutations and actions while the app is paused; see
+  // docs/deployment.md#pausing-the-app.
+  MAINTENANCE_MODE: v.optional(v.literal("1")),
 };

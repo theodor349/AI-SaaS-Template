@@ -1,22 +1,30 @@
 import { clerk } from "@clerk/testing/playwright";
 import { expect, test } from "@playwright/test";
+import { appConfig } from "../../app.config";
+import { resolveAuthenticatedDestination } from "../../lib/auth";
 import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 
 const local = resolveLocalTestConfig();
+const authenticatedDestination = resolveAuthenticatedDestination(local.env.NEXT_PUBLIC_AUTHENTICATED_DESTINATION);
+// The page the profile menu opens: Billing, or the privacy policy in an app without billing.
+const menuPage = appConfig.billing
+  ? { label: "Billing", path: /\/billing$/ }
+  : { label: "Privacy Policy", path: /\/privacy$/ };
 
-for (const width of [1280, 390]) {
-  test(`profile navigation, public policies, and sign-out work at ${width}px`, async ({ page }) => {
-    const user = await createClerkTestUser(local);
-    try {
+test("profile navigation, public policies, and sign-out work at 1280px and 390px", async ({ page }) => {
+  const user = await createClerkTestUser(local);
+  try {
+    await page.goto("/");
+    await clerk.signIn({ page, emailAddress: user.email });
+    const trigger = page.getByRole("button", { name: "Open profile menu" });
+    const menu = page.getByRole("menu");
+    const dialog = page.getByRole("dialog", { name: "Cookie Preferences" });
+    for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 900 });
-      await page.goto("/");
-      await clerk.signIn({ page, emailAddress: user.email });
       await page.goto("/account");
-      const trigger = page.getByRole("button", { name: "Open profile menu" });
       await expect(trigger).toBeVisible();
       await trigger.click();
-      const menu = page.getByRole("menu");
       await expect(menu).toBeVisible();
       await expect(menu.getByText(user.email, { exact: true })).toBeVisible();
       const bounds = await menu.boundingBox();
@@ -38,9 +46,10 @@ for (const width of [1280, 390]) {
       await expect(trigger).toBeFocused();
 
       await trigger.click();
-      await page.getByRole("menuitem", { name: "Billing", exact: true }).click();
-      await expect(page).toHaveURL(/\/billing$/);
-      await expect(page.getByRole("heading", { name: "Billing", exact: true })).toBeVisible();
+      if (!appConfig.billing) await expect(page.getByRole("menuitem", { name: "Billing" })).toHaveCount(0);
+      await page.getByRole("menuitem", { name: menuPage.label, exact: true }).click();
+      await expect(page).toHaveURL(menuPage.path);
+      await expect(page.getByRole("heading", { name: menuPage.label, exact: true })).toBeVisible();
       // The menu's history entry gives way to the page it opened.
       await page.goBack();
       await expect(page).toHaveURL(/\/account$/);
@@ -49,12 +58,14 @@ for (const width of [1280, 390]) {
       await page.goBack();
       await expect(menu).toHaveCount(0);
       await expect(page).toHaveURL(/\/account$/);
-      await page.getByRole("link", { name: "Back to Dashboard" }).click();
-      await expect(page).toHaveURL(/\/app$/);
-      await page.goto("/billing");
+      // An unpaid user can pass through the dashboard on the way to /billing, often
+      // faster than toHaveURL polls, so wait for the navigation event instead.
+      const dashboard = page.waitForURL(`${local.config.env.APP_URL}${authenticatedDestination}`);
+      await page.getByRole("link", { name: "Dashboard", exact: true }).click();
+      await dashboard;
+      if (appConfig.billing) await page.goto("/billing");
       await trigger.click();
       await page.getByRole("menuitem", { name: "Cookie Preferences" }).click();
-      const dialog = page.getByRole("dialog", { name: "Cookie Preferences" });
       await expect(dialog).toBeVisible();
       await expect(dialog.getByRole("switch", { name: "Essential" })).toBeChecked();
       await expect(dialog.getByRole("switch", { name: "Essential" })).toBeDisabled();
@@ -67,10 +78,15 @@ for (const width of [1280, 390]) {
         await page.getByRole("menuitem", { name: label, exact: true }).click();
         await expect(page.getByRole("heading", { name: label, exact: true })).toBeVisible();
       }
-      await trigger.click();
-      await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
-      await expect(page).toHaveURL(`${local.config.env.APP_URL}/`);
-      await expect(trigger).toHaveCount(0);
+    }
+
+    // Signing out ends the session, so it runs once, at the last width.
+    await trigger.click();
+    await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
+    await expect(page).toHaveURL(`${local.config.env.APP_URL}/`);
+    await expect(trigger).toHaveCount(0);
+    for (const width of [390, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
       for (const [path, heading] of [["/privacy", "Privacy Policy"], ["/terms", "Terms of Service"], ["/cookies", "Cookie Policy"]]) {
         await page.goto(path);
         await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
@@ -81,11 +97,11 @@ for (const width of [1280, 390]) {
       await expect(dialog).toBeVisible();
       await dialog.getByRole("button", { name: "Save preferences", exact: true }).click();
       await expect(cookieButton).toBeFocused();
-    } finally {
-      await user.cleanup();
     }
-  });
-}
+  } finally {
+    await user.cleanup();
+  }
+});
 
 test("failed Convex authentication keeps Dashboard reachable without exposing protected content", async ({ page }) => {
   const user = await createClerkTestUser(local);
@@ -106,12 +122,13 @@ test("failed Convex authentication keeps Dashboard reachable without exposing pr
     });
     await clerk.signIn({ page, emailAddress: user.email });
     const recovery = page.getByRole("alert").filter({ hasText: "We couldn’t load your account" });
-    await expect(recovery).toBeVisible();
+    // On the landing page, the plans are what wait for the account.
+    if (appConfig.billing) await expect(recovery).toBeVisible();
     await expect(page.getByRole("link", { name: "Dashboard", exact: true })).toBeVisible();
     await page.getByRole("link", { name: "Dashboard", exact: true }).click();
-    await expect(page).toHaveURL(/\/app$/);
+    await expect(page).toHaveURL(`${local.config.env.APP_URL}${authenticatedDestination}`);
     await expect(recovery).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Your application" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Notes", exact: true })).toHaveCount(0);
   } finally {
     await user.cleanup();
   }

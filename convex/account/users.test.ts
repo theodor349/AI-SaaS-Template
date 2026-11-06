@@ -1,7 +1,7 @@
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
 import { afterEach, expect, test, vi } from "vitest";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import { retryAfter } from "../lib/errors";
 import schema from "../schema";
 import { modules } from "../test.setup";
@@ -94,4 +94,54 @@ test("profile refreshes are limited per user, and a rejected one makes no Clerk 
   expect(await alice.action(api.account.users.ensureCurrentUser, {})).toMatchObject({ status: "ready" });
   const bob = t.withIdentity({ subject: "user_b", issuer });
   expect(await bob.action(api.account.users.ensureCurrentUser, {})).toMatchObject({ status: "ready" });
+});
+
+// Terms acceptance is no longer recorded or required. Records written before
+// that change, current or outdated, must not block anything.
+test.each([
+  ["no terms record", undefined],
+  ["an outdated terms record", { terms: 0, privacy: 1, acceptedAt: 1 }],
+])("a paid user with %s uses the product", async (_label, legalAcceptance) => {
+  vi.stubEnv("CLERK_JWT_ISSUER_DOMAIN", issuer);
+  const t = setup();
+  const userId = await t.run((ctx) => ctx.db.insert("users", {
+    tokenIdentifier: `${issuer}|alice`, clerkId: "alice", email: "alice@example.com",
+    lifecycle: "active", profileUpdatedAt: 1, profileEventAt: 1, legalAcceptance,
+  }));
+  await t.run((ctx) => ctx.db.insert("billingAccounts", {
+    customerId: "customer-a", userId, status: "active", model: "lifetime", cancelAtPeriodEnd: false, revision: 1,
+  }));
+  const alice = t.withIdentity({ subject: "alice", issuer });
+  expect(await alice.query(api.billing.account.application, {})).toEqual({ name: "there" });
+});
+
+test("new accounts store no terms acceptance", async () => {
+  vi.stubEnv("CLERK_JWT_ISSUER_DOMAIN", issuer);
+  const t = setup();
+  await t.mutation(internal.account.users.syncProfile, {
+    profile: { clerkId: "alice", email: "alice@example.com", updatedAt: 1 }, eventAt: 1,
+  });
+  const users = await t.run((ctx) => ctx.db.query("users").collect());
+  expect(users.map((user) => user.legalAcceptance)).toEqual([undefined]);
+});
+
+test("clearing legacy terms records empties them in batches and keeps everything else", async () => {
+  vi.useFakeTimers();
+  const t = setup();
+  await t.run(async (ctx) => {
+    for (let i = 0; i < 250; i++) {
+      await ctx.db.insert("users", {
+        tokenIdentifier: `${issuer}|user-${i}`, clerkId: `user-${i}`, email: `user-${i}@example.com`,
+        lifecycle: "active", profileUpdatedAt: 1, profileEventAt: 1,
+        legalAcceptance: i % 5 ? { terms: 1, privacy: 1, acceptedAt: 1 } : undefined,
+      });
+    }
+  });
+  await t.mutation(internal.account.users.clearLegalAcceptance, {});
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const users = await t.run((ctx) => ctx.db.query("users").collect());
+  expect(users).toHaveLength(250);
+  expect(users.filter((user) => user.legalAcceptance !== undefined)).toEqual([]);
+  expect(users.every((user) => user.email === `${user.clerkId}@example.com`)).toBe(true);
+  vi.useRealTimers();
 });

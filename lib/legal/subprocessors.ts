@@ -8,6 +8,8 @@ export type Subprocessor = {
   location: string;
   safeguard: string;
   privacyUrl: string;
+  // Used only for selling plans, so listed only when app.config.ts `billing` is on.
+  billing?: true;
 };
 
 const dataPrivacyFramework = "EU–US Data Privacy Framework, with standard contractual clauses as a fallback";
@@ -26,7 +28,7 @@ export const subprocessors: Subprocessor[] = [
     name: "Convex",
     entity: "Convex, Inc.",
     purpose: "Database and backend for your application data",
-    location: "United States",
+    location: "European Union (Ireland)",
     safeguard: standardContractualClauses,
     privacyUrl: "https://www.convex.dev/legal/privacy",
   },
@@ -37,6 +39,7 @@ export const subprocessors: Subprocessor[] = [
     location: "United States",
     safeguard: standardContractualClauses,
     privacyUrl: "https://polar.sh/legal/privacy-policy",
+    billing: true,
   },
   {
     name: "Vercel",
@@ -53,6 +56,9 @@ export const subprocessors: Subprocessor[] = [
     location: "United States",
     safeguard: dataPrivacyFramework,
     privacyUrl: "https://resend.com/legal/privacy-policy",
+    // The template only emails withdrawal receipts. Remove this line when the
+    // app sends other email.
+    billing: true,
   },
   {
     name: "Sentry",

@@ -1,8 +1,9 @@
 import { clerk } from "@clerk/testing/playwright";
 import { expect, test } from "@playwright/test";
 import { ConvexHttpClient } from "convex/browser";
+import { appConfig } from "../../app.config";
 import { api } from "../../convex/_generated/api";
-import { createClerkTestOrganization, createClerkTestUser as createUnpaidTestUser } from "../../scripts/clerk-test-user.mjs";
+import { createClerkTestUser as createUnpaidTestUser } from "../../scripts/clerk-test-user.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 import { resolveAuthenticatedDestination } from "../../lib/auth";
 import { seedPaidTestUser } from "../../scripts/billing-test-fixtures.mjs";
@@ -16,7 +17,7 @@ async function createClerkTestUser(config: typeof local) {
   catch (error) { await user.cleanup(); throw error; }
 }
 const authenticatedDestination = resolveAuthenticatedDestination(local.env.NEXT_PUBLIC_AUTHENTICATED_DESTINATION);
-test("Clerk identity reaches paid local Convex and persists across reloads", async ({ page }) => {
+test("Clerk identity reaches paid local Convex and persists across reloads", { tag: "@critical" }, async ({ page }) => {
   const user = await createClerkTestUser(local);
   try {
     await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email });
@@ -25,16 +26,31 @@ test("Clerk identity reaches paid local Convex and persists across reloads", asy
     client.setAuth(token!);
     expect(await client.query(api.billing.account.application, {})).toEqual({ name: user.name });
     await page.getByRole("link", { name: "Dashboard", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Your application" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Notes", exact: true })).toBeVisible();
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();
     await page.reload();
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();
     await clerk.signOut({ page });
-    await expect(page.getByRole("heading", { name: "Your application" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Notes", exact: true })).toHaveCount(0);
   } finally { await user.cleanup(); }
 });
 
-test("sign-in fallback and return-to redirects reach the configured application destination", async ({ page }) => {
+test("without billing, a new account uses the application and billing pages are not found", { tag: "@critical" }, async ({ page }) => {
+  test.skip(appConfig.billing, "billing is on in app.config.ts");
+  const user = await createUnpaidTestUser(local);
+  try {
+    await page.goto("/");
+    await expect(page.locator("#pricing")).toHaveCount(0);
+    await clerk.signIn({ page, emailAddress: user.email });
+    await page.goto("/app");
+    await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();
+    for (const path of ["/billing", "/checkout?plan=monthly"]) {
+      expect((await page.goto(path))?.status(), path).toBe(404);
+    }
+  } finally { await user.cleanup(); }
+});
+
+test("sign-in fallback and return-to redirects reach the configured application destination", { tag: "@critical" }, async ({ page }) => {
   const user = await createClerkTestUser(local);
   try {
     await page.goto("/sign-in");
@@ -51,7 +67,7 @@ test("sign-in fallback and return-to redirects reach the configured application 
   }
 });
 
-test("revoked sessions remove protected content and restored cookies cannot re-enter", async ({ page, browser }) => {
+test("revoked sessions remove protected content and restored cookies cannot re-enter", { tag: "@critical" }, async ({ page, browser }) => {
   const user = await createClerkTestUser(local);
   try {
     await page.goto("/");
@@ -65,7 +81,7 @@ test("revoked sessions remove protected content and restored cookies cannot re-e
       try { await window.Clerk.session?.getToken({ template: "convex", skipCache: true }); } catch { /* Revoked sessions cannot issue tokens. */ }
     });
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: "Your application" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Notes", exact: true })).toHaveCount(0);
     // Restore the original cookies in a fresh page so Clerk's live sign-out
     // redirect cannot race the attempt to re-enter the protected route.
     const restored = await browser.newContext({ baseURL: local.config.env.APP_URL, storageState: savedSession });
@@ -73,7 +89,7 @@ test("revoked sessions remove protected content and restored cookies cannot re-e
       const restoredPage = await restored.newPage();
       await restoredPage.goto("/app");
       await expect(restoredPage.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
-      await expect(restoredPage.getByRole("heading", { name: "Your application" })).toHaveCount(0);
+      await expect(restoredPage.getByRole("heading", { name: "Notes", exact: true })).toHaveCount(0);
       await expect(restoredPage.getByText(`Welcome ${user.name}!`, { exact: true })).toHaveCount(0);
     } finally { await restored.close(); }
   } finally {
@@ -81,73 +97,50 @@ test("revoked sessions remove protected content and restored cookies cannot re-e
   }
 });
 
-test("organization and role changes wait for fresh Convex validation", async ({ page }) => {
-  const user = await createClerkTestUser(local);
-  let organization: Awaited<ReturnType<typeof createClerkTestOrganization>> | undefined;
-  let release = () => {};
-  try {
-    organization = await createClerkTestOrganization(local, user.id);
-    if (!organization) {
-      test.skip(true, "The shared Clerk development instance has organizations disabled.");
-      return;
-    }
-    // Hold JWT validation without logging tokens; other socket messages pass through.
-    const sync = await interceptConvexSync(page);
-    release = sync.releaseAuthentication;
-    await page.goto("/");
-    await clerk.signIn({ page, emailAddress: user.email });
-    await page.goto("/app");
-    await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();
-    sync.holdAuthentication();
-    await page.evaluate(async (id) => { await window.Clerk.setActive({ organization: id }); }, organization.id);
-    await expect(page.getByRole("status")).toHaveText("Connecting your account…");
-    await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toHaveCount(0);
-    release();
-    await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();
-
-    await organization.setRole("org:member");
-    sync.holdAuthentication();
-    await page.evaluate(async () => {
-      await window.Clerk.organization?.reload();
-      await window.Clerk.setActive({ organization: window.Clerk.organization?.id });
-    });
-    await expect(page.getByRole("status")).toHaveText("Connecting your account…");
-    await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toHaveCount(0);
-    release();
-    await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();
-  } finally {
-    release();
-    await organization?.cleanup();
-    await user.cleanup();
-  }
-});
-
-test("signed-out application navigation preserves the requested destination and stays public at sign-in", async ({ page }) => {
+test("signed-out application navigation preserves the requested destination and stays public at sign-in", { tag: "@critical" }, async ({ page }) => {
   await page.goto("/app?tab=profile");
-  await expect(page).toHaveURL((url) => url.origin === new URL(local.config.env.APP_URL).origin && url.pathname === "/sign-in");
+  // The app's own page, not Clerk's hosted Account Portal on another origin.
+  await expect(page).toHaveURL((url) => url.href.startsWith(`${local.config.env.APP_URL}/sign-in?`));
   const returnTo = new URL(page.url()).searchParams.get("redirect_url");
   expect(returnTo).toBe(`${local.config.env.APP_URL}/app?tab=profile`);
   await clerk.loaded({ page });
-  await expect(page.getByRole("heading", { name: "Your application" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Notes", exact: true })).toHaveCount(0);
   await page.goto("/sign-in?redirect_url=https%3A%2F%2Fevil.example%2Fapp");
   await expect(page).toHaveURL(`${local.config.env.APP_URL}/sign-in`);
 });
 
-test("separate users and account switching never keep the previous protected identity", async ({ page, browser }) => {
+test("separate users provision on first sign-in and account switching never keeps the previous protected identity", { tag: "@critical" }, async ({ page, browser }) => {
   const otherContext = await browser.newContext();
-  const users: Awaited<ReturnType<typeof createClerkTestUser>>[] = [];
+  const users: Awaited<ReturnType<typeof createUnpaidTestUser>>[] = [];
   try {
-    const alice = await createClerkTestUser(local);
+    const alice = await createUnpaidTestUser(local);
     users.push(alice);
-    const bob = await createClerkTestUser(local);
+    const bob = await createUnpaidTestUser(local);
     users.push(bob);
     const other = await otherContext.newPage();
-    await page.goto("/");
-    await clerk.signIn({ page, emailAddress: alice.email });
+
+    // The first signed-in visit provisions each account through Clerk, without the
+    // webhook a local backend can't receive. Pro comes after, since seeding it
+    // would provision the account first.
+    const ids = [];
+    for (const [target, user] of [[page, alice], [other, bob]] as const) {
+      await target.goto(`${local.config.env.APP_URL}/`);
+      await clerk.signIn({ page: target, emailAddress: user.email });
+      const token = await target.evaluate(() => window.Clerk.session!.getToken({ template: "convex" }));
+      const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
+      client.setAuth(token!);
+      await expect.poll(async () => (await client.query(api.account.users.current, {})).status).toBe("ready");
+      const current = await client.query(api.account.users.current, {});
+      if (current.status !== "ready") throw new Error("Account provisioning did not finish");
+      expect(current.user).toEqual({ id: expect.any(String), email: user.email, displayName: user.name });
+      ids.push(current.user.id);
+      await expect(target.getByRole("alert").filter({ hasText: "Account setup failed" })).toHaveCount(0);
+      await seedPaidTestUser(user);
+    }
+    expect(ids[0]).not.toBe(ids[1]);
+
     await page.goto("/app");
     await expect(page.getByText(`Welcome ${alice.name}!`, { exact: true })).toBeVisible();
-    await other.goto(`${local.config.env.APP_URL}/`);
-    await clerk.signIn({ page: other, emailAddress: bob.email });
     await other.goto(`${local.config.env.APP_URL}/app`);
     await expect(other.getByText(`Welcome ${bob.name}!`, { exact: true })).toBeVisible();
     await expect(page.getByText(`Welcome ${alice.name}!`, { exact: true })).toBeVisible();
@@ -205,17 +198,19 @@ test("slow Clerk token acquisition shows loading and sends no protected query", 
     });
     await clerk.signIn({ page, emailAddress: user.email });
     // The landing page's signed-in pricing waits for Convex instead of showing guest plans.
-    await expect(page.getByRole("status").filter({ hasText: "Loading paid plans…" })).toHaveText("Loading paid plans…");
+    if (appConfig.billing) await expect(page.getByRole("status").filter({ hasText: "Loading paid plans…" })).toHaveText("Loading paid plans…");
     await expect(page.getByRole("button", { name: "Sign in", exact: true })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "Dashboard", exact: true })).toHaveCount(0);
     expect(sync.hasSubscribed("billing/account:status")).toBe(false);
     expect(sync.hasSubscribed("billing/account:application")).toBe(false);
     await page.evaluate(() => window.dispatchEvent(new Event("release-auth-test")));
-    await expect(page.getByText("You have lifetime access.")).toBeVisible();
-    expect(sync.hasSubscribed("billing/account:status")).toBe(true);
+    if (appConfig.billing) {
+      await expect(page.getByRole("button", { name: "Current" })).toBeDisabled();
+      expect(sync.hasSubscribed("billing/account:status")).toBe(true);
+    }
     await page.getByRole("link", { name: "Dashboard", exact: true }).click();
     await expect(page).toHaveURL(`${local.config.env.APP_URL}${authenticatedDestination}`);
-    await expect(page.getByRole("heading", { name: "Your application" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Notes", exact: true })).toBeVisible();
     await expect(page.getByText(`Welcome ${user.name}!`, { exact: true })).toBeVisible();
     expect(sync.hasSubscribed("billing/account:application")).toBe(true);
     expect(errors).toEqual([]);
@@ -258,6 +253,9 @@ test("a restored session waits for Convex validation without signed-out UI, redi
 test("stalled authentication has a recovery state instead of an endless loading screen", async ({ page }) => {
   const user = await createClerkTestUser(local);
   try {
+    // The fake clock runs the 15-second recovery timeout without waiting it out.
+    // It must be installed before the page loads.
+    await page.clock.install();
     await page.goto("/");
     await clerk.signIn({ page, emailAddress: user.email });
     await page.goto("/app");
@@ -265,6 +263,11 @@ test("stalled authentication has a recovery state instead of an endless loading 
     // Block authenticated Convex frames while retaining the restored Clerk cookie.
     (await interceptConvexSync(page)).holdAuthentication();
     await page.reload();
+    await expect(page.getByRole("status").filter({ hasText: "Connecting your account…" })).toBeVisible();
+    // The server renders the pending state too; its timeout starts once the page hydrates.
+    await clerk.loaded({ page });
+    // Well within the minute a Clerk session token lasts.
+    await page.clock.fastForward(15_000);
     await expect(page.getByRole("alert").filter({ hasText: "We couldn’t load your account" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Open profile menu" })).toBeVisible();

@@ -1,10 +1,9 @@
 import type { Id } from "../_generated/dataModel";
 import { env } from "../_generated/server";
-import { billingModels, type BillingModel } from "./plans";
+import { billingEnabled, billingModels, type BillingModel } from "./plans";
 import { appError } from "../lib/errors";
 import type { QueryCtx } from "../lib/functions";
-import { hasAcceptedCurrent } from "../account/legalVersions";
-import { requireUser } from "../lib/users";
+import { isActive, requireUser } from "../lib/users";
 
 // Failed reconciliations retry themselves this many times with backoff. Later
 // retries come from the scheduled sweep and are no longer shown as retrying.
@@ -43,6 +42,13 @@ export function isWorktreeExternalId(externalId: string | null | undefined) {
   return externalId?.startsWith(externalIdPrefix()) === true;
 }
 
+// Made-up sandbox customers that scripts/billing-test-fixtures.mjs publishes
+// straight into billing state for E2E tests, captures and review links. Polar
+// has no such customer, so reconciliation leaves them as published.
+export function isFixtureCustomer(customerId: string) {
+  return env.POLAR_ENVIRONMENT === "sandbox" && customerId.startsWith(`fixture-${env.WORKTREE_ID}-`);
+}
+
 // The owner's tokenIdentifier, or null for another worktree's or a foreign ID.
 export function externalIdTokenIdentifier(externalId: string | null | undefined) {
   return externalId && isWorktreeExternalId(externalId) ? externalId.slice(externalIdPrefix().length) : null;
@@ -72,20 +78,40 @@ export async function operationForUser(ctx: Pick<QueryCtx, "db">, userId: Id<"us
     .unique();
 }
 
+// Every public billing function starts here, so an app that sells nothing
+// refuses them before any provider request.
+export function requireBilling() {
+  if (!billingEnabled) {
+    throw appError("BILLING_DISABLED");
+  }
+}
+
 // Paid queries use materialized expiry, maintained by a durable scheduled mutation.
-// Mutations/actions also verify the deadline at execution time. The paid product
-// also requires the current terms; account, billing, and deletion functions don't.
+// Mutations/actions also verify the deadline at execution time.
 export async function requirePro(ctx: QueryCtx, now?: number) {
   const user = await requireUser(ctx);
-  const account = await accountForUser(ctx, user._id);
-  const expired = now !== undefined && account?.paidThrough !== undefined && account.paidThrough <= now;
-  if (account?.status !== "active" || expired) {
+  if (!await hasPaidAccess(ctx, user._id, now)) {
     throw appError("PAID_ACCESS_REQUIRED");
   }
-  if (!hasAcceptedCurrent(user.legalAcceptance)) {
-    throw appError("LEGAL_ACCEPTANCE_REQUIRED");
-  }
   return user;
+}
+
+// With billing off every user has paid access, and no billing row is read.
+async function hasPaidAccess(ctx: Pick<QueryCtx, "db">, userId: Id<"users">, now?: number) {
+  if (!billingEnabled) {
+    return true;
+  }
+  const account = await accountForUser(ctx, userId);
+  const expired = now !== undefined && account?.paidThrough !== undefined && account.paidThrough <= now;
+  return account?.status === "active" && !expired;
+}
+
+// Whether any user, not only the caller, has paid for Pro and their account is
+// active, for decisions about someone else such as limits on a shared resource.
+// Applies requirePro's rule and never throws. Pass `now` from mutations and
+// actions, as with requirePro.
+export async function hasPaidPro(ctx: Pick<QueryCtx, "db">, userId: Id<"users">, now?: number) {
+  return await hasPaidAccess(ctx, userId, now) && isActive(await ctx.db.get("users", userId));
 }
 
 export function billingReturnUrl(value: string) {

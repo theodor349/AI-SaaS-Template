@@ -13,8 +13,12 @@ This template supports agents developing and testing features in parallel using 
    and add Clerk development keys, a Polar sandbox organization access token,
    and the monthly, yearly, and lifetime sandbox product IDs. Linked worktrees
    inherit these settings; bootstrap syncs their prices before reporting `Ready:`.
+   An app that launches free sets `billing: false` in `app.config.ts` and skips
+   every Polar step (see [running without billing](docs/deployment.md#running-without-billing)).
 3. Configure the Clerk application's `convex` JWT template following the
-   [Convex Clerk setup](https://docs.convex.dev/auth/clerk).
+   [Convex Clerk setup](https://docs.convex.dev/auth/clerk). Under **User & authentication**,
+   sign users in with an email verification code and Google, and turn off passwords.
+   Give the Polar products tax-inclusive prices (see [deployment](docs/deployment.md#convex)).
 4. In your worktree, run `pnpm setup:check` to check prerequisites, then `pnpm bootstrap`
    in a persistent terminal. It syncs dependencies and starts Next.js, local
    Convex, and Polar forwarding, using private Tailscale HTTPS URLs when
@@ -29,6 +33,7 @@ is needed. Agent guidance lives in [AGENTS.md](AGENTS.md).
 
 - `pnpm setup:check` - check prerequisites, credentials, Clerk/Polar setup, Tailscale, and gh.
 - `pnpm bootstrap` - run an isolated local environment for this worktree (`--local`, `--tailscale`, `--no-polar`).
+- `pnpm bootstrap --detach` - start it in the background, detached from the terminal; output goes to the log. It runs until `pnpm bootstrap:stop` or until the worktree is removed.
 - `pnpm bootstrap --print` - print the effective ports, URLs, and network mode without starting services.
 - `pnpm bootstrap:status` / `bootstrap:wait` / `bootstrap:stop` - inspect, wait for, or stop this worktree's bootstrap.
 - `pnpm bootstrap:tailscale` - same as `pnpm bootstrap --tailscale`.
@@ -37,13 +42,14 @@ is needed. Agent guidance lives in [AGENTS.md](AGENTS.md).
 - `pnpm test:unit` (or `pnpm test`) - run bootstrap checks and application tests.
 - `pnpm test:app` - run application unit tests without starting dev-server fixtures.
 - `pnpm test:integration` - check the running worktree's local backend and frontend.
-- `pnpm test:e2e` - test sign-in and sign-out with Clerk and Convex in Chromium.
+- `pnpm test:e2e [spec...]` - run the browser suite, or the given specs, against the running worktree in Chromium.
+- `pnpm test:e2e:critical` - run only the browser tests tagged `@critical`.
   `E2E_EVIDENCE=1 pnpm test:e2e <spec>` also saves screenshots and videos for PR evidence in `.playwright/results`.
 - `pnpm inspect` - open the running worktree for manual browser inspection.
 - `pnpm capture <path...>` - screenshot (and optionally record) pages for PR evidence, outside the worktree.
 - `pnpm review-link` - print a single-use signed-in link for maintainer review.
 - `pnpm clerk:sweep` - delete this worktree's leftover labeled Clerk test users (`--dry-run`, `--all-worktrees`).
-- `pnpm pr:gate [PR]` - summarize a PR's merge gates: heads, main ancestry, checks, CodeRabbit, open threads.
+- `pnpm pr:gate [PR]` - summarize a PR's merge gates: heads, main ancestry, mergeability, checks, open threads.
 - `pnpm polar:trigger` - send a labeled Polar sandbox sample event to organization listeners.
 - `pnpm dev` - start Convex and Next.js using the regular deployment setup.
 - `pnpm typecheck` - check TypeScript.
@@ -55,9 +61,12 @@ is needed. Agent guidance lives in [AGENTS.md](AGENTS.md).
 
 ## CI and hosted development
 
-GitHub Actions runs unit tests and lint on every pull request and on pushes to
-`main`. The E2E workflow runs the integration and E2E suites against a local
-stack on pushes to `main` and on pull requests labeled `run-e2e`. Only `main`
+GitHub Actions runs lint, unit tests, and the Next.js build on every pull request,
+on a self-hosted runner on ulm.
+The E2E workflow runs the integration suite and the `@critical` E2E tests
+against a local stack nightly on `main`, and the full E2E suite on Sundays.
+A systemd timer on ulm starts the nightly run. Adding the `run-e2e` label to a pull request runs the full suite, and
+later pushes to that pull request run the `@critical` tests. Only `main`
 deploys to Vercel and Convex. See
 [deployment setup](docs/deployment.md) for the hosted environment, its checks,
 and Clerk/Polar webhooks.

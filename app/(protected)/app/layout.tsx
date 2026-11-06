@@ -1,18 +1,16 @@
 import type { ReactNode } from "react";
 import { AuthBoundary } from "@/components/auth/auth-boundary";
 import { PaidBoundary } from "@/components/billing/paid-boundary";
-import { LegalAcceptanceBoundary } from "../_components/legal-acceptance";
 import { InstallOffer } from "./_components/install-offer";
 
-// PaidBoundary queries billing state, so it waits for an authenticated Convex client.
+// PaidBoundary shows the loading screen for both sign-in and billing, so the
+// AuthBoundary renders it while auth loads instead of its own pending state.
 export default function ApplicationLayout({ children }: { children: ReactNode }) {
   return (
-    <AuthBoundary>
+    <AuthBoundary renderWhilePending>
       <PaidBoundary>
-        <LegalAcceptanceBoundary>
-          {children}
-          <InstallOffer />
-        </LegalAcceptanceBoundary>
+        {children}
+        <InstallOffer />
       </PaidBoundary>
     </AuthBoundary>
   );

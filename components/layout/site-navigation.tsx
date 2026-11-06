@@ -8,6 +8,7 @@ import { usePathname } from "next/navigation";
 import { LayoutDashboard, LogIn, UserPlus } from "lucide-react";
 import { appConfig } from "@/app.config";
 import { AUTHENTICATED_DESTINATION } from "@/lib/auth";
+import { maintenanceMode } from "@/lib/maintenance";
 import { cn } from "@/lib/utils";
 import { ProfileMenu } from "./profile-menu";
 import styles from "./site-navigation.module.css";
@@ -19,8 +20,7 @@ const pages = [
 export function SiteNavigation() {
   const pathname = usePathname();
   const { isLoaded, isSignedIn } = useAuth();
-  const { isLoading, isRefreshing } = useConvexAuth();
-  const pending = isLoading || isRefreshing;
+  const { isLoading } = useConvexAuth();
 
   return (
     <header className={styles.bar}>
@@ -31,8 +31,8 @@ export function SiteNavigation() {
             <Image src="/icon.svg" alt="" width={36} height={36} loading="eager" />
             <span>{appConfig.appName}</span>
           </Link>
-          {isSignedIn && pages.map(({ href, label, icon: Icon }) => {
-            if (label === "Dashboard" && pending) {
+          {isSignedIn && !maintenanceMode && pages.map(({ href, label, icon: Icon }) => {
+            if (label === "Dashboard" && isLoading) {
               return (
                 <span key={href} aria-hidden="true" className={cn(styles.pageLink, styles.disabledLink)}>
                   <Icon size={20} /><span className={styles.pageLabel}>{label}</span>
@@ -51,7 +51,7 @@ export function SiteNavigation() {
         </div>
         <div className={styles.controls}>
           {!isLoaded && <span className={styles.avatarPending} role="status" aria-label="Loading navigation" />}
-          {isLoaded && !isSignedIn && <GuestControls />}
+          {isLoaded && !isSignedIn && !maintenanceMode && <GuestControls />}
           {isLoaded && isSignedIn && <ProfileMenu />}
         </div>
       </nav>
@@ -67,7 +67,7 @@ function GuestControls() {
           <LogIn aria-hidden="true" size={20} /><span className={styles.pageLabel}>Sign in</span>
         </button>
       </SignInButton>
-      <SignUpButton mode="modal">
+      <SignUpButton>
         <button className={styles.pageLink} aria-label="Sign up">
           <UserPlus aria-hidden="true" size={20} /><span className={styles.pageLabel}>Sign up</span>
         </button>

@@ -8,15 +8,22 @@ import {
   billingReturnUrl,
   configuredProduct,
   externalCustomerId,
+  isFixtureCustomer,
   isWorktreeExternalId,
   productModel,
+  requireBilling,
   timestamp,
 } from "./lib";
-import { billingModel, billingModels, recurringModel, type BillingModel } from "./plans";
+import { billingEnabled, billingModel, billingModels, recurringModel, type BillingModel } from "./plans";
 import { appError } from "../lib/errors";
+import { getDisplayName } from "../lib/profile";
 import { action, internalAction, type ActionCtx } from "../lib/functions";
 
 type Polar = ReturnType<typeof createPolar>;
+
+function polarConfigured() {
+  return !!env.POLAR_ACCESS_TOKEN && !!env.POLAR_ENVIRONMENT;
+}
 
 function client() {
   if (!env.POLAR_ACCESS_TOKEN || !env.POLAR_ENVIRONMENT) {
@@ -64,7 +71,15 @@ function providerFailure(error: unknown) {
   };
 }
 
+// Polar also answers 404 for a deleted customer.
+function notFound(error: unknown) {
+  return error instanceof PolarClientError && error.statusCode === 404;
+}
+
+// Every public action runs through here, which also refuses them all when the
+// app doesn't sell plans.
 async function userFacing<T>(ctx: ActionCtx, operation: () => Promise<T>): Promise<T> {
+  requireBilling();
   try {
     return await operation();
   } catch (error) {
@@ -109,13 +124,31 @@ function customerEmail(email: string) {
   return `${email.slice(0, separator)}+${env.WORKTREE_ID}${email.slice(separator)}`;
 }
 
-async function findOrCreateCustomer(p: Polar, email: string, externalId: string) {
-  try {
-    return await retry(() => p.customers.getExternal(externalId));
-  } catch (error) {
-    if (!(error instanceof PolarClientError && error.statusCode === 404)) {
-      throw error;
-    }
+// Returns the customer with exactly this external ID, or null. Our external IDs
+// contain the Clerk issuer URL, and Polar's router decodes %2F before routing,
+// so every endpoint with the external ID in its path, such as
+// customers.getExternal, answers 404 for them. Search takes it as a query
+// parameter but also returns prefix matches, so only an exact match counts.
+// Search leaves out deleted customers, which keep their external ID.
+async function customerByExternalId(ctx: ActionCtx, p: Polar, externalId: string) {
+  const { items, pagination } = await retry(() => p.customers.list({ query: externalId, limit: 10 }));
+  const matches = items.filter((customer) => customer.external_id === externalId);
+  if (matches.length > 1) {
+    ctx.log.decision("customer_search", { result: "duplicates", matches: matches.length });
+    throw new Error("Several customers share one external ID");
+  }
+  // The exact match could be on a later page, so none on this one proves nothing.
+  if (!matches.length && pagination.total_count > items.length) {
+    ctx.log.decision("customer_search", { result: "truncated", total: pagination.total_count });
+    throw new Error("Customer search results truncated");
+  }
+  return matches[0] ?? null;
+}
+
+async function findOrCreateCustomer(ctx: ActionCtx, p: Polar, email: string, externalId: string) {
+  const existing = await customerByExternalId(ctx, p, externalId);
+  if (existing) {
+    return existing;
   }
   // Stable external ID makes a lost create response recoverable by lookup.
   try {
@@ -125,11 +158,11 @@ async function findOrCreateCustomer(p: Polar, email: string, externalId: string)
       metadata: { worktree_id: env.WORKTREE_ID },
     });
   } catch (creationError) {
-    try {
-      return await retry(() => p.customers.getExternal(externalId));
-    } catch {
+    const created = await customerByExternalId(ctx, p, externalId).catch(() => null);
+    if (!created) {
       throw creationError;
     }
+    return created;
   }
 }
 
@@ -148,7 +181,7 @@ async function ownedCustomer(ctx: ActionCtx): Promise<{ p: Polar; customer: Pola
   ctx.log.decision("customer", { source: account ? "linked" : "lookup_or_create" });
   const customer = account
     ? await retry(() => p.customers.get(account.customerId))
-    : await findOrCreateCustomer(p, user.email!, externalId);
+    : await findOrCreateCustomer(ctx, p, user.email!, externalId);
   ctx.log.setCustomer(customer.id);
   belongs(customer, externalId);
   await ctx.runMutation(internal.billing.state.enqueue, { customerId: customer.id, externalId });
@@ -178,7 +211,9 @@ async function validateProduct(p: Polar, model: BillingModel) {
     name: product.name,
     amount: price.price_amount,
     currency: price.price_currency,
-    taxBehavior: price.tax_behavior ?? "provider",
+    // Null when the price follows the organization's default tax behavior.
+    taxBehavior: price.tax_behavior,
+    organizationId: product.organization_id,
     syncedAt: Date.now(),
   };
 }
@@ -189,8 +224,16 @@ export const syncCatalog = internalAction({
   handler: (ctx) => withoutProviderDetails(ctx, async () => {
     const p = client();
     await spend(ctx, billingModels.length);
+    let organization: Promise<PolarModels.Organization> | undefined;
+    const defaultTaxBehavior = async (organizationId: string) => {
+      organization ??= spend(ctx, 1).then(() => retry(() => p.organizations.get(organizationId)));
+      return (await organization).default_tax_behavior;
+    };
     for (const model of billingModels) {
-      await ctx.runMutation(internal.billing.catalog.saveProduct, await validateProduct(p, model));
+      const { taxBehavior, organizationId, ...product } = await validateProduct(p, model);
+      await ctx.runMutation(internal.billing.catalog.saveProduct, {
+        ...product, taxBehavior: taxBehavior ?? await defaultTaxBehavior(organizationId),
+      });
     }
     return null;
   }),
@@ -202,13 +245,12 @@ export const checkout = action({
   handler: (ctx, { model, returnUrl }) => userFacing(ctx, async () => {
     ctx.log.set("model", model);
     const destination = billingReturnUrl(returnUrl);
-    await ctx.runQuery(internal.account.legal.requireAccepted, {});
     await ctx.runMutation(internal.rateLimits.admit, { action: "checkout" });
     const lease = await ctx.runMutation(internal.billing.state.beginOperation, {});
     try {
       const { p, customer } = await ownedCustomer(ctx);
       await reconcile(ctx, customer.id);
-      const { account } = await ctx.runQuery(internal.billing.state.owned, {});
+      const { user, account } = await ctx.runQuery(internal.billing.state.owned, {});
       const recurringActive = account?.status === "active" && model !== "lifetime";
       if (account?.model === "lifetime" || recurringActive) {
         throw appError("USE_SUBSCRIPTION_MANAGEMENT");
@@ -231,11 +273,14 @@ export const checkout = action({
         products: [product.productId],
         customer_id: customer.id,
         external_customer_id: customer.external_id,
+        // Pre-fills the cardholder name.
+        customer_name: getDisplayName(user) ?? null,
         allow_trial: false,
-        allow_discount_codes: false,
+        allow_discount_codes: true,
         metadata: { worktree_id: env.WORKTREE_ID },
         customer_metadata: { worktree_id: env.WORKTREE_ID },
-        success_url: `${new URL(destination).origin}/billing?confirmation=pending`,
+        // Billing waits for this plan's confirmation, then opens the product.
+        success_url: `${new URL(destination).origin}/billing?confirmation=${model}`,
         return_url: destination,
       });
       ctx.log.decision("checkout", { result: "created" });
@@ -437,6 +482,15 @@ function modifiedAt(resource: { modified_at?: string | null; created_at: string 
   return timestamp(resource.modified_at ?? resource.created_at);
 }
 
+// The operator creates every discount, so a 100% forever one is a deliberate
+// comp, whether the operator attached it or the customer redeemed its code at
+// checkout. Renewals carry the discount anyway; this also covers zero-cost
+// plan switches, whose orders carry neither money nor a discount.
+function comped({ discount }: PolarModels.Subscription) {
+  return discount?.type === "percentage" && "basis_points" in discount &&
+    discount.basis_points === 10000 && discount.duration === "forever";
+}
+
 function subscriptionSnapshot(s: PolarModels.Subscription) {
   const pendingModel = s.pending_update?.product_id ? productModel(s.pending_update.product_id) : undefined;
   const scheduledChange = s.pending_update && pendingModel && pendingModel !== "lifetime"
@@ -451,6 +505,7 @@ function subscriptionSnapshot(s: PolarModels.Subscription) {
     modifiedAt: modifiedAt(s),
     cancelAtPeriodEnd: s.cancel_at_period_end,
     scheduledChange,
+    comped: comped(s),
   };
 }
 
@@ -459,7 +514,10 @@ function orderSnapshot(o: PolarModels.Order & { product_id: string }) {
     id: o.id,
     productId: o.product_id,
     subscriptionId: o.subscription_id ?? undefined,
-    paid: o.paid && o.net_amount > 0,
+    // Polar also marks zero-cost plan switches and free orders paid. A purchase
+    // is one that charged money or redeemed a discount code, even a 100% one.
+    paid: o.paid && (o.net_amount > 0 || o.discount_amount > 0),
+    nothingCharged: o.net_amount <= 0,
     fullyRefunded: o.status === "refunded" || (o.net_amount > 0 && o.refunded_amount >= o.net_amount),
     createdAt: timestamp(o.created_at),
     modifiedAt: modifiedAt(o),
@@ -475,6 +533,13 @@ function configuredOrder(o: PolarModels.Order): o is PolarModels.Order & { produ
 // is picked up when the running worker finishes.
 async function reconcile(ctx: ActionCtx, customerId: string) {
   ctx.log.setCustomer(customerId);
+  // Without this, every fixture fails with a 422 and its retries drain the
+  // shared Polar budget until checkout is rate limited. Skipping before the
+  // lease keeps the sync state a test set, such as a failure, unchanged.
+  if (isFixtureCustomer(customerId)) {
+    ctx.log.decision("reconciliation", { result: "skipped", reason: "fixture" });
+    return;
+  }
   const lease = await ctx.runMutation(internal.billing.state.lease, { customerId });
   if (!lease) {
     ctx.log.decision("reconciliation", { result: "skipped" });
@@ -485,13 +550,24 @@ async function reconcile(ctx: ActionCtx, customerId: string) {
   try {
     await spend(ctx, 4);
     const p = client();
-    const customer = await retry(() => p.customers.get(customerId));
-    belongs(customer, lease.account.externalId);
+    const customer = await retry(() => p.customers.get(customerId)).catch((error: unknown) => {
+      if (notFound(error)) return null;
+      throw error;
+    });
+    // Account deletion deletes the customer, and Polar delivers events for it
+    // afterwards. A deleted customer has no live subscriptions to read.
+    if (customer) {
+      belongs(customer, lease.account.externalId);
+    } else {
+      ctx.log.decision("customer", { result: "deleted" });
+    }
     phase = "history";
-    const [subscriptions, orders] = await Promise.all([
-      retry(() => bounded(p.subscriptions.iterList({ customer_id: customerId, limit: 100 }), 100)),
-      retry(() => bounded(p.orders.iterList({ customer_id: customerId, limit: 100 }), 1000)),
-    ]);
+    const [subscriptions, orders] = customer
+      ? await Promise.all([
+        retry(() => bounded(p.subscriptions.iterList({ customer_id: customerId, limit: 100 }), 100)),
+        retry(() => bounded(p.orders.iterList({ customer_id: customerId, limit: 100 }), 1000)),
+      ])
+      : [[], []];
     // Confirm the managed subscription directly: a list captured around an
     // update can still show the previous renewal flag or plan. Paid orders
     // remain required when publishing access from this refreshed snapshot.
@@ -512,7 +588,7 @@ async function reconcile(ctx: ActionCtx, customerId: string) {
       version: lease.version,
       snapshot: {
         customerId,
-        externalId: customer.external_id ?? undefined,
+        externalId: customer ? customer.external_id ?? undefined : lease.account.externalId,
         subscriptions: subscriptions.map(subscriptionSnapshot),
         orders: orders.filter(configuredOrder).map(orderSnapshot),
       },
@@ -558,28 +634,42 @@ export const reconcileCustomer = internalAction({
 
 // Account cleanup must check the stable provider identity even if customer
 // linkage or a creation webhook was missing. The caller retries false/throws.
+// Final cleanup deletes the customer, which frees its email for a new sign-up.
 export const cleanupAccount = internalAction({
   args: { userId: v.id("users") },
   returns: v.object({ complete: v.boolean(), progress: v.optional(v.boolean()) }),
   handler: (ctx, { userId }) => withoutProviderDetails(ctx, async (): Promise<{ complete: boolean; progress?: boolean }> => {
     ctx.log.setUser(userId);
     const { user, account } = await ctx.runQuery(internal.billing.state.cleanupContext, { userId });
-    const p = client();
-    await spend(ctx, 4);
-    const externalId = externalCustomerId(user.tokenIdentifier);
-    let customer: PolarModels.Customer;
-    try {
-      customer = await retry(() => account ? p.customers.get(account.customerId) : p.customers.getExternal(externalId));
-    } catch (error) {
-      if (error instanceof PolarClientError && error.statusCode === 404 && !account) {
-        ctx.log.decision("cleanup", { result: "no_customer" });
-        return { complete: true };
+    const cancelling = user.lifecycle === "active";
+    // An app that never sold plans has no Polar customer to clean up. With
+    // Polar still configured, cleanup runs, since earlier sales may have one.
+    if (!billingEnabled && !polarConfigured()) {
+      ctx.log.decision("cleanup", { result: "billing_disabled" });
+      if (account && !cancelling) {
+        await ctx.runMutation(internal.billing.state.confirmProviderCleanup, { userId });
       }
-      throw error;
+      return { complete: true };
+    }
+    const p = client();
+    await spend(ctx, 5);
+    const externalId = externalCustomerId(user.tokenIdentifier);
+    const customer = account
+      ? await retry(() => p.customers.get(account.customerId)).catch((error: unknown) => {
+        if (notFound(error)) return null;
+        throw error;
+      })
+      : await customerByExternalId(ctx, p, externalId);
+    if (!customer) {
+      // Either there never was a customer, or an earlier attempt deleted it.
+      ctx.log.decision("cleanup", { result: "no_customer" });
+      if (account && !cancelling) {
+        await ctx.runMutation(internal.billing.state.confirmProviderCleanup, { userId });
+      }
+      return { complete: true };
     }
     ctx.log.setCustomer(customer.id);
     belongs(customer, externalId);
-    const cancelling = user.lifecycle === "active";
     // Always take the first page of outstanding work. State-setting operations
     // remove records from this filter, so retries advance without unstable offsets.
     const outstanding = () => retry(() => p.subscriptions.list({
@@ -614,6 +704,10 @@ export const cleanupAccount = internalAction({
       await ctx.runMutation(internal.billing.state.enqueue, { customerId: customer.id, externalId });
       await reconcile(ctx, customer.id);
     } else {
+      // Polar keeps the customer's orders and invoices, and anonymizing erases
+      // the email and name on the customer itself.
+      await retry(() => p.customers.delete(customer.id, { anonymize: true }));
+      ctx.log.decision("cleanup", { result: "customer_deleted" });
       // Provider truth, rather than bounded cached history, gates identity erasure.
       await ctx.runMutation(internal.billing.state.confirmProviderCleanup, { userId });
     }

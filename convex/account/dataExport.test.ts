@@ -2,11 +2,12 @@ import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { appConfig } from "../../app.config";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { retryAfter } from "../lib/errors";
 import schema from "../schema";
 import { modules } from "../test.setup";
+import { fileLifetime } from "./dataExportFiles";
 
 function setup() {
   const t = convexTest(schema, modules);
@@ -28,18 +29,18 @@ afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 type Export = { app: string; formatVersion: number; exportedAt: string; sections: Record<string, Record<string, unknown>> };
 
 // A user whose rows carry every internal field the export must leave out.
-async function seed(t: ReturnType<typeof convexTest>, name: string,
+async function seed(t: ReturnType<typeof setup>, name: string,
   { lifecycle = "active", billing = true }: { lifecycle?: Doc<"users">["lifecycle"]; billing?: boolean } = {}) {
   return t.run(async (ctx) => {
     const userId = await ctx.db.insert("users", {
       tokenIdentifier: `${issuer}|${name}-clerk`, clerkId: `${name}-clerk`, email: `${name}@example.com`,
       displayName: `${name} name`, profileEdited: true, profileUpdatedAt: at, profileEventAt: at, lifecycle,
-      legalAcceptance: { terms: 1, privacy: 1, acceptedAt: at },
     });
     await ctx.db.insert("accountLifecycleRequests", {
       userId, source: "user", sourceDeliveryId: `${name}-delivery`, requestedAt: at, status: "pending", deleteAfter: at,
       nextAttemptAt: at, leaseUntil: at, cancellationConfirmed: true, attempts: 3, failureCode: `${name}-failure`,
     });
+    await ctx.db.insert("notes", { userId, title: `${name} note`, body: "Body", pinned: true, updatedAt: at });
     if (!billing) return userId;
     const customerId = `${name}-customer`;
     await ctx.db.insert("billingAccounts", {
@@ -65,8 +66,25 @@ async function seed(t: ReturnType<typeof convexTest>, name: string,
   });
 }
 
-async function download(t: ReturnType<typeof convexTest>, name: string) {
-  return JSON.parse(await t.withIdentity({ issuer, subject: `${name}-clerk` }).action(api.account.dataExport.download, {})) as Export;
+function storedFiles(t: ReturnType<typeof setup>) {
+  return t.run((ctx) => ctx.db.system.query("_storage").collect());
+}
+
+function exportFiles(t: ReturnType<typeof setup>, userId: Id<"users">) {
+  return t.run((ctx) => ctx.db.query("dataExportFiles").withIndex("by_userId", (q) => q.eq("userId", userId)).collect());
+}
+
+// Runs the caller's export and reads the file its returned URL points to.
+async function download(t: ReturnType<typeof setup>, name: string) {
+  const url = await t.withIdentity({ issuer, subject: `${name}-clerk` }).action(api.account.dataExport.download, {});
+  const file = await t.run(async (ctx) => {
+    const user = await ctx.db.query("users").withIndex("by_clerkId", (q) => q.eq("clerkId", `${name}-clerk`)).unique();
+    const files = await ctx.db.query("dataExportFiles").withIndex("by_userId", (q) => q.eq("userId", user!._id)).collect();
+    const latest = files.at(-1)!;
+    return { fileUrl: await ctx.storage.getUrl(latest.storageId), text: await (await ctx.storage.get(latest.storageId))!.text() };
+  });
+  expect(file.fileUrl).toBe(url);
+  return JSON.parse(file.text) as Export;
 }
 
 test("an export holds only the caller's data, in the documented shape", async () => {
@@ -77,7 +95,7 @@ test("an export holds only the caller's data, in the documented shape", async ()
 
   expect(exported).toEqual({
     app: appConfig.appName,
-    formatVersion: 1,
+    formatVersion: 2,
     exportedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
     sections: {
       profile: { account: { email: "alice@example.com", displayName: "alice name", createdAt: expect.any(String) } },
@@ -96,10 +114,10 @@ test("an export holds only the caller's data, in the documented shape", async ()
         }],
       },
       accountLifecycle: { requests: [{ source: "user", status: "pending", requestedAt: iso, deleteAfter: iso }] },
-      legal: { acceptance: { termsVersion: 1, privacyVersion: 1, acceptedAt: iso } },
       withdrawals: {
         requests: [{ orderId: "alice-order", model: "monthly", purchasedAt: iso, receivedAt: iso, status: "pending", refundedAt: null }],
       },
+      notes: { notes: [{ title: "alice note", body: "Body", pinned: true, createdAt: expect.any(String), updatedAt: iso }] },
     },
   });
   const text = JSON.stringify(exported);
@@ -153,12 +171,12 @@ test("a user without billing exports an empty billing section", async () => {
   expect((await download(t, "alice")).sections.billing).toEqual({ plan: null, subscriptions: [], orders: [] });
 });
 
-test("an export over the size limit stops early with a typed error", async () => {
+test("an export over the size limit stops early with a typed error and stores nothing", async () => {
   const t = setup();
-  await seed(t, "alice");
-  // Twenty orders near the 1 MiB document limit pass the 12 MiB export limit.
+  const userId = await seed(t, "alice");
+  // Fifty orders near the 1 MiB document limit pass the 32 MiB export limit.
   await t.run(async (ctx) => {
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 50; i++) {
       await ctx.db.insert("billingOrders", {
         customerId: "alice-customer", orderId: `large-${i}`, productId: "x".repeat(700_000),
         paid: true, fullyRefunded: false, createdAt: at, modifiedAt: at,
@@ -168,8 +186,67 @@ test("an export over the size limit stops early with a typed error", async () =>
   await expect(download(t, "alice")).rejects.toThrow("EXPORT_TOO_LARGE");
   const event = vi.mocked(console.error).mock.calls.map(([line]) => JSON.parse(String(line)) as { attributes: Record<string, unknown> })
     .find((candidate) => "bytes" in candidate.attributes);
-  expect(event?.attributes.bytes).toBeGreaterThan(12 * 1024 * 1024);
+  expect(event?.attributes.bytes).toBeGreaterThan(32 * 1024 * 1024);
   expect(event?.attributes).not.toHaveProperty("accountLifecycle.requests");
+  expect(await exportFiles(t, userId)).toEqual([]);
+  expect(await storedFiles(t)).toEqual([]);
+});
+
+test("another user's export never returns or reads someone else's file", async () => {
+  const t = setup();
+  const aliceId = await seed(t, "alice");
+  const bobId = await seed(t, "bob");
+  const alice = await download(t, "alice");
+  const bob = await download(t, "bob");
+
+  expect(alice.sections.profile.account).toMatchObject({ email: "alice@example.com" });
+  expect(bob.sections.profile.account).toMatchObject({ email: "bob@example.com" });
+  expect(JSON.stringify(bob)).not.toContain("alice");
+  const [aliceFile] = await exportFiles(t, aliceId);
+  const [bobFile] = await exportFiles(t, bobId);
+  expect(aliceFile.storageId).not.toBe(bobFile.storageId);
+});
+
+test("an export file is deleted shortly after it is created", async () => {
+  vi.useFakeTimers();
+  try {
+    const t = setup();
+    const userId = await seed(t, "alice");
+    await download(t, "alice");
+    const [file] = await exportFiles(t, userId);
+
+    vi.advanceTimersByTime(fileLifetime - 1);
+    await t.finishInProgressScheduledFunctions();
+    expect(await storedFiles(t)).toEqual([expect.objectContaining({ _id: file.storageId })]);
+
+    vi.advanceTimersByTime(1);
+    await t.finishInProgressScheduledFunctions();
+    expect(await storedFiles(t)).toEqual([]);
+    expect(await exportFiles(t, userId)).toEqual([]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("account erasure deletes pending export files", async () => {
+  const t = setup();
+  const aliceId = await seed(t, "alice", { billing: false });
+  const bobId = await seed(t, "bob", { billing: false });
+  await download(t, "alice");
+  await download(t, "bob");
+  const [aliceFile] = await exportFiles(t, aliceId);
+  const lease = Date.now() + 60_000;
+  const requestId = await t.run(async (ctx) => {
+    await ctx.db.patch("users", aliceId, { lifecycle: "deletion_requested" });
+    const request = await ctx.db.query("accountLifecycleRequests").withIndex("by_userId", (q) => q.eq("userId", aliceId)).unique();
+    await ctx.db.patch("accountLifecycleRequests", request!._id, { leaseUntil: lease, erasing: true });
+    return request!._id;
+  });
+
+  expect(await t.mutation(internal.account.lifecycle.erase, { requestId, lease })).toBe(true);
+  expect(await exportFiles(t, aliceId)).toEqual([]);
+  expect((await storedFiles(t)).map((stored) => stored._id)).not.toContain(aliceFile.storageId);
+  expect(await exportFiles(t, bobId)).toHaveLength(1);
 });
 
 test("anonymous and unprovisioned callers cannot export", async () => {

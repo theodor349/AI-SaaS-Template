@@ -1,6 +1,6 @@
 # Overlay history
 
-An installed app has no browser back button, and Android's back gesture is a history back. So that the gesture closes an open dialog or menu instead of leaving the page, each open overlay owns one history entry above the page's entry ([lib/overlay-history.ts](../../lib/overlay-history.ts)). The shared `Dialog`, `AlertDialog`, and `DropdownMenu` roots in `components/ui` register themselves through [useOverlayState](../../components/overlay/use-overlay-state.ts). An overlay built on a Radix root directly, or a third-party one such as Clerk's sign-in modal, gets none of this; build new overlays on the shared roots.
+An installed app has no browser back button, and Android's back gesture is a history back. So that the gesture closes an open dialog or menu instead of leaving the page, each open overlay owns one history entry above the page's entry ([lib/overlay-history.ts](../../lib/overlay-history.ts)). The shared `Dialog`, `AlertDialog`, `DropdownMenu`, and `Popover` roots in `components/ui` register themselves through [useOverlayState](../../components/overlay/use-overlay-state.ts). An overlay built on a Radix root directly, or a third-party one such as Clerk's sign-in modal, gets none of this; build new overlays on the shared roots.
 
 Browsers behave the same way, so desktop back also closes the top overlay first. Chrome's `CloseWatcher` would handle the gesture without history, but it doesn't respond to history back, the only thing tests and other browsers can drive.
 
@@ -11,3 +11,7 @@ Browsers behave the same way, so desktop back also closes the top overlay first.
 - **A navigation while an overlay is still open replaces the overlay's entries** and closes the overlay, so back from the new page returns to the old one in a single step. A same-URL `replaceState`, such as the router's refresh, keeps the overlay's marker in the state it writes.
 
 Forward after closing an overlay with back lands on that overlay's old entry, which shows the same page. That entry can't be removed without adding another, so it is left in place.
+
+## Popovers inside a dialog
+
+A Radix popover, such as a date picker, is not modal. A click outside both it and the dialog around it dismisses every open layer, so the dialog closes with the popover and the user loses what they entered. Pass `keepOpenForPopovers` to [DialogContent](../../components/ui/dialog.tsx) when the dialog contains one; the click then closes only the popover.

@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { AuthBoundary } from "@/components/auth/auth-boundary";
+import { maintenanceMode } from "@/lib/maintenance";
 import { noIndex } from "@/lib/seo";
+import { MaintenanceNotice } from "../_components/maintenance-notice";
 
 export const metadata: Metadata = { robots: noIndex };
 
@@ -11,6 +13,7 @@ export const metadata: Metadata = { robots: noIndex };
 // Any page, route handler, or Server Function here that reads protected data on the server
 // must call `auth.protect()` itself. Calling it here would make every page dynamic.
 export default function ProtectedLayout({ children }: { children: ReactNode }) {
+  if (maintenanceMode) return <MaintenanceNotice />;
   // Covers sessions that end while a page is open. Pages keep their shell while auth
   // loads; their components show their own skeletons.
   return (

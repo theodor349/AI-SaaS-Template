@@ -7,7 +7,9 @@ import { removeRecordedRoutes } from "./tailscale.mjs";
 // services and Tailscale routes behind. The state file records both, so they can be
 // stopped without matching processes by name, path, or port. A group is signalled
 // only while a recorded member is alive in it with its recorded start time; a
-// process group ID cannot be reused while any member is alive.
+// process group ID cannot be reused while any member is alive. A failed run gets
+// the same treatment, because its shutdown can fail partway, such as a Tailscale
+// command timing out on a loaded machine.
 export async function reclaimStaleRun(state, {
   table = processTable, startOf = processStart, signal = signalProcessGroup, removeRoutes = removeRecordedRoutes, graceMs = 5000,
 } = {}) {
@@ -33,11 +35,14 @@ export async function reclaimStaleRun(state, {
   return { stopped: owned.filter((group) => !survivors.includes(group)), survivors, routes };
 }
 
-// Reclaims a stale run, reports the result, and marks the state stopped once
-// nothing it owned remains. Returns false when something needs attention, which
-// leaves the run stale so a later command retries.
+// Reclaims a stale or failed run, reports the result, and marks the state stopped
+// once nothing it owned remains, keeping a failed run's error. Returns false when
+// something needs attention, which leaves the status as it was so a later command
+// retries.
 export async function reclaim(stateFile, recorded, { log = console.log, warn = console.error, ...options } = {}) {
-  log(`Bootstrap supervisor ${recorded.pid} exited without cleaning up; reclaiming the services and routes it recorded.`);
+  log(recorded.status === "failed"
+    ? "Bootstrap is not running (failed); removing any services and routes it left behind."
+    : `Bootstrap supervisor ${recorded.pid} exited without cleaning up; reclaiming the services and routes it recorded.`);
   const { stopped, survivors, routes } = await reclaimStaleRun(recorded, options);
   if (stopped.length) log(`Stopped ${stopped.length} leftover service process group${stopped.length === 1 ? "" : "s"}.`);
   if (routes.removed.length) log(`Removed Tailscale routes on ports ${routes.removed.map(({ port }) => port).join(", ")}.`);
@@ -51,6 +56,6 @@ export async function reclaim(stateFile, recorded, { log = console.log, warn = c
     return false;
   }
   const ok = !survivors.length && !routes.error && !routes.blocked.length;
-  if (ok) writeState(stateFile, { ...current, status: "stopped", reclaimedAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+  if (ok) writeState(stateFile, { ...current, status: "stopped", proxyCleanupError: undefined, reclaimedAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
   return ok;
 }

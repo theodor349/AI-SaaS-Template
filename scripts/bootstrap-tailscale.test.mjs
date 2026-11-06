@@ -33,6 +33,11 @@ test("proxy planning preserves unrelated services and refuses collisions or Funn
   assert.throws(() => plannedProxies(local, remote, same), /another service/);
 });
 
+// The Tailscale ports derive from this test's worktree path and fall in Linux's
+// ephemeral port range, so a real check fails whenever any socket on the machine
+// holds one of them, such as an outbound connection from a parallel test file.
+const portsFree = async () => {};
+
 function fakeTailscale(failPort) {
   const state = structuredClone(existing);
   const calls = [];
@@ -52,7 +57,7 @@ function fakeTailscale(failPort) {
 
 test("startup failure rolls back only proxies created by that run", async () => {
   const fake = fakeTailscale(remote.ports.convex);
-  await assert.rejects(serveWorktree(local, remote, fake.command), /Serve setup failed/);
+  await assert.rejects(serveWorktree(local, remote, { command: fake.command, portsAvailable: portsFree }), /Serve setup failed/);
   assert.deepEqual(fake.state, existing);
 });
 
@@ -60,7 +65,7 @@ test("cleanup keeps reused proxies and routes changed by someone else", async ()
   const fake = fakeTailscale();
   const same = proxyState(remote.ports.site, `http://127.0.0.1:${local.ports.site}`);
   Object.assign(fake.state.TCP, same.TCP); Object.assign(fake.state.Web, same.Web);
-  const cleanup = await serveWorktree(local, remote, fake.command);
+  const cleanup = await serveWorktree(local, remote, { command: fake.command, portsAvailable: portsFree });
   fake.state.Web[authority(remote.ports.next)].Handlers["/"].Proxy = "http://127.0.0.1:9999";
   cleanup();
   assert.equal(fake.state.Web[authority(remote.ports.next)].Handlers["/"].Proxy, "http://127.0.0.1:9999");
@@ -79,8 +84,36 @@ test("failed rollback reports cleanup failure without masking the original start
     try { return fake.command(args); }
     catch (error) { setupFailed = true; throw error; }
   };
-  await assert.rejects(serveWorktree(local, remote, command), /Serve setup failed/);
+  await assert.rejects(serveWorktree(local, remote, { command, portsAvailable: portsFree }), /Serve setup failed/);
   assert.match(reported.mock.calls[0].arguments[0], /Cleanup status timed out/);
+});
+
+test("failed rollback goes to the given report, and the routes it left stay recorded", async () => {
+  const fake = fakeTailscale(remote.ports.convex);
+  let setupFailed = false;
+  const reports = [];
+  const recorded = [];
+  const command = args => {
+    if (setupFailed && args[1] === "status") throw new Error("Cleanup status timed out");
+    try { return fake.command(args); }
+    catch (error) { setupFailed = true; throw error; }
+  };
+  await assert.rejects(serveWorktree(local, remote, {
+    command, portsAvailable: portsFree, report: message => reports.push(message), onRoutes: ({ created }) => recorded.push(created.map(route => route.port)),
+  }), /Serve setup failed/);
+  assert.match(reports[0], /Tailscale cleanup failed: Cleanup status timed out/);
+  assert.deepEqual(recorded.at(-1), [remote.ports.next]);
+});
+
+test("cleanup forgets the routes it removed or no longer owns", async () => {
+  const fake = fakeTailscale();
+  const recorded = [];
+  const cleanup = await serveWorktree(local, remote, {
+    command: fake.command, portsAvailable: portsFree, onRoutes: ({ created }) => recorded.push(created.map(route => route.port)),
+  });
+  assert.deepEqual(recorded.at(-1), [remote.ports.next, remote.ports.convex, remote.ports.site]);
+  cleanup();
+  assert.deepEqual(recorded.at(-1), []);
 });
 
 test("Tailscale is used by default only with a running node and HTTPS certificates", () => {
@@ -114,7 +147,10 @@ test("serving records created and preserved routes for the state file", async ()
   const fake = fakeTailscale();
   const same = proxyState(remote.ports.site, `http://127.0.0.1:${local.ports.site}`);
   Object.assign(fake.state.TCP, same.TCP); Object.assign(fake.state.Web, same.Web);
-  const cleanup = await serveWorktree(local, remote, fake.command);
+  const checked = [];
+  const cleanup = await serveWorktree(local, remote, { command: fake.command, portsAvailable: async ports => { checked.push(...Object.values(ports)); } });
+  // Only ports this run will serve are checked; the reused route's port is in use by design.
+  assert.deepEqual(checked, [remote.ports.next, remote.ports.convex]);
   assert.deepEqual(cleanup.created.map(route => route.port), [remote.ports.next, remote.ports.convex]);
   assert.deepEqual(cleanup.preserved, [{ port: remote.ports.site, target: `http://127.0.0.1:${local.ports.site}` }]);
 });

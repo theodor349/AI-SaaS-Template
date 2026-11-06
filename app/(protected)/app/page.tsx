@@ -1,20 +1,19 @@
-"use client";
+import type { Metadata } from "next";
+import { NoteComposer } from "./_components/note-composer";
+import { NoteList } from "./_components/note-list";
+import { Welcome } from "./_components/welcome";
 
-import { useQuery } from "convex/react";
-import { api } from "@/convex/_generated/api";
-import { AuthPending } from "@/components/auth/auth-boundary";
-import { Link } from "@/components/typography/link";
+export const metadata: Metadata = { title: "Notes" };
 
 export default function ApplicationPage() {
-  const identity = useQuery(api.billing.account.application);
-  if (identity === undefined) return <AuthPending message="Loading your account…" />;
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Your application</h1>
-      </div>
-      <p>Welcome {identity.name ?? "to your account"}!</p>
-      <Link href="/billing" className="inline-flex items-center self-start pointer-coarse:min-h-12">Manage billing</Link>
+      <header className="flex flex-col gap-2">
+        <h1 className="text-3xl font-bold">Notes</h1>
+        <Welcome />
+      </header>
+      <NoteComposer />
+      <NoteList />
     </div>
   );
 }

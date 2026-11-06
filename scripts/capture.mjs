@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import { appLocation, checkoutRoots, deferInterrupts, isInside, parsePlan, shellQuote } from "./agent-cli.mjs";
+import { appLocation, checkoutRoots, deferInterrupts, isInside, parsePlan, parseTestUserEmail, shellQuote } from "./agent-cli.mjs";
 
-const usage = "Usage: pnpm capture <path...> [--label before|after|<name>] [--plan monthly|yearly|lifetime] [--signed-out] [--out <dir>] [--wait-for <text>] [--video <seconds>] [--color-scheme light|dark]";
+const usage = "Usage: pnpm capture <path...> [--label before|after|<name>] [--plan monthly|yearly|lifetime] [--user <name>+clerk_test@<domain>] [--signed-out] [--out <dir>] [--wait-for <text>] [--video <seconds>] [--color-scheme light|dark]";
 
 export const VIEWPORTS = {
   desktop: { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 },
@@ -14,7 +14,7 @@ export const VIEWPORTS = {
 
 export function captureOptions(argv) {
   const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, strict: true, options: {
-    label: { type: "string", default: "capture" }, plan: { type: "string" }, "signed-out": { type: "boolean", default: false },
+    label: { type: "string", default: "capture" }, plan: { type: "string" }, user: { type: "string" }, "signed-out": { type: "boolean", default: false },
     out: { type: "string" }, "wait-for": { type: "string" }, video: { type: "string" }, "color-scheme": { type: "string", default: "light" },
     help: { type: "boolean" },
   } });
@@ -23,6 +23,8 @@ export function captureOptions(argv) {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(values.label)) throw new Error("--label may only contain letters, digits, '.', '_', and '-'.");
   const plan = parsePlan(values.plan);
   if (plan && values["signed-out"]) throw new Error("--plan needs a signed-in user; remove --signed-out.");
+  const user = parseTestUserEmail(values.user);
+  if (user && values["signed-out"]) throw new Error("--user signs a user in; remove --signed-out.");
   let videoSeconds = null;
   if (values.video !== undefined) {
     videoSeconds = Number(values.video);
@@ -31,7 +33,7 @@ export function captureOptions(argv) {
   if (values["wait-for"] === "") throw new Error("--wait-for needs visible text.");
   const colorScheme = values["color-scheme"];
   if (colorScheme !== "light" && colorScheme !== "dark") throw new Error("--color-scheme must be light or dark.");
-  return { paths: positionals, label: values.label, plan, signedOut: values["signed-out"], out: values.out ?? null,
+  return { paths: positionals, label: values.label, plan, user, signedOut: values["signed-out"], out: values.out ?? null,
     waitFor: values["wait-for"] ?? null, videoSeconds, colorScheme };
 }
 
@@ -85,10 +87,10 @@ async function screenshotWholePage(page, viewport, file) {
 async function main() {
   const options = captureOptions(process.argv.slice(2));
   if (options.help) {
-    console.log(`${usage}\n\nCaptures full-page desktop (1440x900) and mobile (390x844 @2x) screenshots for PR evidence.\nSigns in a temporary Clerk test user unless --signed-out, and removes it afterwards.\n--label     Output folder name (default capture).\n--plan      Seed deterministic paid access before capturing.\n--out       Output directory outside the checkout (default <tmp>/pr-evidence/<worktree>/<label>).\n--wait-for  Text that must be visible before each capture.\n--video     Also record a desktop video of each path for this many seconds.\n--color-scheme  The OS theme to emulate, which the app's default System theme follows (default light).`);
+    console.log(`${usage}\n\nCaptures full-page desktop (1440x900) and mobile (390x844 @2x) screenshots for PR evidence.\nSigns in a temporary Clerk test user unless --signed-out or --user, and removes it afterwards.\n--label     Output folder name (default capture).\n--plan      Seed deterministic paid access before capturing. With --user, the access stays on that user.\n--user      Sign in this existing +clerk_test user of the Clerk development instance instead, and keep it.\n--out       Output directory outside the checkout (default <tmp>/pr-evidence/<worktree>/<label>).\n--wait-for  Text that must be visible before each capture.\n--video     Also record a desktop video of each path for this many seconds.\n--color-scheme  The OS theme to emulate, which the app's default System theme follows (default light).`);
     return;
   }
-  const [{ chromium }, { clerk, clerkSetup, setupClerkTestingToken }, { createClerkTestUser }, { resolveLocalTestConfig }] = await Promise.all([
+  const [{ chromium }, { clerk, clerkSetup, setupClerkTestingToken }, { createClerkTestUser, findClerkTestUser }, { resolveLocalTestConfig }] = await Promise.all([
     import("@playwright/test"), import("@clerk/testing/playwright"), import("./clerk-test-user.mjs"), import("./local-test-config.mjs"),
   ]);
   const local = resolveLocalTestConfig();
@@ -100,6 +102,7 @@ async function main() {
   let browser;
   const interrupts = deferInterrupts(() => { browser?.close().catch(() => {}); });
   let user;
+  let sessionId;
   let videoDir;
   const written = [];
   try {
@@ -114,7 +117,7 @@ async function main() {
         throw new Error("Clerk testing-token setup failed. Check the development credentials; provider error details are omitted.");
       }
       interrupts.check();
-      user = await createClerkTestUser(local);
+      user = options.user ? await findClerkTestUser(local, options.user) : await createClerkTestUser(local);
       interrupts.check();
       if (options.plan) {
         const { seedPaidTestUser } = await import("./billing-test-fixtures.mjs");
@@ -138,6 +141,7 @@ async function main() {
         interrupts.check();
         throw new Error("Official Clerk test sign-in failed; check the local development credentials.");
       }
+      sessionId = await page.evaluate(() => window.Clerk.session?.id);
       storageState = await context.storageState();
       await context.close();
     }
@@ -192,7 +196,11 @@ async function main() {
     await browser?.close().catch(() => {});
     if (videoDir) rmSync(videoDir, { recursive: true, force: true });
     try {
-      await user?.cleanup();
+      if (options.user) {
+        if (sessionId) await user.revokeSession(sessionId);
+      } else {
+        await user?.cleanup();
+      }
     } finally {
       interrupts.dispose();
       if (interrupts.signal) process.exitCode = 130;

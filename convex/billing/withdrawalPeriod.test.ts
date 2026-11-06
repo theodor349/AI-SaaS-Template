@@ -36,7 +36,23 @@ test("a subscription is one purchase from its first paid order; lifetime orders 
   ], modelOf);
 
   expect(result).toEqual([
-    { orderId: "create", subscriptionId: "sub", model: "yearly", purchasedAt: 1, withdrawUntil: withdrawalDeadline(1), refundOrderIds: ["create", "switch"] },
-    { orderId: "lifetime", subscriptionId: undefined, model: "lifetime", purchasedAt: 4, withdrawUntil: withdrawalDeadline(4), refundOrderIds: ["lifetime"] },
+    { orderId: "create", subscriptionId: "sub", model: "yearly", purchasedAt: 1, withdrawUntil: withdrawalDeadline(1), refundOrderIds: ["create", "switch"], nothingCharged: false },
+    { orderId: "lifetime", subscriptionId: undefined, model: "lifetime", purchasedAt: 4, withdrawUntil: withdrawalDeadline(4), refundOrderIds: ["lifetime"], nothingCharged: false },
+  ]);
+});
+
+test("a purchase charged nothing only when none of its refundable orders charged money", () => {
+  const order = (orderId: string, createdAt: number, extra: object = {}) =>
+    ({ orderId, productId: "monthly", subscriptionId: `sub-${orderId}`, createdAt, paid: true, fullyRefunded: false, ...extra });
+  const result = purchases([
+    order("comped", 1, { nothingCharged: true }),
+    order("charged", 2, { nothingCharged: false }),
+    order("renewed", 3, { nothingCharged: true }),
+    { ...order("renewal", 4, { nothingCharged: false }), subscriptionId: "sub-renewed" },
+    // Orders stored before the field existed were all charged.
+    order("stored", 5),
+  ], modelOf);
+  expect(result.map((p) => [p.orderId, p.nothingCharged])).toEqual([
+    ["comped", true], ["charged", false], ["renewed", false], ["stored", false],
   ]);
 });

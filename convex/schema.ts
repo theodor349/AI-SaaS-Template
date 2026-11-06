@@ -21,7 +21,8 @@ export default defineSchema(
       profileUpdatedAt: v.number(),
       profileEventAt: v.number(),
       lifecycle: v.union(v.literal("active"), v.literal("deletion_requested"), v.literal("deleted")),
-      // The terms and privacy notice versions the user last accepted, and when.
+      // Terms acceptance is no longer recorded. Kept so documents written before
+      // that still validate; account/users:clearLegalAcceptance empties it.
       legalAcceptance: v.optional(v.object({ terms: v.number(), privacy: v.number(), acceptedAt: v.number() })),
     }).index("by_tokenIdentifier", ["tokenIdentifier"])
       .index("by_clerkId", ["clerkId"]),
@@ -113,12 +114,20 @@ export default defineSchema(
       superseded: v.boolean(), status: v.string(), paidThrough: v.number(),
       cancelAtPeriodEnd: v.boolean(), modifiedAt: v.number(), periodStart: v.number(),
       scheduledChange: v.optional(scheduledPlanChange),
+      // Carries a 100% forever discount, which counts as paid; see entitlement.ts.
+      comped: v.optional(v.boolean()),
     }).index("by_subscriptionId", ["subscriptionId"])
       .index("by_customerId", ["customerId"]),
     billingOrders: defineTable({
       customerId: v.string(), orderId: v.string(), productId: v.string(),
       subscriptionId: v.optional(v.string()), paid: v.boolean(), fullyRefunded: v.boolean(),
       createdAt: v.number(), modifiedAt: v.number(),
+      // Polar charged nothing, as for a purchase paid entirely with a discount
+      // code. Absent on orders stored before reconciliation recorded it.
+      nothingCharged: v.optional(v.boolean()),
+      // A completed withdrawal covers this order, so it stays fully refunded
+      // whatever Polar later reports.
+      withdrawn: v.optional(v.boolean()),
     }).index("by_orderId", ["orderId"])
       .index("by_customerId", ["customerId"]),
     billingProducts: defineTable({
@@ -139,6 +148,9 @@ export default defineSchema(
       receivedAt: v.number(),
       // Every paid order the withdrawal refunds, fixed when it is received.
       refundOrderIds: v.array(v.string()),
+      // None of those orders charged money, so the withdrawal ends access
+      // without a refund. Absent on withdrawals received before this was recorded.
+      nothingCharged: v.optional(v.boolean()),
       status: v.union(v.literal("pending"), v.literal("refunded")),
       refundedAt: v.optional(v.number()),
       // The receipt in the Resend component; absent when email isn't configured.
@@ -153,6 +165,22 @@ export default defineSchema(
       .index("by_orderId", ["orderId"])
       .index("by_status_and_nextAttemptAt", ["status", "nextAttemptAt"])
       .index("by_failureCode", ["failureCode"]),
+    // The reference paid feature in convex/notes. Pinned notes sort first
+    // while the notePinning flag is on.
+    notes: defineTable({
+      userId: v.id("users"),
+      title: v.string(),
+      body: v.string(),
+      pinned: v.boolean(),
+      updatedAt: v.number(),
+    }).index("by_userId_and_updatedAt", ["userId", "updatedAt"])
+      .index("by_userId_and_pinned_and_updatedAt", ["userId", "pinned", "updatedAt"]),
+    // Generated export files awaiting deletion. A storage URL works for anyone
+    // who has it, so deleting the file is its only expiry.
+    dataExportFiles: defineTable({
+      userId: v.id("users"),
+      storageId: v.id("_storage"),
+    }).index("by_userId", ["userId"]),
     // Per-deployment state for flags declared in lib/featureFlags.ts. A flag
     // without a row uses its default; rows for removed flags are ignored.
     featureFlags: defineTable({

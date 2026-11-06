@@ -13,9 +13,10 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 import { Button, ButtonLabel } from "@/components/ui/button";
 import { SIGN_UP_PATH } from "@/lib/auth";
+import { taxDescription } from "@/lib/billing/tax";
 
 const labels = { monthly: "Monthly", yearly: "Yearly", lifetime: "Lifetime" };
-const intervals = { monthly: " / month", yearly: " / year", lifetime: " once" };
+export const intervals = { monthly: " / month", yearly: " / year", lifetime: " once" };
 type Product = FunctionReturnType<typeof api.billing.catalog.products>[number];
 type PricingActions = {
   onboarding?: boolean;
@@ -24,31 +25,24 @@ type PricingActions = {
   onSelect?: (model: Product["model"]) => void;
 };
 
-function formatPrice(amount: number, currency: string) {
+export function formatPrice(amount: number, currency: string) {
   const formatter = new Intl.NumberFormat(undefined, { style: "currency", currency });
   return formatter.format(amount / 10 ** (formatter.resolvedOptions().maximumFractionDigits ?? 2));
 }
 
-function taxDescription(taxBehavior: string) {
-  if (taxBehavior === "inclusive") return "Tax included";
-  if (taxBehavior === "exclusive") return "Tax added at checkout";
-  return "Final tax calculated at checkout";
-}
-
 export function Pricing({ onboarding = false, disabled = false, pendingPlan = null, onSelect }: PricingActions) {
   const { isSignedIn } = useAuth();
-  const { isAuthenticated, isLoading, isRefreshing } = useConvexAuth();
-  const status = useQuery(api.billing.account.status, isAuthenticated && !isLoading && !isRefreshing ? {} : "skip");
+  const { isAuthenticated, isLoading } = useConvexAuth();
+  const status = useQuery(api.billing.account.status, isAuthenticated && !isLoading ? {} : "skip");
   const currentPlan = status?.state === "active" ? status.model : null;
-  const products = useQuery(api.billing.catalog.products, currentPlan === "lifetime" ? "skip" : {});
+  const products = useQuery(api.billing.catalog.products, {});
 
-  if (isLoading || isRefreshing || (isAuthenticated && status === undefined)) {
+  if (isLoading || (isAuthenticated && status === undefined)) {
     return <AuthPending fallback={<PricingSkeleton />} />;
   }
 
   if (isSignedIn && !isAuthenticated) return <AuthRecovery />;
 
-  if (currentPlan === "lifetime") return <p>You have lifetime access.</p>;
   if (products === undefined) return <AuthPending fallback={<PricingSkeleton />} />;
 
   if (!products.length) {
@@ -89,7 +83,7 @@ export function PricingSkeleton() {
         {billingModels.map((model) => (
           <PlanCard
             key={model}
-            product={{ model, name: labels[model], amount: 0, currency: "USD", taxBehavior: "provider" }}
+            product={{ model, name: labels[model], amount: 0, currency: "USD", taxBehavior: "location" }}
             disabled
             loading
           />
@@ -157,6 +151,7 @@ function PlanAction({ model, signUp, currentPlan, scheduledPlan, renewalOff, dis
   const explanationId = useId();
   if (model === currentPlan && !renewalOff) return <Button disabled variant="outline">Current</Button>;
   if (model === scheduledPlan) return <Button disabled variant="outline">Scheduled</Button>;
+  if (currentPlan === "lifetime") return <Button disabled variant="outline">Included</Button>;
   let label = `Choose ${labels[model].toLowerCase()}`;
   if (model === "lifetime") label = "Get lifetime";
   else if (currentPlan) label = `Switch to ${labels[model].toLowerCase()}`;
@@ -185,8 +180,10 @@ function PlanAction({ model, signUp, currentPlan, scheduledPlan, renewalOff, dis
       </Button>
     );
   }
-  // Subscribers confirm recurring plan switches in billing; other choices start checkout.
-  const destination = currentPlan && model !== "lifetime" ? `/billing?plan=${model}` : `/checkout?plan=${model}`;
+  // Pro users go to billing. It asks subscribers to confirm a switch to the plan
+  // in `?plan=`, and has the renewal and lifetime buttons. Everyone else starts checkout.
+  let destination = `/checkout?plan=${model}`;
+  if (currentPlan) destination = model === "lifetime" || model === currentPlan ? "/billing" : `/billing?plan=${model}`;
   const href = signUp ? `${SIGN_UP_PATH}?redirect_url=${encodeURIComponent(destination)}` : destination;
   return <Button asChild><NextLink href={href} prefetch={false}>{label}</NextLink></Button>;
 }

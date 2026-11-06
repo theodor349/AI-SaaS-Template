@@ -12,8 +12,7 @@ import type * as account_clerk from "../account/clerk.js";
 import type * as account_clerkApi from "../account/clerkApi.js";
 import type * as account_clerkWebhooks from "../account/clerkWebhooks.js";
 import type * as account_dataExport from "../account/dataExport.js";
-import type * as account_legal from "../account/legal.js";
-import type * as account_legalVersions from "../account/legalVersions.js";
+import type * as account_dataExportFiles from "../account/dataExportFiles.js";
 import type * as account_lifecycle from "../account/lifecycle.js";
 import type * as account_profile from "../account/profile.js";
 import type * as account_users from "../account/users.js";
@@ -41,6 +40,8 @@ import type * as lib_log from "../lib/log.js";
 import type * as lib_profile from "../lib/profile.js";
 import type * as lib_retry from "../lib/retry.js";
 import type * as lib_users from "../lib/users.js";
+import type * as notes_notes from "../notes/notes.js";
+import type * as notes_validation from "../notes/validation.js";
 import type * as rateLimits from "../rateLimits.js";
 import type * as webhooks from "../webhooks.js";
 
@@ -55,8 +56,7 @@ declare const fullApi: ApiFromModules<{
   "account/clerkApi": typeof account_clerkApi;
   "account/clerkWebhooks": typeof account_clerkWebhooks;
   "account/dataExport": typeof account_dataExport;
-  "account/legal": typeof account_legal;
-  "account/legalVersions": typeof account_legalVersions;
+  "account/dataExportFiles": typeof account_dataExportFiles;
   "account/lifecycle": typeof account_lifecycle;
   "account/profile": typeof account_profile;
   "account/users": typeof account_users;
@@ -84,6 +84,8 @@ declare const fullApi: ApiFromModules<{
   "lib/profile": typeof lib_profile;
   "lib/retry": typeof lib_retry;
   "lib/users": typeof lib_users;
+  "notes/notes": typeof notes_notes;
+  "notes/validation": typeof notes_validation;
   rateLimits: typeof rateLimits;
   webhooks: typeof webhooks;
 }>;

@@ -5,7 +5,7 @@ import { gitRoot } from "./bootstrap/config.mjs";
 import { occupiedPorts } from "./bootstrap/network.mjs";
 import { processStart } from "./bootstrap/processes.mjs";
 import { reclaim } from "./bootstrap/reclaim.mjs";
-import { bootstrapPaths, inspectState, isVerifiedSupervisor, liveStatuses, logTail, readState } from "./bootstrap/state.mjs";
+import { bootstrapPaths, describeForwarding, inspectState, isVerifiedSupervisor, liveStatuses, logTail, readCurrentState, readState, reclaimableStatuses } from "./bootstrap/state.mjs";
 
 const usage = `pnpm bootstrap:status [--json]   Show this worktree's bootstrap status, URLs, and log path.
 pnpm bootstrap:wait [--timeout <seconds>]   Wait until ready (default 300 seconds).
@@ -13,7 +13,7 @@ pnpm bootstrap:stop [--timeout <seconds>]   Stop this worktree's bootstrap and i
 
 Status comes from the state file bootstrap writes in this worktree's Git directory.
 A recorded PID whose process is gone or has a different start time is reported as stale.
-Stopping a stale run reclaims the services and Tailscale routes it recorded.`;
+Stopping a stale or failed run reclaims the services and Tailscale routes it recorded.`;
 
 // A run that fails or stops while waiting is reported at once. A terminal state
 // that predates "wait" may belong to an earlier run, so a bootstrap started just
@@ -53,6 +53,8 @@ function describe(state, paths) {
     `App: ${state.urls.app}`, `Convex: ${state.urls.convex}`, `Site: ${state.urls.site}`,
   ];
   if (state.error) lines.push(`Error: ${state.error}`);
+  if (state.proxyCleanupError) lines.push(state.proxyCleanupError, "Run pnpm bootstrap:stop to remove the routes it left behind.");
+  lines.push(...describeForwarding(state.polarForwarding));
   if (state.status === "stale") lines.push("Run pnpm bootstrap:stop to reclaim the services and routes it recorded.");
   lines.push(`Log: ${state.log}`, `State: ${paths.state}`);
   return lines.join("\n");
@@ -65,16 +67,16 @@ function printFailure(state, paths) {
 }
 
 async function status(paths, options) {
-  const state = inspectState(readState(paths.state));
+  const state = readCurrentState(paths.state);
   console.log(options.json ? JSON.stringify({ ...state, statePath: paths.state }, null, 2) : describe(state, paths));
 }
 
 async function wait(paths, options) {
   const timeoutMs = (options.timeout ?? 300) * 1000;
   const startedAt = Date.now();
-  const initial = inspectState(readState(paths.state));
+  const initial = readCurrentState(paths.state);
   for (;;) {
-    const current = inspectState(readState(paths.state));
+    const current = readCurrentState(paths.state);
     const decision = waitDecision({ current, initial, startedAt, now: Date.now(), timeoutMs });
     if (decision === "ready") {
       console.log(`Ready: ${current.urls.app}`);
@@ -109,14 +111,14 @@ async function waitForPorts(ports, deadline) {
 
 // Signals only the recorded supervisor, after rechecking its PID and start time.
 // Its own shutdown stops Convex, Next, Polar, and Tailscale routes it created. A
-// supervisor that died without that shutdown is reclaimed from its state file.
+// run that ended without a verified shutdown is reclaimed from its state file.
 async function stop(paths, options, root) {
   const timeoutMs = (options.timeout ?? 30) * 1000;
   const recorded = readState(paths.state);
   const state = inspectState(recorded);
   if (recorded && recorded.root !== root) throw new Error(`State file ${paths.state} belongs to ${recorded.root}; refusing to act on it.`);
   if (!liveStatuses.includes(state.status)) {
-    if (state.status === "stale") {
+    if (reclaimableStatuses.includes(state.status)) {
       if (!(await reclaim(paths.state, recorded))) process.exitCode = 1;
     } else console.log(state.status === "absent" ? "Bootstrap is not running in this worktree." : `Bootstrap is not running (${state.status}).`);
     const occupied = state.ports ? await occupiedPorts(state.ports) : [];

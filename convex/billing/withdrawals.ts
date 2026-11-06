@@ -3,7 +3,7 @@ import { appConfig } from "../../app.config";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { env } from "../_generated/server";
-import { accountForCustomer, accountForUser, productModel, scheduledRetries } from "./lib";
+import { accountForCustomer, accountForUser, productModel, requireBilling, scheduledRetries } from "./lib";
 import { billingModel, planLabels } from "./plans";
 import { exportMany, exportTime } from "../lib/dataExport";
 import { sendEmail } from "../lib/email";
@@ -50,6 +50,7 @@ export const purchases = query({
     })),
   })),
   handler: async (ctx) => {
+    requireBilling();
     const user = await getCurrentUser(ctx);
     const account = user?.lifecycle === "active" ? await accountForUser(ctx, user._id) : null;
     if (!user || !account) {
@@ -89,6 +90,11 @@ function danishDate(timestamp: number, time = false) {
 // withdrawn and when the withdrawal was received.
 function receipt(email: string, purchase: Purchase, receivedAt: number) {
   const { appName, companyName, companyCvr, companyAddress, supportEmail } = appConfig;
+  const outcome = purchase.nothingCharged
+    ? "You weren't charged for this purchase, so there is nothing to refund. " +
+      `Your ${appName} Pro access ends when we complete your withdrawal, no later than 14 days after we received it.`
+    : "We'll refund the full amount through Polar, our reseller, to your original payment method no later than " +
+      `14 days after we received your withdrawal. Your ${appName} Pro access ends when the refund is made.`;
   return {
     to: email,
     subject: `${appName}: we received your withdrawal`,
@@ -102,8 +108,7 @@ function receipt(email: string, purchase: Purchase, receivedAt: number) {
       `Account: ${email}`,
       `Withdrawal received: ${danishDate(receivedAt, true)}`,
       "",
-      "We'll refund the full amount through Polar, our reseller, to your original payment method no later than " +
-        `14 days after we received your withdrawal. Your ${appName} Pro access ends when the refund is made.`,
+      outcome,
       "",
       `Keep this email as your receipt. If you have questions, reply to it or write to ${supportEmail}.`,
       "",
@@ -116,19 +121,32 @@ function receipt(email: string, purchase: Purchase, receivedAt: number) {
 // withdrawal is complete.
 function refundNotice(email: string, withdrawal: Doc<"withdrawals">, refundedAt: number) {
   const { appName, companyName, companyCvr, companyAddress, supportEmail } = appConfig;
+  const completed = danishDate(refundedAt, true);
+  const [subject, opening, outcome] = withdrawal.nothingCharged
+    ? [
+      "your withdrawal is complete",
+      `We completed your withdrawal from your ${appName} purchase on ${completed}.`,
+      "You weren't charged for this purchase, so there was nothing to refund. " +
+        `Your ${appName} Pro access has ended.`,
+    ]
+    : [
+      "your refund has been made",
+      `We refunded your ${appName} purchase in full on ${completed}, completing your withdrawal.`,
+      "The refund goes to your original payment method and can take a few business days to appear on your statement. " +
+        `Your ${appName} Pro access has ended.`,
+    ];
   return {
     to: email,
-    subject: `${appName}: your refund has been made`,
+    subject: `${appName}: ${subject}`,
     replyTo: [supportEmail],
     text: [
-      `We refunded your ${appName} purchase in full on ${danishDate(refundedAt, true)}, completing your withdrawal.`,
+      opening,
       "",
       `Purchase: ${planLabels[withdrawal.model]}`,
       `Order: ${withdrawal.orderId}`,
       `Withdrawal received: ${danishDate(withdrawal.receivedAt, true)}`,
       "",
-      "The refund goes to your original payment method and can take a few business days to appear on your statement. " +
-        `Your ${appName} Pro access has ended.`,
+      outcome,
       "",
       `If you have questions, reply to this email or write to ${supportEmail}.`,
       "",
@@ -190,6 +208,7 @@ export const request = mutation({
   returns: v.null(),
   alwaysLog: true,
   handler: async (ctx, { orderId }) => {
+    requireBilling();
     const user = await requireUser(ctx);
     const account = await accountForUser(ctx, user._id);
     if (!account) {
@@ -222,6 +241,7 @@ export const request = mutation({
       purchasedAt: purchase.purchasedAt,
       receivedAt,
       refundOrderIds: purchase.refundOrderIds,
+      nothingCharged: purchase.nothingCharged,
       status: "pending",
       nextAttemptAt: receivedAt,
       leaseUntil: 0,
@@ -320,6 +340,15 @@ async function completeRefund(ctx: MutationCtx, withdrawal: Doc<"withdrawals">, 
     status: "refunded", refundedAt: now, leaseUntil: undefined, nextAttemptAt: undefined, attempts: 0, failureCode: undefined,
     refundEmailId: refundEmailId ?? undefined,
   });
+  // Polar has nothing to refund on an order paid entirely with a discount and
+  // keeps showing it paid. Marking every withdrawn order ends its access the
+  // same way a refund does, and reconciliation keeps the mark.
+  for (const orderId of withdrawal.refundOrderIds) {
+    const order = await ctx.db.query("billingOrders").withIndex("by_orderId", (q) => q.eq("orderId", orderId)).unique();
+    if (order?.customerId === withdrawal.customerId && !order.withdrawn) {
+      await ctx.db.patch("billingOrders", order._id, { withdrawn: true, fullyRefunded: true });
+    }
+  }
   // Reconciliation publishes the refunded orders, which ends paid access.
   if (await accountForCustomer(ctx, withdrawal.customerId)) {
     await ctx.scheduler.runAfter(0, internal.billing.state.enqueue, { customerId: withdrawal.customerId });

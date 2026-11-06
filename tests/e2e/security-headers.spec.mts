@@ -1,5 +1,6 @@
 import { clerk } from "@clerk/testing/playwright";
 import { expect, test, type Page } from "@playwright/test";
+import { appConfig } from "../../app.config";
 import { allChoices, CONSENT_COOKIE, consentCookieValue } from "../../lib/consent/cookie";
 import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
@@ -15,7 +16,7 @@ function watchViolations(page: Page) {
   return violations;
 }
 
-test("pages, routes, and static files carry the security headers", async ({ request }) => {
+test("pages, routes, and static files carry the security headers", { tag: "@critical" }, async ({ request }) => {
   for (const path of ["/", "/terms", "/sign-in", "/app", "/does-not-exist"]) {
     const response = await request.get(path, { maxRedirects: 0 });
     const headers = response.headers();
@@ -32,7 +33,7 @@ test("pages, routes, and static files carry the security headers", async ({ requ
   expect(icon.headers()["x-content-type-options"]).toBe("nosniff");
 });
 
-test("signing in, live data, and consented Sentry run without CSP violations", async ({ page, context }) => {
+test("signing in, live data, and consented Sentry run without CSP violations", { tag: "@critical" }, async ({ page, context }) => {
   const violations = watchViolations(page);
   const user = await createClerkTestUser(local);
   try {
@@ -43,8 +44,10 @@ test("signing in, live data, and consented Sentry run without CSP violations", a
     await page.goto("/account");
     // Profile data arrives over Convex's WebSocket.
     await expect(page.getByLabel("Display name", { exact: true })).not.toHaveValue("");
-    await page.goto("/billing");
-    await expect(page.getByRole("heading", { name: "Billing", exact: true })).toBeVisible();
+    if (appConfig.billing) {
+      await page.goto("/billing");
+      await expect(page.getByRole("heading", { name: "Billing", exact: true })).toBeVisible();
+    }
 
     // With analytics granted, the next page load starts Sentry, which reports the load.
     const envelopes: string[] = [];

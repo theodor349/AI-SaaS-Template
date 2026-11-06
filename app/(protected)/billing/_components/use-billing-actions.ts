@@ -37,8 +37,8 @@ function matchesExpectation(
 // An action acknowledgement does not confirm a subscription change. Keep its
 // button pending until a newer billing publication matches the requested state.
 export function useBillingActions() {
-  const { isAuthenticated, isLoading, isRefreshing } = useConvexAuth();
-  const status = useQuery(api.billing.account.status, isAuthenticated && !isLoading && !isRefreshing ? {} : "skip");
+  const { isAuthenticated, isLoading } = useConvexAuth();
+  const status = useQuery(api.billing.account.status, isAuthenticated && !isLoading ? {} : "skip");
   const change = useAction(api.billing.polar.changeSubscription);
   const portal = useAction(api.billing.polar.portal);
   const requestInFlight = useRef(false);
@@ -47,6 +47,13 @@ export function useBillingActions() {
   const [timedOut, setTimedOut] = useState(false);
   const fulfilled = matchesExpectation(status, expectation);
   const pending = expectation !== null && !fulfilled;
+
+  // Forget a confirmed change. Kept, it would count as pending again once later
+  // billing state, such as Pro ending, stops matching it.
+  if (fulfilled) {
+    setExpectation(null);
+    setTimedOut(false);
+  }
 
   // Restore portal controls after Back returns a cached page. Subscription
   // expectations still wait for confirmed provider state.

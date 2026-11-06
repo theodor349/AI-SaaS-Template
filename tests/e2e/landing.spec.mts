@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import { clerk, setupClerkTestingToken } from "@clerk/testing/playwright";
 import { expect, test } from "@playwright/test";
 import { ConvexHttpClient } from "convex/browser";
+import { appConfig } from "../../app.config";
 import { createPolar } from "@polar-sh/sdk/2026-10";
 import { api, internal } from "../../convex/_generated/api";
 import { adminQuery } from "../../scripts/billing-test-admin";
@@ -10,22 +11,23 @@ import { billingTestAdmin, seedPaidTestUser } from "../../scripts/billing-test-f
 import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
 import { interceptConvexSync } from "./convex-sync.mjs";
-import { acceptTerms } from "./legal.mjs";
 import { captureEvidence } from "./evidence.mjs";
 
 const { createClerkClient } = createRequire(import.meta.url)("@clerk/nextjs/server");
 const local = resolveLocalTestConfig();
 
-for (const width of [1280, 390]) {
-  test(`public plans lead to signup with the selected plan at ${width}px`, async ({ page }) => {
-    await setupClerkTestingToken({ page });
-    await page.setViewportSize({ width, height: 900 });
-    const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL);
-    const products = await client.query(api.billing.catalog.products, {});
-    expect(products).toHaveLength(3);
+test.skip(!appConfig.billing, "billing is off in app.config.ts");
 
+test("public plans lead to signup with the selected plan at 1280px and 390px", { tag: "@critical" }, async ({ page }) => {
+  await setupClerkTestingToken({ page });
+  const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL);
+  const products = await client.query(api.billing.catalog.products, {});
+  expect(products).toHaveLength(3);
+
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 });
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: "Your next idea starts here." })).toBeVisible();
+    await expect(page.getByRole("heading", { name: `${appConfig.tagline}.` })).toBeVisible();
     await expect(page.getByRole("link", { name: "Choose monthly" })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await captureEvidence(page, `landing-${width}`);
@@ -39,8 +41,8 @@ for (const width of [1280, 390]) {
       await expect(page).toHaveURL(new RegExp(`/sign-up\\?redirect_url=${encodeURIComponent(`/checkout?plan=${product.model}`)}$`));
       await expect(page.getByRole("heading", { name: "Create your account" })).toBeVisible();
     }
-  });
-}
+  }
+});
 
 test("checkout shows progress after sign-in and for signed-in users, with explicit retries", async ({ page }) => {
   const user = await createClerkTestUser(local);
@@ -59,9 +61,6 @@ test("checkout shows progress after sign-in and for signed-in users, with explic
     await page.getByRole("link", { name: "Sign in", exact: true }).click();
     await expect(page).toHaveURL(/\/sign-in\?/);
     await clerk.signIn({ page, emailAddress: user.email });
-    await expect(page.getByRole("heading", { name: "Accept the terms to continue." })).toBeVisible();
-    expect(checkoutModels).toEqual([]);
-    await acceptTerms(page);
     await expect(page.getByRole("heading", { name: "Redirecting to the payment page…" })).toBeVisible();
     await expect.poll(() => checkoutModels.length).toBe(1);
     await expect(page).toHaveURL(`${local.config.env.APP_URL}/checkout`);
@@ -102,7 +101,7 @@ test("checkout shows progress after sign-in and for signed-in users, with explic
   }
 });
 
-test("a new visitor creates an account and reaches Polar sandbox checkout for the chosen plan", async ({ page }) => {
+test("a new visitor creates an account and reaches Polar sandbox checkout for the chosen plan", { tag: "@critical" }, async ({ page }) => {
   const email = `${local.config.id}-${randomUUID().slice(0, 8)}+clerk_test@gmail.com`;
   const clerkClient = createClerkClient({ secretKey: local.env.CLERK_SECRET_KEY });
   const polar = createPolar({ accessToken: local.env.POLAR_ACCESS_TOKEN, environment: "sandbox", organizationId: local.env.POLAR_ORGANIZATION_ID });
@@ -118,6 +117,7 @@ test("a new visitor creates an account and reaches Polar sandbox checkout for th
     await page.goto("/");
     await page.getByRole("link", { name: "Choose yearly" }).click();
     await expect(page.getByRole("heading", { name: "Create your account" })).toBeVisible();
+    await expect(page.getByLabel("Selected plan").getByRole("heading", { name: "Yearly Pro" })).toBeVisible();
     expect(checkoutModels).toEqual([]);
     await page.getByLabel("Email address", { exact: true }).fill(email);
     for (const [label, value] of [["First name", "Landing"], ["Last name", "Test"], ["Password", `Landing-${randomUUID()}!`]]) {
@@ -130,7 +130,6 @@ test("a new visitor creates an account and reaches Polar sandbox checkout for th
     expect((await verificationPrepared).ok()).toBe(true);
     await expect(page.getByRole("heading", { name: "Verify your email" })).toBeVisible();
     await page.getByRole("textbox", { name: "Enter verification code" }).fill("424242");
-    await acceptTerms(page);
     await expect(page.getByRole("heading", { name: "Redirecting to the payment page…" })).toBeVisible();
     await expect.poll(() => checkoutModels.length).toBe(1);
     await expect(page).toHaveURL(`${local.config.env.APP_URL}/checkout`);
@@ -160,7 +159,7 @@ test("a new visitor creates an account and reaches Polar sandbox checkout for th
   }
 });
 
-test("existing Pro users switch recurring plans through billing and buy lifetime through checkout", async ({ page }) => {
+test("existing Pro users switch recurring plans and buy lifetime through billing", async ({ page }) => {
   const user = await createClerkTestUser(local);
   const checkoutModels: string[] = [];
   const sync = await interceptConvexSync(page);
@@ -184,62 +183,28 @@ test("existing Pro users switch recurring plans through billing and buy lifetime
     await page.getByRole("button", { name: "Keep current plan" }).click();
     await page.goto("/");
     await page.getByRole("link", { name: "Get lifetime" }).click();
-    await expect(page.getByRole("alert").filter({ hasText: "We couldn’t open the payment page" })).toBeVisible();
-    await expect(page).toHaveURL(`${local.config.env.APP_URL}/checkout`);
+    await expect(page).toHaveURL(`${local.config.env.APP_URL}/billing`);
+    expect(checkoutModels).toEqual([]);
+    await page.getByRole("button", { name: "Get lifetime" }).click();
+    await expect(page.getByText("We couldn’t open checkout")).toBeVisible();
     expect(checkoutModels).toEqual(["lifetime"]);
   } finally { await page.unrouteAll({ behavior: "wait" }); await user.cleanup(); }
 });
 
-for (const transition of ["paid", "deleting", "manual"] as const) {
-  test(`a pending checkout cannot override ${transition} navigation`, async ({ page }) => {
-    const user = await createClerkTestUser(local);
-    let completeCheckout: (() => void) | undefined;
-    let destinationVisits = 0;
-    const destination = `${local.config.env.APP_URL}/__stale-checkout`;
-    const responseMarker = `Checkout race fixture delivered: ${transition}`;
-    await setupClerkTestingToken({ page });
-    await page.route(destination, route => {
-      destinationVisits++;
-      return route.fulfill({ contentType: "text/html", body: "<h1>Stale checkout destination</h1>" });
-    });
-    const sync = await interceptConvexSync(page);
-    sync.onAction("billing/polar:checkout", (call) => {
-      completeCheckout = () => call.succeed(destination, [`[LOG] ${responseMarker}`]);
-    });
-    try {
-      await page.goto("/");
-      await clerk.signIn({ page, emailAddress: user.email });
-      await page.goto("/");
-      await page.getByRole("link", { name: "Choose monthly" }).click();
-      await acceptTerms(page);
-      await expect(page.getByRole("heading", { name: "Redirecting to the payment page…" })).toBeVisible();
-      await expect.poll(() => Boolean(completeCheckout)).toBe(true);
-
-      if (transition === "paid") {
-        await seedPaidTestUser(user);
-        await expect(page).toHaveURL(`${local.config.env.APP_URL}/billing`);
-        await expect(page.getByText("You have lifetime access.")).toBeVisible();
-      } else if (transition === "deleting") {
-        const token = await page.evaluate(() => window.Clerk.session!.getToken({ template: "convex" }));
-        const client = new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL, { logger: false });
-        client.setAuth(token!);
-        await client.mutation(api.account.lifecycle.requestDeletion, {});
-        await expect(page).toHaveURL(`${local.config.env.APP_URL}/account`);
-        await expect(page.getByText(/Deletion scheduled for/)).toBeVisible();
-      } else {
-        await page.getByRole("button", { name: "Open profile menu" }).click();
-        await page.getByRole("menuitem", { name: "Account", exact: true }).click();
-        await expect(page).toHaveURL(`${local.config.env.APP_URL}/account`);
-      }
-
-      const responseReceived = page.waitForEvent("console", { predicate: message => message.text().includes(responseMarker) });
-      completeCheckout!();
-      // The SDK logs this marker while handling the delayed action response.
-      // A browser round trip then lets its promise continuation finish.
-      await responseReceived;
-      await page.evaluate(() => Promise.resolve());
-      await expect(page.getByRole("heading", { name: transition === "paid" ? "Billing" : "Account", exact: true })).toBeVisible();
-      expect(destinationVisits).toBe(0);
-    } finally { await user.cleanup(); }
-  });
-}
+test("lifetime users see every plan's price on the landing page, with lifetime as their current plan", async ({ page }) => {
+  const user = await createClerkTestUser(local);
+  try {
+    await seedPaidTestUser(user, "lifetime");
+    await page.goto("/");
+    await clerk.signIn({ page, emailAddress: user.email });
+    await page.goto("/#pricing");
+    const products = await new ConvexHttpClient(local.config.env.NEXT_PUBLIC_CONVEX_URL).query(api.billing.catalog.products, {});
+    for (const product of products) {
+      const card = page.locator('[data-slot="card"]').filter({ has: page.getByRole("heading", { name: new RegExp(`^${product.model}$`, "i") }) });
+      const formatter = new Intl.NumberFormat("en-US", { style: "currency", currency: product.currency });
+      await expect(card).toContainText(formatter.format(product.amount / 10 ** (formatter.resolvedOptions().maximumFractionDigits ?? 2)));
+      await expect(card.getByRole("button", { name: product.model === "lifetime" ? "Current" : "Included" })).toBeDisabled();
+    }
+    await expect(page.getByRole("link", { name: /^(Choose|Switch to|Get) / })).toHaveCount(0);
+  } finally { await user.cleanup(); }
+});

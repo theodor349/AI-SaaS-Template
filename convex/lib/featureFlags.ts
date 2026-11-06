@@ -9,7 +9,7 @@ import { userByTokenIdentifier } from "./users";
 // and what it gates. Removing a flag here turns each remaining use into a type
 // error. docs/internals/feature-flags.md explains how to change a flag's state.
 export const featureFlags = {
-  exampleFeature: { default: false, description: "Template example. Replace it with your first real flag." },
+  notePinning: { default: false, description: "Pin notes to the top of the Notes list. The template's example of a feature that merges turned off." },
 } satisfies Record<string, { default: boolean; description: string }>;
 
 export type FlagKey = keyof typeof featureFlags;
@@ -52,7 +52,8 @@ export async function flagUserId(ctx: DbCtx) {
 
 // Use in queries, mutations, and actions. The decision records the flag's
 // value and why it has it.
-export async function isFlagEnabled(ctx: FlagCtx, key: FlagKey) {
+// The return type breaks a type cycle with feature modules that call it.
+export async function isFlagEnabled(ctx: FlagCtx, key: FlagKey): Promise<boolean> {
   const { enabled, source }: FlagEvaluation = "db" in ctx
     ? evaluateFlag(key, await flagRow(ctx, key), await flagUserId(ctx))
     : await ctx.runQuery(internal.featureFlags.evaluate, { key });

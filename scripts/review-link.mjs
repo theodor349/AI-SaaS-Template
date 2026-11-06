@@ -60,7 +60,7 @@ async function main() {
     }
     console.log(link);
     console.error(`This link is a single-use sign-in credential that expires in ${formatDuration(options.expiresMs)}. Send it to the maintainer directly; never paste it into PRs, issues, commits, or logs.`);
-    console.error("Open it in a private window if that browser is already signed in to this app.");
+    console.error("Tell the maintainer to open it in a private window. Every worktree shares this hostname, so a browser signed in to another worktree keeps that session and ignores the link.");
     console.error(`The review user stays in Clerk for the review; pnpm clerk:sweep removes it after ${formatDuration(REVIEW_USER_LIFETIME_MS)}.`);
   } catch (error) {
     // Without a printed link nobody can use the user, so remove it now.

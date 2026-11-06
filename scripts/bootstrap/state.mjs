@@ -5,6 +5,8 @@ import { processStart } from "./processes.mjs";
 // The state file is the ownership record for a running bootstrap. It lives in
 // this worktree's Git admin directory, so it is per worktree and never tracked.
 export const liveStatuses = ["starting", "ready", "stopping"];
+// Runs that ended without a verified shutdown, so their record may name leftovers.
+export const reclaimableStatuses = ["stale", "failed"];
 
 export function bootstrapPaths(root) {
   const gitPath = (name) => execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-path", name], { cwd: root, encoding: "utf8" }).trim();
@@ -41,6 +43,13 @@ export function inspectState(state, startOf = processStart) {
   return state;
 }
 
+// A run can record its final status and exit between reading the file and
+// checking its PID, so a stale result is checked again against a fresh read.
+export function readCurrentState(file, startOf = processStart) {
+  const current = inspectState(readState(file), startOf);
+  return current.status === "stale" ? inspectState(readState(file), startOf) : current;
+}
+
 export function isVerifiedSupervisor(state, startOf = processStart) {
   return Number.isInteger(state?.pid) && state.pid > 1 && state.pid !== process.pid &&
     Boolean(state.processStart) && startOf(state.pid) === state.processStart;
@@ -69,6 +78,25 @@ export function createStateRecorder(file, initial) {
       }
     },
   };
+}
+
+// Explains a gap in Polar webhook forwarding, for the log and pnpm bootstrap:status.
+export function missedWebhooks({ from, to }) {
+  return `Webhooks Polar sent from ${from} to ${to} were not forwarded, and Polar does not resend them. ` +
+    "A signed-in user's billing reconciles with Polar through api.billing.polar.recover.";
+}
+
+// Status lines for the polarForwarding state that bootstrap records after polar listen first exits.
+export function describeForwarding(forwarding) {
+  if (!forwarding) return [];
+  const lines = [];
+  if (forwarding.status === "restarting") lines.push(`Polar forwarding: down since ${forwarding.since} (${forwarding.reason}); restarting.`);
+  const last = forwarding.missed.at(-1);
+  if (last) {
+    const times = forwarding.restarts === 1 ? "once" : `${forwarding.restarts} times`;
+    lines.push(`Polar forwarding: restarted ${times}, last after ${last.reason}. ${missedWebhooks(last)}`);
+  }
+  return lines;
 }
 
 export function openLog(file) {
