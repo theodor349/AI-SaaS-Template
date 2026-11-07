@@ -41,9 +41,9 @@ test("signed-in users reach paid pages without a plan", () => {
   vi.useRealTimers();
 });
 
-test("billing and checkout pages are not found", async () => {
+test("billing and checkout pages are not found", () => {
   expect(() => BillingPage()).toThrow("NEXT_NOT_FOUND");
-  await expect(CheckoutPage({ searchParams: Promise.resolve({ plan: "monthly" }) })).rejects.toThrow("NEXT_NOT_FOUND");
+  expect(() => CheckoutPage()).toThrow("NEXT_NOT_FOUND");
 });
 
 test("the installed app has no billing shortcut", () => {

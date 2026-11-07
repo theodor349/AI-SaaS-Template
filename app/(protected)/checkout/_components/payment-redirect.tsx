@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { CreditCard } from "lucide-react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
+import { isBillingModel } from "@/convex/billing/plans";
 import { AuthBoundary, AuthPending } from "@/components/auth/auth-boundary";
 import { useBillingAccount } from "@/components/billing/use-billing-account";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -13,7 +14,29 @@ import { Button } from "@/components/ui/button";
 import { rateLimitMessage } from "@/lib/rate-limit";
 import { useCheckout, type CheckoutPlan } from "../../_components/use-checkout";
 
-export function PaymentRedirect({ plan }: { plan: CheckoutPlan }) {
+// Reads the plan from `?plan=` in the browser, so the page stays static.
+export function PaymentRedirect() {
+  return (
+    <Suspense fallback={<PaymentPending />}>
+      <SelectedPlan />
+    </Suspense>
+  );
+}
+
+function SelectedPlan() {
+  const params = useSearchParams();
+  // Read once: starting checkout replaces the URL with /checkout, which clears the params.
+  const [plan] = useState(() => params.get("plan"));
+  const router = useRouter();
+  const valid = isBillingModel(plan);
+
+  useEffect(() => {
+    if (!valid) router.replace("/#pricing");
+  }, [valid, router]);
+
+  if (!isBillingModel(plan)) {
+    return <PaymentPending heading="Opening the plans…" message="Choose a plan to continue to checkout." />;
+  }
   return (
     <AuthBoundary pending={<PaymentPending />}>
       <PaymentRedirectContent plan={plan} />

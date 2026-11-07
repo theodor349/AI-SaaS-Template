@@ -17,9 +17,21 @@ export function resolveAuthenticatedDestination(value: string | undefined) {
   return path;
 }
 
+// The top-level routes of app/(protected). proxy.ts sends signed-out visitors from these
+// to sign-in; proxy.test.ts checks the list against the folders.
+export const SIGNED_IN_ROUTES = ["/account", "/app", "/billing", "/checkout"];
+
 // True for the sign-in and sign-up pages, including Clerk's nested steps.
 export function isAuthPath(pathname: string) {
-  return [SIGN_IN_PATH, SIGN_UP_PATH].some((path) => pathname === path || pathname.startsWith(`${path}/`));
+  return isUnder(pathname, [SIGN_IN_PATH, SIGN_UP_PATH]);
+}
+
+export function isSignedInPath(pathname: string) {
+  return isUnder(pathname, SIGNED_IN_ROUTES);
+}
+
+function isUnder(pathname: string, routes: string[]) {
+  return routes.some((route) => pathname === route || pathname.startsWith(`${route}/`));
 }
 
 // Clerk return-to URLs may be absolute; only this application's origin is allowed.

@@ -1,13 +1,16 @@
 import { clerkMiddleware } from "@clerk/nextjs/server";
-import { NextResponse } from "next/server";
-import { isAuthPath, safeReturnTo, SIGN_IN_PATH, SIGN_UP_PATH } from "./lib/auth";
+import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
+import { isAuthPath, isSignedInPath, safeReturnTo, SIGN_IN_PATH, SIGN_UP_PATH } from "./lib/auth";
 import { consentServices } from "./lib/consent/services";
 import { contentSecurityPolicyHeaders, sentrySecurityEndpoint } from "./lib/security/csp";
+import { maintenanceMode } from "./lib/maintenance";
 import { sentryDsn } from "./lib/sentry/options";
 
 // Clerk's recommended matcher: pages and API routes, skipping Next internals and static files.
-// This proxy never decides access. Each page, layout, route handler, or Server Function
-// that reads protected data checks auth itself; Convex functions check their own callers.
+// The proxy's sign-in redirect is navigation, not access control. Convex functions check
+// their own callers, and any page, route handler, or Server Function that reads protected
+// data on the server calls `auth.protect()` itself. Pages in app/(protected) read nothing
+// protected on the server, so they prerender as static pages.
 export const config = {
   matcher: [
     "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
@@ -68,14 +71,20 @@ const securityHeaders = contentSecurityPolicyHeaders({
 // paths. Without them Clerk sends visitors to its hosted Account Portal on accounts.<domain>.
 export const clerkOptions = { signInUrl: SIGN_IN_PATH, signUpUrl: SIGN_UP_PATH };
 
-function proxyResponse(request: Request) {
+const clerk = clerkMiddleware(async (auth, request) => {
   if (isUrlEncodedServerAction(request)) return serverActionNotFound();
+  // Sends a signed-out visitor to sign-in with a return-to URL before the page loads.
+  // A route missing from SIGNED_IN_ROUTES shows the layout's AuthBoundary prompt instead.
+  // During maintenance the pages show the notice, and sign-in is paused too.
+  if (!maintenanceMode && isSignedInPath(request.nextUrl.pathname)) await auth.protect();
   const sanitized = withoutUnsafeReturnTo(request);
-  return sanitized ? NextResponse.redirect(sanitized) : NextResponse.next();
-}
+  return sanitized ? NextResponse.redirect(sanitized) : undefined;
+}, clerkOptions);
 
-export default clerkMiddleware((_auth, request) => {
-  const response = proxyResponse(request);
+// Clerk turns auth.protect() and its session handshake into redirects of its own, which
+// get the headers here too.
+export default async function proxy(request: NextRequest, event: NextFetchEvent) {
+  const response = (await clerk(request, event)) ?? NextResponse.next();
   for (const [name, value] of Object.entries(securityHeaders)) response.headers.set(name, value);
   return response;
-}, clerkOptions);
+}

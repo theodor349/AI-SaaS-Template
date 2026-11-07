@@ -1,7 +1,9 @@
 // @vitest-environment node
+import { readdirSync } from "node:fs";
 import { type ClerkMiddlewareAuth, clerkMiddleware } from "@clerk/nextjs/server";
 import { type NextFetchEvent, NextRequest } from "next/server";
 import { expect, test, vi } from "vitest";
+import { isSignedInPath, SIGNED_IN_ROUTES } from "./lib/auth";
 import proxy, { clerkOptions, withoutUnsafeReturnTo } from "./proxy";
 
 // Clerk reads its keys when its modules load. A production key's Account Portal
@@ -84,5 +86,44 @@ test("other POST requests continue to the app", async () => {
   ]) {
     expect(response?.status).toBe(200);
     expect(response?.headers.get("x-nextjs-action-not-found")).toBeNull();
+  }
+});
+
+// A route group adds nothing to the URL, so the proxy needs the folder list.
+test("every top-level route in app/(protected) sends signed-out visitors to sign-in", () => {
+  const routes = readdirSync(new URL("./app/(protected)", import.meta.url), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !/^[_(]/.test(entry.name))
+    .map((entry) => `/${entry.name}`);
+  expect([...SIGNED_IN_ROUTES].sort()).toEqual(routes.sort());
+});
+
+test("only signed-in routes and their nested paths redirect", () => {
+  for (const path of ["/app", "/app/settings", "/account", "/billing", "/checkout"]) expect(isSignedInPath(path), path).toBe(true);
+  for (const path of ["/", "/apple-icon", "/application", "/terms", "/sign-in", "/checkouts"]) expect(isSignedInPath(path), path).toBe(false);
+});
+
+const visit = (handler: typeof proxy, path: string) => handler(
+  new NextRequest(`https://app.example.com${path}`, { headers: { "sec-fetch-dest": "document" } }),
+  {} as NextFetchEvent,
+);
+
+test("a signed-out visit to a signed-in page redirects to sign-in with the security headers", async () => {
+  const response = await visit(proxy, "/billing?plan=yearly");
+  expect(response.status).toBe(307);
+  expect(response.headers.get("location"))
+    .toBe(`https://app.example.com/sign-in?redirect_url=${encodeURIComponent("https://app.example.com/billing?plan=yearly")}`);
+  expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
+  expect((await visit(proxy, "/terms")).status).toBe(200);
+});
+
+test("maintenance mode skips the sign-in redirect so signed-in pages show the notice", async () => {
+  vi.stubEnv("NEXT_PUBLIC_MAINTENANCE_MODE", "1");
+  vi.resetModules();
+  try {
+    const { default: paused } = await import("./proxy");
+    expect((await visit(paused, "/billing")).status).toBe(200);
+  } finally {
+    vi.unstubAllEnvs();
+    vi.resetModules();
   }
 });
