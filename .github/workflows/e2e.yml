@@ -47,6 +47,12 @@ jobs:
       (github.event.action != 'labeled' || github.event.label.name == 'run-e2e'))
     runs-on: [self-hosted, ulm]
     timeout-minutes: 2
+    # The suite's group, so a newer event cancels this pull request's running
+    # suite as soon as it is queued. Without it, this job waits for the runner
+    # that the outdated suite holds, and the outdated suite runs to the end.
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
     permissions:
       checks: read
       contents: read
