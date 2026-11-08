@@ -299,8 +299,8 @@ deployment to match.
 
 ## Checks and launch
 
-GitHub Actions runs the workflows in [`.github/workflows`](../.github/workflows)
-on a [self-hosted runner](#the-ci-runner) on ulm. The [CI workflow](../.github/workflows/ci.yml)
+GitHub Actions runs the workflows in [`.github/workflows`](../.github/workflows).
+The [CI workflow](../.github/workflows/ci.yml)
 runs `Lint and typecheck`, `Unit tests`, and `Next.js build` as steps of one
 `Checks` job on every pull request, regardless of source or target branch. It does not run again after a merge: complete-worktree merges a pull
 request only once it contains the latest `main`, so the merge commit holds the
@@ -381,12 +381,13 @@ Provider references: [Convex on Vercel](https://docs.convex.dev/production/hosti
 
 ## The CI runner
 
-Every job runs on a self-hosted runner on ulm, labeled `self-hosted` and `ulm`,
-so CI uses no GitHub Actions minutes. GitHub registers self-hosted runners per
-repository for personal accounts, so each repository has its own runner in
-`~/actions-runner/<repo>`, run by the systemd user service
-`actions-runner@<repo>`. A runner takes one job at a time, so a running E2E suite
-holds that repository's `Checks` until it ends.
+The E2E workflow runs on a self-hosted runner on ulm, labeled `self-hosted` and
+`ulm`, so its long runs use no GitHub Actions minutes. The `Checks` job runs on a
+GitHub-hosted runner instead. It takes a few minutes per pull request, and on the
+same runner it waited behind every running E2E suite, because a runner takes one
+job at a time. GitHub registers self-hosted runners per repository for personal
+accounts, so each repository has its own runner in `~/actions-runner/<repo>`, run
+by the systemd user service `actions-runner@<repo>`.
 
 Jobs run as the `ulm` user and can read its files, including the CLI logins in
 its home directory. Register a runner only for a private repository whose pull
