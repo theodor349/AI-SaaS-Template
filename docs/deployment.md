@@ -319,12 +319,17 @@ On Sundays (UTC) the nightly runs the full suite instead. Manual dispatch runs
 the full suite unless it picks `critical`; picking `nightly` repeats the nightly
 run's choice. The nightly starts from ulm rather than GitHub's `schedule`
 trigger, as [the CI runner](#the-ci-runner) describes. Pull requests run E2E
-only with the `run-e2e` label, so they don't spend the Clerk and Polar rate limits that local agents
-share. Adding the label runs the full suite, and each later push to the labeled
-pull request runs the critical tests. A push cancels a full run still in
-progress. To run the full suite on the latest commit, remove the label and add
-it back with `gh pr edit <pr> --remove-label run-e2e` and then
-`gh pr edit <pr> --add-label run-e2e`. A failed nightly run shows as a failed check
+only with the `run-e2e` or `run-e2e-full` label, so they don't spend the Clerk
+and Polar rate limits that local agents share. With `run-e2e`, every run, from
+adding the label to each later push, runs the critical tests plus the specs that
+[`tests/e2e/spec-map.json`](../tests/e2e/spec-map.json) maps to the files the
+pull request changes against `main`. A change to a shared file, such as a
+provider, the Convex schema, the lockfile or a bootstrap script, runs the full
+suite, and so does runtime code that no rule in the map covers. Docs and agent
+files add nothing beyond the critical tests. The `Select E2E tests` step in the
+job log lists the selection and what caused it. `run-e2e-full` runs the full
+suite on every run instead. A push cancels the run still in progress and tests
+the new commit. A failed nightly run shows as a failed check
 on that `main` commit and in `gh run list --workflow e2e.yml --status failure`.
 Nightly runs are named `Nightly E2E`, so
 `gh run list --workflow E2E --json displayTitle,conclusion,createdAt` tells them

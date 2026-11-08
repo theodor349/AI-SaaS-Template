@@ -52,17 +52,7 @@ This template provides shared architecture, UI patterns, and an agent-friendly d
 - Test meaningful logic or observable behavior. Avoid tests that only assert layout, copy, props, callback wiring, or mirror the implementation.
 - Run `pnpm test:unit` and `pnpm lint` after changes. Lint includes TypeScript checking. Broaden verification when the change or a failure warrants it.
 - For backend or browser flows, keep `pnpm bootstrap` running and use the relevant integration or E2E tests. `pnpm inspect` supports manual browser verification. These tools target this worktree's generated local configuration.
-- Run only the E2E specs for the area you changed, such as `pnpm test:e2e tests/e2e/billing.spec.mts`. A change to shared providers, auth, or the root layout runs `pnpm test:e2e:critical`. Leave the full suite to CI: every run creates dozens of users on the shared Clerk instance.
-
-  | Area | Specs in `tests/e2e/` |
-  | --- | --- |
-  | Auth, sessions, redirects | app, navigation |
-  | Billing, checkout, plans | billing, billing-loading, landing, withdrawal |
-  | Account page | account, account-loading, data-export, theme |
-  | Notes, or a feature built from it | notes |
-  | Consent, Sentry, headers | consent, security-headers, server-errors |
-  | Layout, dialogs, offline, errors | connection-status, overlay-history, error-pages, legal |
-
+- Run the E2E tests your change needs with `pnpm test:e2e:affected`. It runs the `@critical` tests plus the specs that [`tests/e2e/spec-map.json`](tests/e2e/spec-map.json) maps to the files changed since `origin/main`, including uncommitted files, and pull request runs in CI select the same way. Add `--list` to see the selection without running it. When a shared file changed, CI runs the full suite, and the local command still runs only the selection. Leave the full suite to CI, because every run creates dozens of users on the shared Clerk instance. Give a new spec, or new runtime code outside the mapped paths, a rule in the map, or every change to it runs the full suite in CI.
 - Tag an E2E test `@critical` only when its failure would cost money, leak data, lock users out, or break a legal duty. Main runs those tests nightly and the full suite weekly.
 
 ## Pull requests

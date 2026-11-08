@@ -7,11 +7,13 @@ run-name: ${{ inputs.suite == 'nightly' && 'Nightly E2E' || '' }}
 # Runs the integration and browser suites against a real local stack: bootstrap's
 # local Convex backend, the shared Clerk development instance, and the shared
 # Polar sandbox organization. Provider rate limits are shared with local agents,
-# so pull requests only run when they carry the `run-e2e` label. Adding the label
-# runs the full suite, and later pushes to the labeled pull request run only the
-# tests tagged @critical. A push cancels a full run still in progress, so to get a
-# full run on the latest commit, remove the label and add it back. Reopening a
-# labeled pull request also runs the critical tests.
+# so pull requests only run when they carry the `run-e2e` or `run-e2e-full`
+# label. With `run-e2e`, every run, from adding the label to each later push,
+# runs the tests tagged @critical plus the specs that tests/e2e/spec-map.json
+# maps to the files the pull request changes against main. A change to a shared
+# file, or to runtime code the map doesn't cover, runs the full suite.
+# `run-e2e-full` runs the full suite on every run instead. A push cancels the
+# run still in progress and starts one for the new commit.
 #
 # Main runs the critical tests nightly rather than on every merge to save CI
 # minutes, and the full suite on Sundays (UTC) so tests that rarely run don't go
@@ -29,7 +31,7 @@ on:
         default: full
   pull_request:
     # Not `opened`. GitHub's APIs create a pull request without labels and add
-    # them in a second call, so opening one with `run-e2e` also sends `labeled`.
+    # them in a second call, so opening one with a label also sends `labeled`.
     # Running on both started two runs, and the concurrency group cancelled one,
     # which GitHub could then show as the head's E2E check.
     types: [synchronize, reopened, labeled]
@@ -43,8 +45,10 @@ jobs:
     # Ignore unrelated label events so they cannot start or cancel a run.
     if: >-
       github.event_name != 'pull_request' ||
-      (contains(github.event.pull_request.labels.*.name, 'run-e2e') &&
-      (github.event.action != 'labeled' || github.event.label.name == 'run-e2e'))
+      ((contains(github.event.pull_request.labels.*.name, 'run-e2e') ||
+      contains(github.event.pull_request.labels.*.name, 'run-e2e-full')) &&
+      (github.event.action != 'labeled' ||
+      github.event.label.name == 'run-e2e' || github.event.label.name == 'run-e2e-full'))
     runs-on: [self-hosted, ulm]
     timeout-minutes: 2
     # The suite's group, so a newer event cancels this pull request's running
@@ -71,7 +75,7 @@ jobs:
           POLAR_PRODUCT_LIFETIME: ${{ secrets.POLAR_PRODUCT_LIFETIME }}
           GH_TOKEN: ${{ github.token }}
           DISPATCHED_SUITE: ${{ inputs.suite }}
-          PR_ACTION: ${{ github.event.action }}
+          FULL_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'run-e2e-full') }}
         # Integration asserts the three synced Polar products and signed Polar
         # webhooks, and billing E2E calls the sandbox API, so Polar is required
         # unless app.config.ts sets `billing: false`, which skips those tests.
@@ -85,8 +89,8 @@ jobs:
               suite=critical
             fi
           fi
-          # Adding the label runs the full suite, including at pull request creation.
-          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$PR_ACTION" != labeled ]; then suite=critical; fi
+          # The e2e job picks a pull request's specs from its changed files.
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$FULL_LABEL" != true ]; then suite=affected; fi
           echo "suite=$suite" >> "$GITHUB_OUTPUT"
           required=(NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY CLERK_SECRET_KEY)
           # Read the billing switch through the API rather than a checkout. The
@@ -128,8 +132,7 @@ jobs:
     runs-on: [self-hosted, ulm]
     timeout-minutes: 45
     # Job-level so skipped label events never cancel a running suite. A push to a
-    # labeled pull request cancels its running full suite and runs the critical
-    # tests on the new commit instead.
+    # labeled pull request cancels its running suite and tests the new commit.
     concurrency:
       group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: true
@@ -146,6 +149,9 @@ jobs:
         with:
           path: ${{ env.APP_DIR }}
           persist-credentials: false
+          # A pull request checks out GitHub's merge commit, whose first parent is
+          # main, so the spec selection can diff against it.
+          fetch-depth: 2
       - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
         with:
           package_json_file: ${{ env.APP_DIR }}/package.json
@@ -154,6 +160,12 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: ${{ env.APP_DIR }}/.node-version
+      # Before bootstrap writes files into the checkout, so the diff holds only
+      # the pull request's changes.
+      - name: Select E2E tests
+        id: select
+        if: needs.preflight.outputs.suite == 'affected'
+        run: node scripts/e2e-affected.mjs --base HEAD^1 --github-output
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -198,8 +210,12 @@ jobs:
         if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
         env:
           SUITE: ${{ needs.preflight.outputs.suite }}
+          # Empty for the full suite.
+          GREP: ${{ steps.select.outputs.grep }}
         run: |
-          if [ "$SUITE" = critical ]; then pnpm test:e2e:critical; else pnpm test:e2e; fi
+          if [ "$SUITE" = critical ]; then pnpm test:e2e:critical
+          elif [ -n "$GREP" ]; then pnpm test:e2e --grep "$GREP"
+          else pnpm test:e2e; fi
 
       - name: Stop bootstrap
         if: ${{ always() && steps.bootstrap.outcome == 'success' }}
