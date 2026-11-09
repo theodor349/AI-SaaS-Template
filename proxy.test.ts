@@ -1,5 +1,8 @@
 // @vitest-environment node
-import { readdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { type ClerkMiddlewareAuth, clerkMiddleware } from "@clerk/nextjs/server";
 import { type NextFetchEvent, NextRequest } from "next/server";
 import { expect, test, vi } from "vitest";
@@ -92,11 +95,26 @@ test("other POST requests continue to the app", async () => {
   }
 });
 
-// A route group adds nothing to the URL, so the proxy needs the folder list.
+// The top-level URL paths of the routes in a folder. A route group adds nothing to the
+// URL, so its routes count as the folder's own; private folders are not routes.
+const routesIn = (folder: string): string[] => readdirSync(folder, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory() && !entry.name.startsWith("_"))
+  .flatMap((entry) => entry.name.startsWith("(") ? routesIn(join(folder, entry.name)) : [`/${entry.name}`]);
+
+test("routes inside nested route groups count as top-level routes", () => {
+  const folder = mkdtempSync(join(tmpdir(), "routes-"));
+  try {
+    for (const path of ["account/(tabs)", "(group)/programs", "(group)/(inner)/session", "(group)/_private", "_components"]) {
+      mkdirSync(join(folder, path), { recursive: true });
+    }
+    expect(routesIn(folder).sort()).toEqual(["/account", "/programs", "/session"]);
+  } finally {
+    rmSync(folder, { recursive: true });
+  }
+});
+
 test("every top-level route in app/(protected) sends signed-out visitors to sign-in", () => {
-  const routes = readdirSync(new URL("./app/(protected)", import.meta.url), { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && !/^[_(]/.test(entry.name))
-    .map((entry) => `/${entry.name}`);
+  const routes = routesIn(fileURLToPath(new URL("./app/(protected)", import.meta.url)));
   expect([...SIGNED_IN_ROUTES].sort()).toEqual(routes.sort());
 });
 
