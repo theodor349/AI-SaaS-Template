@@ -48,8 +48,9 @@ test("the 404 page sends signed-in visitors to their dashboard", async ({ page }
     await expect(dashboard).toBeVisible();
     await page.locator("section > svg").evaluate((svg) => Promise.all(svg.getAnimations({ subtree: true }).map((a) => a.finished)));
     expect(await page.evaluate(() => window.illustrationAnimationStarts)).toBe(1);
-    await dashboard.click();
-    await expect(page).toHaveURL(`${appUrl}${authenticatedDestination}`);
+    // Check the link instead of following it: with billing on, the dashboard sends this user
+    // without Pro on to /billing, so the URL is the destination only briefly.
+    await expect(dashboard).toHaveAttribute("href", authenticatedDestination);
   } finally {
     await user.cleanup();
   }
