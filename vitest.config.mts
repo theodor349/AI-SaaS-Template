@@ -7,6 +7,7 @@ export default defineConfig({
     environment: "edge-runtime",
     // `build:vercel` runs these tests with NODE_ENV=production, which loads React's production build without `act`.
     env: { NODE_ENV: "test" },
+    setupFiles: ["./vitest.setup.mts"],
     include: ["app/**/*.test.ts", "app/**/*.test.tsx", "components/**/*.test.tsx", "convex/**/*.test.ts", "lib/**/*.test.ts", "proxy.test.ts"],
   },
 });
