@@ -25,7 +25,7 @@
     "pr:gate": "node scripts/pr-gate.mjs",
     "polar:trigger": "node scripts/polar-trigger.mjs",
     "dev": "convex dev --start 'next dev'",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p convex --noEmit",
     "build": "pnpm run typecheck && next build",
     "build:vercel": "pnpm test:app && pnpm lint && convex deploy --cmd 'pnpm exec next build' --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL && node scripts/sync-maintenance-mode.mjs",
     "start": "next start",
