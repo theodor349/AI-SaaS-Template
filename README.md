@@ -45,6 +45,7 @@ is needed. Agent guidance lives in [AGENTS.md](AGENTS.md).
 - `pnpm test:e2e [spec...]` - run the browser suite, or the given specs, against the running worktree in Chromium.
 - `pnpm test:e2e:critical` - run only the browser tests tagged `@critical`.
   `E2E_EVIDENCE=1 pnpm test:e2e <spec>` also saves screenshots and videos for PR evidence in `.playwright/results`.
+- `pnpm test:e2e:affected` - run the `@critical` tests plus the specs [`tests/e2e/spec-map.json`](tests/e2e/spec-map.json) maps to the files changed since `origin/main` (`--list` to only show them).
 - `pnpm inspect` - open the running worktree for manual browser inspection.
 - `pnpm capture <path...>` - screenshot (and optionally record) pages for PR evidence, outside the worktree.
 - `pnpm review-link` - print a single-use signed-in link for maintainer review.
@@ -61,12 +62,12 @@ is needed. Agent guidance lives in [AGENTS.md](AGENTS.md).
 
 ## CI and hosted development
 
-GitHub Actions runs lint, unit tests, and the Next.js build on every pull request,
-on a self-hosted runner on ulm.
-The E2E workflow runs the integration suite and the `@critical` E2E tests
+GitHub Actions runs lint, unit tests, and the Next.js build on every pull request.
+The E2E workflow runs on a self-hosted runner on ulm. It runs the integration suite and the `@critical` E2E tests
 against a local stack nightly on `main`, and the full E2E suite on Sundays.
-A systemd timer on ulm starts the nightly run. Adding the `run-e2e` label to a pull request runs the full suite, and
-later pushes to that pull request run the `@critical` tests. Only `main`
+A systemd timer on ulm starts the nightly run. A pull request with the `run-e2e` label runs the `@critical` tests plus
+the specs mapped to the files it changes, on every push, and the full suite when it changes a shared file.
+The `run-e2e-full` label runs the full suite instead. Only `main`
 deploys to Vercel and Convex. See
 [deployment setup](docs/deployment.md) for the hosted environment, its checks,
 and Clerk/Polar webhooks.
