@@ -7,10 +7,13 @@ import { isSignedInPath, SIGNED_IN_ROUTES } from "./lib/auth";
 import proxy, { clerkOptions, withoutUnsafeReturnTo } from "./proxy";
 
 // Clerk reads its keys when its modules load. A production key's Account Portal
-// fallback would be accounts.app.example.com.
+// fallback would be accounts.app.example.com. The proxy picks its CSP header name
+// when it loads, and the Vercel build runs these tests with production's
+// CSP_REPORT_ONLY, so the tests clear it to check the enforcing header.
 vi.hoisted(() => {
   process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = `pk_live_${btoa("clerk.app.example.com$")}`;
   process.env.CLERK_SECRET_KEY = "sk_live_test";
+  delete process.env.CSP_REPORT_ONLY;
 });
 
 const request = (url: string, host = new URL(url).host) => new Request(url, { headers: { host } });
