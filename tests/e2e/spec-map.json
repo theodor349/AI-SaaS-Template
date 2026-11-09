@@ -1,0 +1,168 @@
+{
+  "$comment": "Which E2E specs a change needs on top of the @critical tests. scripts/e2e-affected.mjs reads this file for pull request runs and pnpm test:e2e:affected. A changed spec runs itself. Otherwise the first matching list wins: criticalOnly adds nothing, fullSuite runs every spec, and areas add the specs of every area that matches. A file no list matches runs the full suite.",
+  "criticalOnly": [
+    "*.md",
+    "docs/**",
+    ".agents/**",
+    ".claude/**",
+    "convex/_generated/ai/**",
+    "**/*.test.*",
+    "convex/test.setup.ts",
+    "tests/component/**",
+    "tests/integration/**",
+    "tests/e2e/spec-map.json",
+    "scripts/e2e-affected.mjs",
+    "scripts/agent-cli.mjs",
+    "scripts/capture.mjs",
+    "scripts/clerk-sweep.mjs",
+    "scripts/db-reset.mjs",
+    "scripts/doctor.mjs",
+    "scripts/inspect.mjs",
+    "scripts/polar-trigger.mjs",
+    "scripts/pr-gate.mjs",
+    "scripts/review-link.mjs",
+    "scripts/sync-maintenance-mode.mjs",
+    "scripts/vercel-ignore-build.mjs",
+    ".github/workflows/ci.yml",
+    ".env.example",
+    ".env.bootstrap.example",
+    ".gitignore",
+    ".prettierignore",
+    ".vercelignore",
+    "components.json",
+    "eslint.config.mjs",
+    "skills-lock.json",
+    "vercel.json",
+    "vitest.config.mts"
+  ],
+  "fullSuite": [
+    "package.json",
+    "pnpm-lock.yaml",
+    "playwright.config.mts",
+    "tests/e2e/*.mts",
+    ".github/workflows/e2e.yml",
+    "scripts/bootstrap*.mjs",
+    "scripts/bootstrap/**",
+    "scripts/local-test-config.mjs",
+    "scripts/billing-test-admin.ts",
+    "scripts/billing-test-fixtures.mjs",
+    "scripts/clerk-test-user.mjs",
+    "scripts/rate-limit-retry.mjs",
+    "scripts/test-identity.mjs",
+    "app.config.ts",
+    "next.config.js",
+    "proxy.ts",
+    "app/layout.tsx",
+    "app/(protected)/layout.tsx",
+    "app/ConvexClientProvider.tsx",
+    "components/UserProvisioning.tsx",
+    "components/auth/**",
+    "components/consent/consent-provider.tsx",
+    "lib/auth.ts",
+    "lib/clerk-token.ts",
+    "convex/auth.config.js",
+    "convex/schema.ts",
+    "convex/billing/entitlement.ts"
+  ],
+  "areas": [
+    {
+      "area": "Auth, sessions, redirects",
+      "specs": ["app.spec.mts", "navigation.spec.mts"],
+      "paths": ["app/sign-in/**", "components/layout/profile-menu.tsx"]
+    },
+    {
+      "area": "Sign-up with a selected plan",
+      "specs": ["app.spec.mts", "landing.spec.mts"],
+      "paths": ["app/sign-up/**"]
+    },
+    {
+      "area": "Billing, checkout, plans",
+      "specs": ["billing.spec.mts", "billing-loading.spec.mts", "landing.spec.mts", "withdrawal.spec.mts"],
+      "paths": [
+        "app/(protected)/billing/**",
+        "app/(protected)/checkout/**",
+        "app/(protected)/_components/use-checkout.ts",
+        "app/_components/landing-pricing.tsx",
+        "components/billing/pricing.tsx",
+        "convex/billing/**",
+        "lib/billing/**"
+      ]
+    },
+    {
+      "area": "Landing page",
+      "specs": ["landing.spec.mts"],
+      "paths": [
+        "app/page.tsx",
+        "app/_components/getting-started.tsx",
+        "app/_components/landing-features.tsx",
+        "app/_components/organization-schema.tsx"
+      ]
+    },
+    {
+      "area": "Account page",
+      "specs": ["account.spec.mts", "account-loading.spec.mts", "data-export.spec.mts", "theme.spec.mts"],
+      "paths": [
+        "app/(protected)/account/**",
+        "convex/account/dataExport*.ts",
+        "convex/account/lifecycle.ts",
+        "convex/account/profile.ts",
+        "convex/lib/dataExport.ts"
+      ]
+    },
+    {
+      "area": "Theme",
+      "specs": ["theme.spec.mts"],
+      "paths": ["components/theme/**", "lib/theme.ts"]
+    },
+    {
+      "area": "Notes",
+      "specs": ["notes.spec.mts", "app.spec.mts"],
+      "paths": [
+        "app/(protected)/app/page.tsx",
+        "app/(protected)/app/layout.tsx",
+        "app/(protected)/app/_components/note-*",
+        "app/(protected)/app/_components/welcome.tsx",
+        "convex/notes/**"
+      ]
+    },
+    {
+      "area": "Consent, Sentry, headers",
+      "specs": ["consent.spec.mts", "security-headers.spec.mts", "server-errors.spec.mts"],
+      "paths": [
+        "components/consent/**",
+        "lib/consent/**",
+        "lib/sentry/**",
+        "lib/security/**",
+        "instrumentation.ts",
+        "instrumentation-client.ts",
+        "app/e2e/sentry/**",
+        "app/(legal)/_components/cookie-preferences-button.tsx"
+      ]
+    },
+    {
+      "area": "Error pages",
+      "specs": ["error-pages.spec.mts"],
+      "paths": ["app/error.tsx", "app/global-error.*", "app/not-found.tsx", "app/(protected)/app/error.tsx"]
+    },
+    {
+      "area": "Crash test pages",
+      "specs": ["error-pages.spec.mts", "server-errors.spec.mts", "consent.spec.mts"],
+      "paths": ["app/e2e/crash/**", "lib/e2e-crash.ts"]
+    },
+    {
+      "area": "Connection status",
+      "specs": ["connection-status.spec.mts"],
+      "paths": ["components/layout/connection-status.*"]
+    },
+    {
+      "area": "Dialogs and history",
+      "specs": ["overlay-history.spec.mts"],
+      "paths": ["components/overlay/**", "lib/overlay-history.ts", "app/e2e/popover/**"]
+    },
+    {
+      "area": "Legal pages",
+      "specs": ["legal.spec.mts", "consent.spec.mts"],
+      "paths": ["app/(legal)/**", "content/legal/**", "lib/legal/**"]
+    }
+  ]
+}

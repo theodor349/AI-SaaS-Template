@@ -18,8 +18,9 @@ jobs:
   # when an earlier one fails, so all of them report.
   checks:
     name: Checks
-    # A self-hosted runner on ulm; see docs/deployment.md.
-    runs-on: [self-hosted, ulm]
+    # GitHub-hosted, so these checks never queue behind E2E on ulm's runner.
+    # See docs/deployment.md.
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       NEXT_TELEMETRY_DISABLED: "1"
@@ -28,12 +29,10 @@ jobs:
         with:
           persist-credentials: false
       - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
-        with:
-          # Jobs from every runner on ulm share the default ~/setup-pnpm and collide there.
-          dest: ${{ runner.temp }}/setup-pnpm
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: .node-version
+          cache: pnpm
       - name: Install dependencies
         id: install
         run: pnpm install --frozen-lockfile

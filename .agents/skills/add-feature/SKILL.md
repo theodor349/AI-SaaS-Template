@@ -31,14 +31,14 @@ Notes is the reference feature: [convex/notes](../../../convex/notes/notes.ts), 
 ## Tests
 
 - [ ] convex-test covering the happy path, another user's ID on every by-ID function, the paid or auth guard, validation codes, flag gating, and erasure across more than one batch ([convex/notes/notes.test.ts](../../../convex/notes/notes.test.ts)).
-- [ ] An E2E spec for the main flow and the unpaid redirect, using the billing fixtures in `scripts/billing-test-fixtures.mjs`. `pnpm test:e2e` picks it up, so it also runs in the full suite. Tag the main flow `@critical`, as Notes does, so the nightly run covers it, and add the spec to the area table in `AGENTS.md`.
+- [ ] An E2E spec for the main flow and the unpaid redirect, using the billing fixtures in `scripts/billing-test-fixtures.mjs`. `pnpm test:e2e` picks it up, so it also runs in the full suite. Tag the main flow `@critical`, as Notes does, so the nightly run covers it. Add an area for the feature's paths and spec to [`tests/e2e/spec-map.json`](../../../tests/e2e/spec-map.json), so pull request runs select the spec when the feature changes.
 - [ ] Before/after captures of the loaded, empty, and skeleton states at desktop and mobile widths for the PR.
 
 # Remove Notes
 
 Removing Notes leaves `/app` with its heading and welcome line. In an app that replaced `/app` with its own page, as Rekura did with `/lists`, the page and its welcome line go too; see step 2.
 
-1. Delete `convex/notes/`, `tests/e2e/notes.spec.mts`, and `app/(protected)/app/_components/note-*.tsx`.
+1. Delete `convex/notes/`, `tests/e2e/notes.spec.mts`, and `app/(protected)/app/_components/note-*.tsx`, and remove the Notes area from `tests/e2e/spec-map.json`.
 2. In `app/(protected)/app/page.tsx`, remove `NoteComposer` and `NoteList`, and rename the heading and `metadata.title`. Update the `"Notes"` heading in `tests/e2e/*.spec.mts` to match. If the app has no `/app` page, skip the page edits and delete `note-*.tsx` and `welcome.tsx` wherever they ended up. A template sync can move them into the app's renamed folder, such as `app/(protected)/lists/_components`. Keep the app's own heading in the E2E specs.
 3. Remove the `notes` table from `convex/schema.ts`, and the `INVALID_NOTE_BODY`, `INVALID_NOTE_TITLE`, and `NOTE_NOT_FOUND` codes from `convex/lib/errors.ts`.
 4. In `convex/account/lifecycle.ts`, remove the `eraseNotes` import and its block in `erase`.
