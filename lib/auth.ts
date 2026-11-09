@@ -17,8 +17,9 @@ export function resolveAuthenticatedDestination(value: string | undefined) {
   return path;
 }
 
-// The top-level routes of app/(protected). proxy.ts sends signed-out visitors from these
-// to sign-in; proxy.test.ts checks the list against the folders.
+// The top-level routes of app/(protected), including routes inside its route groups, such as
+// app/(protected)/(group)/route. proxy.ts sends signed-out visitors from these to sign-in;
+// proxy.test.ts checks the list against the folders.
 export const SIGNED_IN_ROUTES = ["/account", "/app", "/billing", "/checkout"];
 
 // True for the sign-in and sign-up pages, including Clerk's nested steps.
