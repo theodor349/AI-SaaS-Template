@@ -99,7 +99,7 @@ test("provider deletion supersedes an open user request and completes cleanup", 
     await expect.poll(async () => (await adminQuery(admin, internal.account.lifecycle.context, { requestId }))?.status).toBe("completed");
     expect(await adminQuery(admin, internal.account.users.lookupCurrent, { tokenIdentifier: testTokenIdentifier(local.env, user.id) })).toEqual({ status: "deleting" });
     await page.reload();
-    await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Account", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Undo deletion" })).toHaveCount(0);
   } finally { if (!removed) await user.cleanup(); }

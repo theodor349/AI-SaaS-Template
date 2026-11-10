@@ -67,6 +67,22 @@ test("sign-in fallback and return-to redirects reach the configured application 
   }
 });
 
+test("a session that ends on an open page offers sign-in back to that page", async ({ page }) => {
+  const user = await createClerkTestUser(local);
+  try {
+    await page.goto("/"); await clerk.signIn({ page, emailAddress: user.email });
+    await page.goto("/account");
+    await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
+    // Ends the session in place, as signing out in another tab does.
+    await page.waitForFunction(() => window.Clerk?.session);
+    await page.evaluate(() => window.Clerk.session!.end());
+    await page.getByRole("region", { name: "You’ve been signed out." }).getByRole("button", { name: "Sign in", exact: true }).click();
+    await clerk.signIn({ page, emailAddress: user.email });
+    await expect(page).toHaveURL(`${local.config.env.APP_URL}/account`);
+    await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
+  } finally { await user.cleanup(); }
+});
+
 test("revoked sessions remove protected content and restored cookies cannot re-enter", { tag: "@critical" }, async ({ page, browser }) => {
   const user = await createClerkTestUser(local);
   try {
@@ -88,7 +104,7 @@ test("revoked sessions remove protected content and restored cookies cannot re-e
     try {
       const restoredPage = await restored.newPage();
       await restoredPage.goto("/app");
-      await expect(restoredPage.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
+      await expect(restoredPage.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
       await expect(restoredPage.getByRole("heading", { name: "Notes", exact: true })).toHaveCount(0);
       await expect(restoredPage.getByText(`Welcome ${user.name}!`, { exact: true })).toHaveCount(0);
     } finally { await restored.close(); }
