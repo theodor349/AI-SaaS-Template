@@ -51,6 +51,15 @@
   from { transform: none; }
 }
 
+/* The square slides straight out of its gap, the way a session leaves. */
+.away .square {
+  transform: translateX(48px);
+  animation: away 0.9s cubic-bezier(0.4, 0, 0.2, 1) 0.3s both;
+}
+@keyframes away {
+  from { transform: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .square {
     animation: none !important;

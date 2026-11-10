@@ -3,11 +3,12 @@ import styles from "./misplaced-square.module.css";
 
 // The Just Enough Solutions logo with its light square out of place. "missing" misses
 // the gap on the 404 page; "popped" has knocked it loose, and `snapped` puts it back
-// while the page retries; "lifted" holds it above the gap during maintenance. Each
-// animates once on mount and is static with reduced motion.
+// while the page retries; "lifted" holds it above the gap during maintenance; "away"
+// slides it out of the gap when a session ends. Each animates once on mount and is
+// static with reduced motion.
 // Colors come from theme tokens, which global-error defines for itself.
 export function MisplacedSquare({ variant, snapped = false }: {
-  variant: "missing" | "popped" | "lifted";
+  variant: "missing" | "popped" | "lifted" | "away";
   snapped?: boolean;
 }) {
   return (

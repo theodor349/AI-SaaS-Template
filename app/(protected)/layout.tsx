@@ -4,6 +4,7 @@ import { AuthBoundary } from "@/components/auth/auth-boundary";
 import { maintenanceMode } from "@/lib/maintenance";
 import { noIndex } from "@/lib/seo";
 import { MaintenanceNotice } from "../_components/maintenance-notice";
+import { SessionEnded } from "./_components/session-ended";
 
 export const metadata: Metadata = { robots: noIndex };
 
@@ -17,7 +18,7 @@ export default function ProtectedLayout({ children }: { children: ReactNode }) {
   // Covers sessions that end while a page is open. Pages keep their shell while auth
   // loads; their components show their own skeletons.
   return (
-    <AuthBoundary renderWhilePending signedOut={<p>Your session has ended. Sign in to continue.</p>}>
+    <AuthBoundary renderWhilePending signedOut={<SessionEnded />}>
       {children}
     </AuthBoundary>
   );
