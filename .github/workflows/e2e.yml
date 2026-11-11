@@ -49,11 +49,15 @@ jobs:
       contains(github.event.pull_request.labels.*.name, 'run-e2e-full')) &&
       (github.event.action != 'labeled' ||
       github.event.label.name == 'run-e2e' || github.event.label.name == 'run-e2e-full'))
-    runs-on: [self-hosted, ulm]
+    # GitHub-hosted unless the repository variable E2E_RUNNER names a self-hosted
+    # runner as a JSON array of labels, such as ["self-hosted","ulm"]. Only a
+    # private repository should set it. See docs/deployment.md.
+    runs-on: ${{ fromJSON(vars.E2E_RUNNER || '"ubuntu-latest"') }}
     timeout-minutes: 2
     # The suite's group, so a newer event cancels this pull request's running
-    # suite as soon as it is queued. Without it, this job waits for the runner
-    # that the outdated suite holds, and the outdated suite runs to the end.
+    # suite as soon as it is queued. Without it, on a self-hosted runner this job
+    # waits for the runner that the outdated suite holds, and the outdated suite
+    # runs to the end.
     concurrency:
       group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: true
@@ -93,9 +97,10 @@ jobs:
           if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$FULL_LABEL" != true ]; then suite=affected; fi
           echo "suite=$suite" >> "$GITHUB_OUTPUT"
           required=(NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY CLERK_SECRET_KEY)
-          # Read the billing switch through the API rather than a checkout. The
-          # runner keeps its workspace between jobs, and a sparse checkout here
-          # left it sparse for the next CI job, which then found only this file.
+          # Read the billing switch through the API rather than a checkout. A
+          # self-hosted runner keeps its workspace between jobs, and a sparse
+          # checkout here left it sparse for the next CI job, which then found
+          # only this file.
           config=$(gh api -H "Accept: application/vnd.github.raw+json" \
             "repos/$GITHUB_REPOSITORY/contents/app.config.ts?ref=$GITHUB_SHA")
           if ! grep -Eq '^\s*billing:\s*false\s*,?\s*$' <<< "$config"; then
@@ -129,8 +134,11 @@ jobs:
     name: Integration and E2E
     needs: preflight
     if: needs.preflight.outputs.available == 'true'
-    runs-on: [self-hosted, ulm]
-    timeout-minutes: 45
+    # The same runner as preflight.
+    runs-on: ${{ fromJSON(vars.E2E_RUNNER || '"ubuntu-latest"') }}
+    # Sized for a GitHub-hosted runner, which has 2 cores for a private
+    # repository and 4 for a public one. ulm has 8.
+    timeout-minutes: 60
     # Job-level so skipped label events never cancel a running suite. A push to a
     # labeled pull request cancels its running suite and tests the new commit.
     concurrency:
@@ -160,6 +168,10 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: ${{ env.APP_DIR }}/.node-version
+          # A GitHub-hosted runner starts without a pnpm store, so restore it from
+          # the Actions cache. An empty value turns the cache off.
+          cache: ${{ runner.environment == 'github-hosted' && 'pnpm' || '' }}
+          cache-dependency-path: ${{ env.APP_DIR }}/pnpm-lock.yaml
       # Before bootstrap writes files into the checkout, so the diff holds only
       # the pull request's changes.
       - name: Select E2E tests
@@ -169,12 +181,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # The runner keeps the pnpm store, Playwright browsers and the Convex local
-      # backend in its home directory between runs, so nothing needs caching.
-      # Chromium's system libraries take sudo to install, so ulm has them
-      # installed once instead of through --with-deps.
+      # A self-hosted runner keeps the pnpm store, Playwright browsers and the
+      # Convex local backend in its home directory between runs, so nothing needs
+      # caching there. Chromium's system libraries take sudo to install, which its
+      # jobs don't have, so ulm has them installed once. A GitHub-hosted runner
+      # starts empty and has sudo, so --with-deps installs the libraries. It
+      # downloads Chromium and the Convex local backend on every run. Caching
+      # either one would need its own step and cache key.
       - name: Install Chromium
-        run: pnpm exec playwright install chromium
+        run: pnpm exec playwright install ${{ runner.environment == 'github-hosted' && '--with-deps' || '' }} chromium
 
       - name: Write bootstrap credentials
         env:
@@ -237,8 +252,8 @@ jobs:
           cat "$(git rev-parse --path-format=absolute --git-path bootstrap.log)" || true
           echo "::endgroup::"
 
-      # The runner keeps its workspace, so remove this run's checkout, which holds
-      # the credentials file and the local Convex database.
+      # A self-hosted runner keeps its workspace, so remove this run's checkout,
+      # which holds the credentials file and the local Convex database.
       - name: Remove run checkout
         if: always()
         working-directory: ${{ github.workspace }}

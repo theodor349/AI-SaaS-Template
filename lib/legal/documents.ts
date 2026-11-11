@@ -77,14 +77,20 @@ function numberSections(markdown: string) {
 
 // The template's example company details. Other builds may show them, but the
 // public production deployment must publish the real operator.
-const exampleCompany = { companyCvr: "00000000", companyAddress: "Example Street 1, 8000 Aarhus C, Denmark" };
+const exampleCompany = {
+  companyName: "Example Company ApS",
+  companyCvr: "00000000",
+  companyAddress: "Example Street 1, 8000 Aarhus C, Denmark",
+  supportEmail: "support@example.com",
+} satisfies Partial<AppConfig>;
+const exampleFields = Object.keys(exampleCompany) as (keyof typeof exampleCompany)[];
 
 // Pages call this while prerendering, so NEXT_PUBLIC_APP_URL must be set for every build.
 export function loadLegalDocument(slug: LegalSlug, options: { config?: AppConfig; appUrl?: string; publicProduction?: boolean } = {}) {
   const { config = appConfig, appUrl = process.env.NEXT_PUBLIC_APP_URL, publicProduction = searchIndexingAllowed() } = options;
   if (!appUrl) throw new Error("NEXT_PUBLIC_APP_URL is required to render the legal documents");
-  if (publicProduction && (config.companyCvr === exampleCompany.companyCvr || config.companyAddress === exampleCompany.companyAddress)) {
-    throw new Error("Replace the example companyCvr and companyAddress in app.config.ts before the public production build");
+  if (publicProduction && exampleFields.some((field) => config[field] === exampleCompany[field])) {
+    throw new Error("Replace the example companyName, companyCvr, companyAddress and supportEmail in app.config.ts before the public production build");
   }
   const { data, body } = parseFrontMatter(readFileSync(path.join(contentDirectory, `${slug}.md`), "utf8"));
   const effective = effectiveDate(data.effective);

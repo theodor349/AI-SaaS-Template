@@ -5,9 +5,9 @@ import { isWorktreeExternalId } from "./lib";
 // SDK 1.x verifies signatures and recognizes event names, but doesn't validate
 // resource fields at runtime. Normalize only the association we consume; all
 // entitlement decisions use freshly fetched provider resources.
-const metadata = z.record(z.union([z.string(), z.number(), z.boolean()])).optional();
+const metadata = z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional();
 const customer = z.object({ id: z.string().min(1), external_id: z.string().nullable().optional(), metadata });
-const envelope = z.object({ type: z.string(), timestamp: z.string().datetime({ offset: true }), data: z.unknown() });
+const envelope = z.object({ type: z.string(), timestamp: z.iso.datetime({ offset: true }), data: z.unknown().optional() });
 export function normalizePolarEvent(value: unknown) {
   const event = envelope.parse(value);
   let resource;

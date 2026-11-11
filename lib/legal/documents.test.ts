@@ -36,11 +36,25 @@ test("the cookie policy lists every registered consent service, including those 
 });
 
 test("the public production build refuses the example company details", () => {
-  expect(() => loadLegalDocument("terms", { appUrl, publicProduction: true, config: { ...appConfig, companyCvr: "00000000" } }))
-    .toThrow("Replace the example companyCvr and companyAddress");
-  expect(() => loadLegalDocument("terms", { appUrl, publicProduction: false, config: { ...appConfig, companyCvr: "00000000" } }))
-    .not.toThrow();
-  const real = { ...appConfig, companyCvr: "12345678" as const, companyAddress: "Real Street 2, 1000 Copenhagen" };
+  const real = {
+    ...appConfig,
+    companyName: "Real Company ApS",
+    companyCvr: "12345678" as const,
+    companyAddress: "Real Street 2, 1000 Copenhagen",
+    supportEmail: "help@realcompany.dk" as const,
+  };
+  const examples = [
+    { companyName: "Example Company ApS" },
+    { companyCvr: "00000000" as const },
+    { companyAddress: "Example Street 1, 8000 Aarhus C, Denmark" },
+    { supportEmail: "support@example.com" as const },
+  ];
+  for (const example of examples) {
+    const config = { ...real, ...example };
+    expect(() => loadLegalDocument("terms", { appUrl, publicProduction: true, config }))
+      .toThrow("Replace the example companyName, companyCvr, companyAddress and supportEmail");
+    expect(() => loadLegalDocument("terms", { appUrl, publicProduction: false, config })).not.toThrow();
+  }
   expect(loadLegalDocument("terms", { appUrl, publicProduction: true, config: real }).markdown).toContain("CVR 12345678");
 });
 
