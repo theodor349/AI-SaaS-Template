@@ -32,10 +32,10 @@ export type AppConfig = {
 export const appConfig = {
   appName: "AI SaaS Template",
   shortName: "AI SaaS",
-  companyName: "Just Enough Solutions ApS",
+  companyName: "Example Company ApS",
   companyCvr: "00000000",
   companyAddress: "Example Street 1, 8000 Aarhus C, Denmark",
-  supportEmail: "support@justenoughsolutions.com",
+  supportEmail: "support@example.com",
   description: "A foundation for your next AI product, with Next.js, realtime data, account management, and paid access. Choose monthly, yearly, or lifetime Pro access.",
   tagline: "Your next idea starts here",
   socialProfiles: [],

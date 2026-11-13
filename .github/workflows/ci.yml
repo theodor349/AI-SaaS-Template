@@ -18,8 +18,8 @@ jobs:
   # when an earlier one fails, so all of them report.
   checks:
     name: Checks
-    # GitHub-hosted, so these checks never queue behind E2E on ulm's runner.
-    # See docs/deployment.md.
+    # Always GitHub-hosted, so these checks never queue behind E2E on a
+    # self-hosted runner such as ulm's. See docs/deployment.md.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:

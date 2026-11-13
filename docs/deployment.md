@@ -376,8 +376,9 @@ plan the new Clerk user identities and billing associations rather than assuming
 development data transfers. Clerk development accounts remain test accounts.
 Set `ALLOW_SEARCH_INDEXING=true` only on that public production deployment, with
 `NEXT_PUBLIC_APP_URL` as its public origin; both are read at build time.
-That build also fails until `companyCvr` and `companyAddress` in `app.config.ts`
-replace the template's example company details, which the legal pages publish.
+That build also fails until `companyName`, `companyCvr`, `companyAddress` and
+`supportEmail` in `app.config.ts` replace the template's example company details,
+which the legal pages publish.
 
 Provider references: [Convex on Vercel](https://docs.convex.dev/production/hosting/vercel),
 [Vercel Git configuration](https://vercel.com/docs/project-configuration/git-configuration),
@@ -386,13 +387,43 @@ Provider references: [Convex on Vercel](https://docs.convex.dev/production/hosti
 
 ## The CI runner
 
-The E2E workflow runs on a self-hosted runner on ulm, labeled `self-hosted` and
-`ulm`, so its long runs use no GitHub Actions minutes. The `Checks` job runs on a
-GitHub-hosted runner instead. It takes a few minutes per pull request, and on the
-same runner it waited behind every running E2E suite, because a runner takes one
-job at a time. GitHub registers self-hosted runners per repository for personal
-accounts, so each repository has its own runner in `~/actions-runner/<repo>`, run
-by the systemd user service `actions-runner@<repo>`.
+The E2E workflow runs on a GitHub-hosted `ubuntu-latest` runner unless the
+repository variable `E2E_RUNNER` names a self-hosted one. GitHub-hosted runs are
+free on a public repository and use Actions minutes on a private one. The
+variable holds the runner's labels as a JSON array, which both E2E jobs pass to
+`runs-on`:
+
+```sh
+gh variable set E2E_RUNNER --repo <owner>/<repo> --body '["self-hosted","ulm"]'
+```
+
+A value that is not valid JSON fails every E2E run.
+`gh variable delete E2E_RUNNER --repo <owner>/<repo>` moves the repository back
+to GitHub-hosted runners. There the job starts on an empty machine, so it
+restores the pnpm store from the Actions cache and installs Chromium with its
+system libraries on every run.
+
+Use a self-hosted runner only on a private repository. On a public one, a pull
+request from a fork can change a workflow to run on any runner registered to the
+repository. Before a repository becomes public, delete the variable and remove
+its runner:
+
+```sh
+repo=<repo>
+gh variable delete E2E_RUNNER --repo theodor349/$repo
+systemctl --user disable --now actions-runner@$repo
+token=$(gh api -X POST repos/theodor349/$repo/actions/runners/remove-token --jq .token)
+~/actions-runner/$repo/config.sh remove --token "$token"
+```
+
+A private repository can set the variable to a runner on ulm, labeled
+`self-hosted` and `ulm`, so its long runs use no GitHub Actions minutes. The
+`Checks` job always runs on a GitHub-hosted runner. It takes a few minutes per
+pull request, and on the self-hosted runner it waited behind every running E2E
+suite, because a runner takes one job at a time. GitHub registers self-hosted
+runners per repository for personal accounts, so each repository has its own
+runner in `~/actions-runner/<repo>`, run by the systemd user service
+`actions-runner@<repo>`.
 
 Jobs run as the `ulm` user and can read its files, including the CLI logins in
 its home directory. Register a runner only for a private repository whose pull
@@ -408,7 +439,7 @@ jobs don't have, so a maintainer installed them on ulm once with
 `sudo pnpm exec playwright install-deps chromium`.
 
 To give a new app a runner, unpack the runner into its directory, register it,
-and start its service:
+start its service, and set the variable so the app's E2E workflow uses it:
 
 ```sh
 repo=<repo>
@@ -418,6 +449,7 @@ token=$(gh api -X POST repos/theodor349/$repo/actions/runners/registration-token
 ~/actions-runner/$repo/config.sh --unattended --url https://github.com/theodor349/$repo \
   --token "$token" --name ulm-$repo --labels ulm
 systemctl --user enable --now actions-runner@$repo
+gh variable set E2E_RUNNER --repo theodor349/$repo --body '["self-hosted","ulm"]'
 ```
 
 The service is `~/.config/systemd/user/actions-runner@.service`. It copies the
@@ -432,5 +464,6 @@ health check at 02:00 UTC reads that night's E2E result. So the nightly starts
 from the `nightly-e2e.timer` systemd user unit on ulm instead. At 00:00 UTC it
 runs `gh workflow run E2E --repo theodor349/<repo> --ref main -f suite=nightly`
 for each repository in its list. fleet-management's `SETUP.md` describes the
-unit. When you give a new app a runner, also add the app to that timer's
-repository list, or its nightly never runs.
+unit. The timer only starts the workflow, so it also serves a repository whose
+E2E runs on GitHub-hosted runners. When you give a new app a runner, also add
+the app to that timer's repository list, or its nightly never runs.
