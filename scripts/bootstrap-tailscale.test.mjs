@@ -15,7 +15,7 @@ function proxyState(port, target) {
 test("Tailscale URLs are stable, isolated from local listener ports, and retain local webhook forwarding", () => {
   assert.deepEqual(remote, tailscaleConfig(local, "agent.example.ts.net"));
   assert.equal(new Set([...Object.values(local.ports), ...Object.values(remote.ports)]).size, 6);
-  for (const port of Object.values(remote.ports)) assert.ok(port >= 50000 && port < 65000);
+  for (const port of Object.values(remote.ports)) assert.ok(port >= 61000 && port <= 65501);
   assert.notDeepEqual(remote.ports, tailscaleConfig(worktreeConfig("/tmp/another-worktree"), remote.hostname).ports);
   assert.equal(remote.env.APP_URL, `https://${authority(remote.ports.next)}`);
   assert.equal(remote.env.POLAR_WEBHOOK_URL, undefined);
@@ -33,9 +33,9 @@ test("proxy planning preserves unrelated services and refuses collisions or Funn
   assert.throws(() => plannedProxies(local, remote, same), /another service/);
 });
 
-// The Tailscale ports derive from this test's worktree path and fall in Linux's
-// ephemeral port range, so a real check fails whenever any socket on the machine
-// holds one of them, such as an outbound connection from a parallel test file.
+// The Tailscale ports derive from this test's worktree path, so a real check
+// fails whenever another process on the machine holds one of them, such as a
+// worktree stack that hashed to the same Tailscale port block.
 const portsFree = async () => {};
 
 function fakeTailscale(failPort) {
@@ -140,7 +140,7 @@ test("Tailscale is used by default only with a running node and HTTPS certificat
 
 test("a port block override moves Tailscale ports with the loopback ports", () => {
   const moved = worktreeConfig("/tmp/tailscale-test-worktree", { portBlock: 7 });
-  assert.deepEqual(tailscaleConfig(moved, "agent.example.ts.net").ports, { next: 50021, convex: 50022, site: 50023 });
+  assert.deepEqual(tailscaleConfig(moved, "agent.example.ts.net").ports, { next: 61021, convex: 61022, site: 61023 });
 });
 
 test("serving records created and preserved routes for the state file", async () => {

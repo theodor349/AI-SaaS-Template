@@ -641,7 +641,7 @@ test("BOOTSTRAP_PORT_BLOCK moves loopback and Tailscale ports without changing t
     assert.deepEqual(moved.ports, { next: 10021, convex: 10022, site: 10023 });
     assert.equal(moved.id, derived.id);
     assert.equal(moved.env.APP_URL, "http://127.0.0.1:10021");
-    assert.equal(worktreeConfig(worktreeRoot, { portBlock: 5007 }).portBlock.tailscale, 7);
+    assert.equal(worktreeConfig(worktreeRoot, { portBlock: 1507 }).portBlock.tailscale, 7);
     for (const value of ["-1", "7500", "1.5", "next"]) {
       assert.throws(() => bootstrap.portBlockOverride(worktreeRoot, { BOOTSTRAP_PORT_BLOCK: value }), /0 to 7499/);
     }

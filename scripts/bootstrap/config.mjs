@@ -22,7 +22,8 @@ export const backendEnvKeys = [
 ];
 // Keeps local ports (10000 + block * 3) below 32768, where Linux starts handing out ports for outgoing connections.
 const localBlocks = 7500;
-const tailscaleBlocks = 5000;
+// Keeps Tailscale proxy ports (61000 + block * 3) above 60999, where Linux's default range for outgoing connections ends.
+const tailscaleBlocks = 1500;
 export const portBlockHelp = `set BOOTSTRAP_PORT_BLOCK=<0-${localBlocks - 1}> in this worktree's .env.bootstrap.local to use a different port block`;
 
 export function gitRoot(cwd = process.cwd()) {
