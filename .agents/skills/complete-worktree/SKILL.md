@@ -47,6 +47,7 @@ Handle the reviews and comments that are on the PR when you poll, from bots or h
 
 - Verify every unresolved thread, and every actionable, nitpick, or outside-diff comment listed in a bot's review body, against the source and task. Fix real issues with meaningful regression coverage where practical and reply in the thread with the fix. Reply to false positives or inapplicable suggestions with a concrete source-backed reason. Resolve a thread only once it is fixed or answered.
 - Read other bot and human comments in the activity list; some bots edit a summary comment in place instead of posting a new one. Fix real CI failures within scope; external failures and scope decisions are blockers. Required human approvals and repository protections still apply.
+- T3 Code's PR watch may not wake after a check has failed ([pingdotgg/t3code#30530](https://github.com/pingdotgg/t3code/issues/30530)). After you rerun a failed check, call `unwatch_pull_request` and then `watch_pull_request` before you end your turn. Don't tell the maintainer a run will wake you while it sits queued with no jobs. Find out why it hasn't started, starting with `gh run view <run-id>`.
 - Batch related fixes, rerun appropriate checks, commit, and push. The gates restart for the new head; human approvals do not carry over.
 
 ## 5. Merge the verified head
