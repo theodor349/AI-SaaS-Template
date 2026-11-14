@@ -10,7 +10,7 @@ export function tailscaleConfig(config, dnsName) {
   if (!magicDnsName.test(hostname)) {
     throw new Error("Tailscale must provide this machine's MagicDNS .ts.net hostname.");
   }
-  const first = 50000 + config.portBlock.tailscale * 3;
+  const first = 61000 + config.portBlock.tailscale * 3;
   const ports = { next: first, convex: first + 1, site: first + 2 };
   const url = key => `https://${hostname}:${ports[key]}`;
   return { hostname, ports, env: {

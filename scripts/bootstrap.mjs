@@ -9,6 +9,7 @@ import {
 } from "./bootstrap/config.mjs";
 import { assertPortsAvailable, waitForServer } from "./bootstrap/network.mjs";
 import { preflight } from "./doctor.mjs";
+import { detachedLaunch } from "./bootstrap/detach.mjs";
 import { createSupervisor, exitReason, superviseConvex, superviseNext, superviseWorktree, watchConvexPush } from "./bootstrap/processes.mjs";
 import { reclaim } from "./bootstrap/reclaim.mjs";
 import { bootstrapPaths, createStateRecorder, inspectState, liveStatuses, missedWebhooks, openLog, readState, reclaimableStatuses } from "./bootstrap/state.mjs";
@@ -33,8 +34,10 @@ and loopback URLs otherwise or when CI is set.
 --no-polar   Start without billing credentials or webhook forwarding. Always
              on when app.config.ts sets billing: false.
 --detach     Run in the background, detached from this terminal, and return once
-             the run has started. Output goes only to the log. Stop it with
-             pnpm bootstrap:stop; it also stops when the worktree is removed.
+             the run has started. On Linux with a systemd user manager it runs
+             in its own scope, so ending an agent turn does not stop it. Output
+             goes only to the log. Stop it with pnpm bootstrap:stop; it also
+             stops when the worktree is removed.
 --print      Print the effective configuration without changing anything.
 
 BOOTSTRAP_PORT_BLOCK=<0-7499> in this worktree's .env.bootstrap.local (or the
@@ -81,15 +84,17 @@ async function reclaimPreviousRun(stateFile) {
   }
 }
 
-// Starts the supervisor in its own session, with output only in the log, so it
-// outlives this command, its terminal, and an agent's background task limit. The
+// Starts the supervisor in its own session, and its own systemd scope where
+// available, with output only in the log, so it outlives this command, its
+// terminal, an agent's background task limit, and the end of the agent's turn. The
 // mode resolved here is passed on, so the supervisor uses the URLs reported now.
 // Returns once the new run has claimed the state file, so pnpm bootstrap:wait
 // waits for this run rather than reading an earlier one's final state.
-async function startDetached({ root, argv, network, paths, claimTimeoutMs = 60000 }) {
+async function startDetached({ root, id, argv, network, paths, claimTimeoutMs = 60000 }) {
   await reclaimPreviousRun(paths.state);
   const args = [...argv.filter((arg) => !["--detach", "--local", "--tailscale"].includes(arg)), `--${network.mode}`];
-  const child = spawn(process.execPath, [fileURLToPath(import.meta.url), ...args], { cwd: root, detached: true, stdio: "ignore" });
+  const launch = detachedLaunch({ id, command: process.execPath, args: [fileURLToPath(import.meta.url), ...args] });
+  const child = spawn(launch.command, launch.args, { cwd: root, detached: true, stdio: "ignore" });
   let exit;
   child.once("error", (error) => { exit = `could not start: ${error.message}`; });
   child.once("exit", (code, signal) => { exit = signal ? `signal ${signal}` : `exit ${code}`; });
@@ -105,7 +110,9 @@ async function startDetached({ root, argv, network, paths, claimTimeoutMs = 6000
   }
   child.unref();
   console.log([
-    `Bootstrap is starting in the background (pid ${child.pid}), detached from this terminal.`,
+    launch.unit
+      ? `Bootstrap is starting in the background (pid ${child.pid}) in the systemd user scope ${launch.unit}, so it keeps running after this terminal or agent turn ends.`
+      : `Bootstrap is starting in the background (pid ${child.pid}), detached from this terminal.`,
     `Log: ${paths.log}`,
     "Run pnpm bootstrap:wait to wait until it is ready. Stop it with pnpm bootstrap:stop before you finish.",
   ].join("\n"));
@@ -317,7 +324,7 @@ export async function bootstrap({ argv = process.argv.slice(2) } = {}) {
   const paths = bootstrapPaths(root);
   if (options.detach) {
     if (network.note) console.log(network.note);
-    await startDetached({ root, argv, network, paths });
+    await startDetached({ root, id: config.id, argv, network, paths });
     return;
   }
   await reclaimPreviousRun(paths.state);
