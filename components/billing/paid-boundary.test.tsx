@@ -16,7 +16,8 @@ vi.mock("convex/react", () => ({
     return args === "skip" ? undefined : backend.status;
   },
 }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn() }) }));
+const router = vi.hoisted(() => ({ replace: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => router }));
 vi.mock("@/lib/convex", () => ({ useAction: () => vi.fn() }));
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -28,6 +29,7 @@ beforeEach(() => {
   backend.auth = { isLoading: true, isAuthenticated: false };
   backend.status = undefined;
   backend.queried = [];
+  router.replace.mockClear();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -59,4 +61,14 @@ test("keeps one spinner in place from connecting the account to checking paid ac
 
   render({ status: { readiness: "ready", state: "active", paidThrough: null } });
   expect(container.textContent).toBe("Notes");
+});
+
+test("sends a deleting account to the account page and an unpaid one to billing", () => {
+  render({ auth: { isLoading: false, isAuthenticated: true }, status: { readiness: "deleting", state: "active", paidThrough: null } });
+  expect(router.replace).toHaveBeenLastCalledWith("/account");
+
+  render({ status: { readiness: "ready", state: "ended", paidThrough: null } });
+  expect(status()).toBe("Checking paid access…");
+  expect(router.replace).toHaveBeenLastCalledWith("/billing");
+  expect(router.replace).toHaveBeenCalledTimes(2);
 });

@@ -23,7 +23,7 @@ function recordingSleep() {
   return { waits, sleep: async (/** @type {number} */ ms) => { waits.push(ms); } };
 }
 
-test("a RATE_LIMITED rejection waits its retryAfter plus a margin, then retries once", async (t) => {
+test("a RATE_LIMITED rejection waits its retryAfter plus a margin, then retries", async (t) => {
   t.mock.method(console, "warn", () => {});
   const { step, calls } = steps([rateLimited(530), "checkout url"]);
   const { waits, sleep } = recordingSleep();
@@ -46,14 +46,23 @@ test("a RATE_LIMITED rejection from the CommonJS ConvexError class is also waite
   assert.equal(waits.length, 1);
 });
 
-test("a second RATE_LIMITED rejection fails the step", async (t) => {
+test("consecutive RATE_LIMITED rejections are waited out until the step succeeds", async (t) => {
   t.mock.method(console, "warn", () => {});
-  const second = rateLimited(200);
-  const { step, calls } = steps([rateLimited(100), second, "unreached"]);
+  const { step, calls } = steps([rateLimited(16960), rateLimited(4940), rateLimited(300), "recovered"]);
   const { waits, sleep } = recordingSleep();
-  await assert.rejects(waitOutRateLimit(step, sleep), (error) => error === second);
-  assert.equal(calls(), 2);
-  assert.equal(waits.length, 1);
+  assert.equal(await waitOutRateLimit(step, sleep), "recovered");
+  assert.equal(calls(), 4);
+  assert.deepEqual(waits, [17960, 5940, 1300]);
+});
+
+test("the last rejection fails the step once the next wait would pass the 45 second budget", async (t) => {
+  t.mock.method(console, "warn", () => {});
+  const last = rateLimited(15000);
+  const { step, calls } = steps([rateLimited(20000), rateLimited(10000), last, "unreached"]);
+  const { waits, sleep } = recordingSleep();
+  await assert.rejects(waitOutRateLimit(step, sleep), (error) => error === last);
+  assert.equal(calls(), 3);
+  assert.deepEqual(waits, [21000, 11000]);
 });
 
 test("other errors fail at once without waiting", async () => {

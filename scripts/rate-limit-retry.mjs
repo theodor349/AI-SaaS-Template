@@ -4,26 +4,37 @@ import { setTimeout as delay } from "node:timers/promises";
 // bucket has refilled rather than at the exact moment it may.
 const RETRY_MARGIN_MS = 1000;
 
+// Total time a step may spend waiting out rejections. Playwright's test timeout
+// in playwright.config.mts is 90 seconds, so this leaves room for the rest of
+// the test.
+const WAIT_BUDGET_MS = 45_000;
+
 /**
  * Runs a test step that spends the shared sandbox Polar budget in
- * convex/rateLimits.ts. Another E2E run on the same organization may have spent
- * it, so a RATE_LIMITED rejection waits the milliseconds it carries, plus a
- * margin, and runs the step once more. A second rejection, or any other error,
- * fails the step.
+ * convex/rateLimits.ts. Another E2E run on the same organization, or the app's
+ * own recovery and webhook reconciliation, may have spent it. Each RATE_LIMITED
+ * rejection waits the milliseconds it carries, plus a margin, and runs the step
+ * again, until the next wait would take the total past 45 seconds. Then the
+ * last rejection fails the step. Any other error fails it at once.
  * @template T
  * @param {() => Promise<T>} step
  * @param {(ms: number) => Promise<unknown>} [sleep]
  * @returns {Promise<T>}
  */
 export async function waitOutRateLimit(step, sleep = delay) {
-  try {
-    return await step();
-  } catch (error) {
-    const wait = rateLimitWait(error);
-    if (wait === null) throw error;
-    console.warn(`RATE_LIMITED: retrying once in ${wait + RETRY_MARGIN_MS} ms`);
-    await sleep(wait + RETRY_MARGIN_MS);
-    return await step();
+  let waited = 0;
+  for (;;) {
+    try {
+      return await step();
+    } catch (error) {
+      const retryAfter = rateLimitWait(error);
+      if (retryAfter === null) throw error;
+      const wait = retryAfter + RETRY_MARGIN_MS;
+      if (waited + wait > WAIT_BUDGET_MS) throw error;
+      waited += wait;
+      console.warn(`RATE_LIMITED: retrying in ${wait} ms (${waited} of ${WAIT_BUDGET_MS} ms waited)`);
+      await sleep(wait);
+    }
   }
 }
 

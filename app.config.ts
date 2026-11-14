@@ -25,7 +25,9 @@ export type AppConfig = {
   brandColors: { background: `#${string}`; foreground: `#${string}`; muted: `#${string}` };
   // Whether the app sells Pro plans through Polar. With false, every signed-in user
   // gets full access, no Polar setting is needed, and pricing, billing, checkout,
-  // and the payment parts of the legal documents disappear. See docs/deployment.md.
+  // and the payment parts of the legal documents disappear. The app's pages then wait
+  // in AccountBoundary instead of PaidBoundary; build free features the same way, with
+  // AccountBoundary on the page and requireUser in Convex. See docs/deployment.md.
   billing: boolean;
 };
 
