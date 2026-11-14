@@ -242,7 +242,9 @@ for bootstrap's `polar listen` and `pnpm polar:trigger`, `discounts:read` and
 
 `billing: false` in [`app.config.ts`](../app.config.ts) launches the app free for
 everyone, with no Polar account. Every signed-in user passes the paid-access
-checks. Pricing, the Billing page and menu item, checkout, and the payment,
+checks, and the app's loading screen waits only for the account. Build free
+features with `AccountBoundary` on the page and `requireUser` in Convex
+functions. Pricing, the Billing page and menu item, checkout, and the payment,
 withdrawal, and Polar parts of the terms and privacy policy disappear. Signed-in
 visitors to `/billing` and `/checkout` get a 404, because the app has nothing
 there; signed-out ones get the usual sign-in redirect first. Public billing

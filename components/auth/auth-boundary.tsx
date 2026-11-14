@@ -42,7 +42,7 @@ export function AuthPending({
 }
 
 // Authentication alone admits checkout, billing recovery, and account controls.
-// Place paid feature gates below this boundary; sign-in never grants an entitlement.
+// Place AccountBoundary or PaidBoundary below it; sign-in never grants an entitlement.
 export function AuthBoundary({
   children,
   signedOut,
