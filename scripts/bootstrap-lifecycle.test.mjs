@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { copyFile, cp, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +9,7 @@ import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { assertPortsAvailable, descendantProcessGroups, environmentFile, signalProcessGroup, worktreeConfig } from "./bootstrap.mjs";
+import { userSystemdAvailable } from "./bootstrap/detach.mjs";
 import { reclaimStaleRun } from "./bootstrap/reclaim.mjs";
 import { readState } from "./bootstrap/state.mjs";
 
@@ -342,6 +343,15 @@ test("a detached bootstrap outlives its launcher's process group and bootstrap:s
   const fixture = await startDetachedFixture(t);
   assert.match(fixture.launcherOutput(), /pnpm bootstrap:wait/);
   assert.notEqual(fixture.supervisorPid, fixture.shell.pid);
+  // A harness that runs each agent turn in a systemd scope stops every process in
+  // that scope's cgroup when the turn ends, so the supervisor must leave it.
+  if (process.platform === "linux" && userSystemdAvailable()) {
+    const cgroup = (pid) => readFileSync(`/proc/${pid}/cgroup`, "utf8").trim();
+    const unit = fixture.launcherOutput().match(/systemd user scope (\S+\.scope)/)?.[1];
+    assert.ok(unit, fixture.launcherOutput());
+    assert.ok(cgroup(fixture.supervisorPid).endsWith(`/${unit}`), cgroup(fixture.supervisorPid));
+    assert.notEqual(cgroup(fixture.supervisorPid), cgroup(process.pid));
+  }
   // An agent harness ends a background task by killing its process group.
   process.kill(-fixture.shell.pid, "SIGKILL");
   await fixture.shellClosed;

@@ -88,7 +88,7 @@ To move an existing app with its data and users onto the template, follow the [m
 
 Use `pnpm bootstrap --no-polar` when billing is outside the task. It needs no Polar token.
 
-An agent starts the stack with `pnpm bootstrap --detach` and waits with `pnpm bootstrap:wait`, because agent tools stop a background task after a time limit. A detached stack runs until `pnpm bootstrap:stop` or until the worktree is removed.
+An agent starts the stack with `pnpm bootstrap --detach` and waits with `pnpm bootstrap:wait`, because agent tools stop a background task after a time limit. A detached stack runs until `pnpm bootstrap:stop` or until the worktree is removed. On Linux with a systemd user manager it runs in its own scope, so it also survives the end of the agent's turn.
 
 ## Commands
 

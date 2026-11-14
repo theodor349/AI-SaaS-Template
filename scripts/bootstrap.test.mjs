@@ -11,6 +11,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { parseEnv } from "node:util";
 import * as bootstrap from "./bootstrap.mjs";
 import { billingEnabled } from "./bootstrap/config.mjs";
+import { detachedLaunch } from "./bootstrap/detach.mjs";
 import { createSupervisor, exitReason } from "./bootstrap/processes.mjs";
 import {
   assertPortsAvailable,
@@ -512,6 +513,28 @@ test("--detach is accepted alongside the network and Polar options", () => {
   });
   assert.equal(bootstrap.parseArguments([]).detach, false);
   assert.throws(() => bootstrap.parseArguments(["--detached"]), /Unknown argument: --detached/);
+});
+
+const supervisorCommand = { id: "wt-0123456789ab", command: "/usr/bin/node", args: ["/repo/scripts/bootstrap.mjs", "--local"] };
+
+test("--detach starts the supervisor in its own systemd user scope on Linux with a user manager", () => {
+  const launch = detachedLaunch({ ...supervisorCommand, platform: "linux", systemdAvailable: () => true, now: 1_700_000_000_000 });
+  assert.equal(launch.command, "systemd-run");
+  assert.match(launch.unit, /^bootstrap-wt-0123456789ab-[0-9a-z]+\.scope$/);
+  assert.deepEqual(launch.args, [
+    "--user", "--scope", "--quiet", "--collect", `--unit=${launch.unit}`, "--", "/usr/bin/node", "/repo/scripts/bootstrap.mjs", "--local",
+  ]);
+  // A scope left by a crashed run keeps its name, so the next run must not reuse it.
+  const next = detachedLaunch({ ...supervisorCommand, platform: "linux", systemdAvailable: () => true, now: 1_700_000_060_000 });
+  assert.notEqual(next.unit, launch.unit);
+});
+
+test("--detach spawns the supervisor directly where systemd cannot start a user scope", () => {
+  const direct = { command: supervisorCommand.command, args: supervisorCommand.args };
+  assert.deepEqual(detachedLaunch({ ...supervisorCommand, platform: "linux", systemdAvailable: () => false }), direct);
+  const probes = [];
+  assert.deepEqual(detachedLaunch({ ...supervisorCommand, platform: "darwin", systemdAvailable: () => probes.push("probed") }), direct);
+  assert.deepEqual(probes, [], "macOS never probes for systemd");
 });
 
 test("shutdown includes detached grandchildren and excludes unrelated agents", () => {
