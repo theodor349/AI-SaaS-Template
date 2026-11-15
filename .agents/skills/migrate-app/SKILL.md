@@ -30,7 +30,7 @@ Check provider settings before recommending a path that depends on them. Rekura'
 
 ## Shape of the work
 
-- **Plan, then review it.** Commit the plan to a migration branch, with steps an orchestrator can hand to subagents and a parity checklist taken from the old app's features. Then have a separate agent try to break the plan before any code exists. For Rekura that review found six ways to lose data, including a rollback that couldn't work. Commit its fixes to the same branch. The checklist covers each main screen's look as well as its features, and the final parity check compares new captures with the old screenshots.
+- **Plan, then review it.** Commit the plan to a migration branch, with steps an orchestrator can hand to subagents and a parity checklist taken from the old app's features. Then have a separate agent try to break the plan before any code exists. For Rekura that review found six ways to lose data, including a rollback that couldn't work. Commit its fixes to the same branch. If the plan has its own PR and the migration branch starts from that PR's branch, GitHub marks the plan PR as merged, naming an older merge commit, once the migration PR brings its head into `main`. Nobody merged it by hand, and nothing extra reached `main`. The checklist covers each main screen's look as well as its features, and the final parity check compares new captures with the old screenshots.
 - **Freeze `main`** until cutover. The migration branch replaces its tree, so a later commit on `main` is lost or brings old files back.
 - **Replace the code with a merge that keeps both histories,** so later template syncs merge cleanly:
 
