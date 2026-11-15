@@ -23,7 +23,9 @@ deployments for every other branch, including branches whose names contain `/`.
 Its Ignored Build Step,
 [`scripts/vercel-ignore-build.mjs`](../scripts/vercel-ignore-build.mjs), also skips
 non-`main` branches, and skips `main` commits that change only docs, agent files,
-CI, tests, or dev scripts since the last successful deployment. Each kept
+CI, tests, or dev scripts since the last successful deployment. A skipped `main`
+build shows as a CANCELED production deployment, not a failure, and production
+keeps serving the previous build. Each kept
 deployment's functions count toward Vercel's function storage limit, which is
 10 GB on Hobby, so skipped builds also save storage. A redeploy, or any case where
 Vercel doesn't report the last deployed commit, always builds. Set the project's
@@ -365,6 +367,14 @@ Vercel build before Convex deployment.
 
 After the first deployment, verify hosted sign-in, a sandbox checkout returning
 to the stable app URL, paid access, and delivery of both providers' webhooks.
+Signed out, `auth.protect()` answers 404 to a request without
+`Sec-Fetch-Dest: document`, such as plain `curl`, and redirects only browsers. To
+smoke-check a protected route, send `-H 'Sec-Fetch-Dest: document'` and expect a
+307 to `/sign-in`. To check Clerk's webhook deliveries without reading user data,
+take a token from the
+[Svix token exchange](../.agents/skills/migrate-app/references/traps.md#clerk) and
+call `GET /api/v1/app/<appId>/attempt/endpoint/<endpointId>?with_msg=true`. It
+lists each attempt's time, event type and HTTP status.
 Initialize the public product catalog after deploying to a fresh database:
 
 ```sh
