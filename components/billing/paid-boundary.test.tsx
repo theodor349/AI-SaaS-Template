@@ -4,6 +4,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { PaidBoundary } from "./paid-boundary";
 
+// An app that sells plans, so the test still holds after an app sets `billing: false`.
+vi.mock("@/app.config", async (importOriginal) => {
+  const { appConfig } = await importOriginal<typeof import("@/app.config")>();
+  return { appConfig: { ...appConfig, billing: true } };
+});
 const backend = vi.hoisted(() => ({
   auth: { isLoading: true, isAuthenticated: false },
   status: undefined as { readiness: string; state: string; paidThrough: number | null } | undefined,
