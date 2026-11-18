@@ -6,9 +6,9 @@ Packages installed from npm are not listed. [`package.json`](package.json) names
 
 ## Convex agent skills
 
-- Source: [get-convex/agent-skills](https://github.com/get-convex/agent-skills)
+- Source: [convex/agent-skills](https://github.com/convex/agent-skills)
 - License: Apache-2.0, printed in full [below](#apache-license-20)
-- Files: `.agents/skills/convex` and every folder in `.agents/skills` whose name starts with `convex-`, 31 folders in all. The entries with the same names in `.claude/skills` are symlinks to them.
+- Files: `.agents/skills/convex` and every folder in `.agents/skills` whose name starts with `convex-`, 29 folders in all. The entries with the same names in `.claude/skills` are symlinks to them.
 
 The files are unmodified copies of the upstream files. [`skills-lock.json`](skills-lock.json) records the source and a content hash for each folder. Those hashes cover the folders' contents, so the license is printed here and not added to each folder.
 
@@ -16,11 +16,9 @@ Upstream has no `NOTICE` file, and its license file adds no copyright line to th
 
 ### Heroicons
 
-Upstream's own third-party notices credit Heroicons for the icons in its skill metadata. Three of the copied folders contain one:
+Upstream's own third-party notices credit Heroicons for the icons in its skill metadata. One of the copied folders contains one:
 
 - `.agents/skills/convex-create-component/assets/icon.svg`
-- `.agents/skills/convex-migration-helper/assets/icon.svg`
-- `.agents/skills/convex-performance-audit/assets/icon.svg`
 
 Source: [tailwindlabs/heroicons](https://github.com/tailwindlabs/heroicons). License: MIT.
 
