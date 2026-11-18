@@ -20,8 +20,9 @@ test("Next routes Clerk-style rewrites on the original loopback host", { timeout
     await mkdir(join(fixture, "app"));
     await symlink(join(root, "node_modules"), join(fixture, "node_modules"), "junction");
     // Next's agent upgrade check, on by default, looks up npm advisories after Ready
-    // and stops next dev when an agent runs it on an affected version. Turn it off on
-    // top of the app's real config so this test doesn't depend on the advisory database.
+    // and stops next dev when an agent runs it on an affected version. The app's config
+    // turns it off only for bootstrap stacks, and this fixture isn't one, so turn it off
+    // here too. Then the test doesn't depend on the advisory database.
     await copyFile(join(root, "next.config.js"), join(fixture, "app.next.config.js"));
     await writeFile(join(fixture, "next.config.js"), `
       const config = require("./app.next.config.js");
@@ -41,10 +42,11 @@ test("Next routes Clerk-style rewrites on the original loopback host", { timeout
         return NextResponse.rewrite(new URL(request.url));
       }
     `);
-    // A build host can inject Next configuration, adapters, and bundler flags.
-    // This standalone dev server owns its framework configuration.
+    // A build host can inject Next configuration, adapters, and bundler flags, and a
+    // bootstrap stack's WORKTREE_ID changes the app's config. This standalone dev
+    // server owns its framework configuration.
     const fixtureEnv = Object.fromEntries(Object.entries(process.env).filter(([name]) =>
-      !/^(?:__NEXT|NEXT_|VERCEL|TURBOPACK|NODE_OPTIONS)/.test(name)));
+      !/^(?:__NEXT|NEXT_|VERCEL|TURBOPACK|NODE_OPTIONS|WORKTREE_ID$)/.test(name)));
     child = spawn(process.execPath, [join(root, "node_modules/next/dist/bin/next"), "dev", fixture,
       "--webpack", "--hostname", "127.0.0.1", "--port", "0"], {
       detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"],
