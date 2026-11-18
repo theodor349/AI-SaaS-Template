@@ -19,7 +19,14 @@ test("Next routes Clerk-style rewrites on the original loopback host", { timeout
   try {
     await mkdir(join(fixture, "app"));
     await symlink(join(root, "node_modules"), join(fixture, "node_modules"), "junction");
-    await copyFile(join(root, "next.config.js"), join(fixture, "next.config.js"));
+    // Next's agent upgrade check, on by default, looks up npm advisories after Ready
+    // and stops next dev when an agent runs it on an affected version. Turn it off on
+    // top of the app's real config so this test doesn't depend on the advisory database.
+    await copyFile(join(root, "next.config.js"), join(fixture, "app.next.config.js"));
+    await writeFile(join(fixture, "next.config.js"), `
+      const config = require("./app.next.config.js");
+      module.exports = { ...config, experimental: { ...config.experimental, agentUpgrade: false } };
+    `);
     await writeFile(join(fixture, "package.json"), '{"private":true}');
     await writeFile(join(fixture, "app/route.js"), `
       export function GET(request) {
