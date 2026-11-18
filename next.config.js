@@ -33,6 +33,13 @@ const securityHeaders = [
   ...(process.env.NODE_ENV === "production" ? [{ key: "Strict-Transport-Security", value: "max-age=63072000" }] : []),
 ];
 
+// Next's agent upgrade check looks up npm advisories once next dev is ready. When a
+// coding agent started the server and the installed Next has an advisory, it stops
+// next dev, and bootstrap then stops the whole stack. Bootstrap stacks turn it off.
+// They carry bootstrap's wt- WORKTREE_ID; hosted deployments set another value, such
+// as cloud-dev, and keep Next's default, as does a plain pnpm dev.
+const bootstrapStack = /^wt-[0-9a-f]{12}$/.test(process.env.WORKTREE_ID ?? "");
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   agentRules: false,
@@ -41,6 +48,7 @@ const nextConfig = {
     : [],
   // Preserve 127.0.0.1 in Clerk's internal rewrite when Next binds to loopback.
   skipProxyUrlNormalize: true,
+  ...(bootstrapStack ? { experimental: { agentUpgrade: false } } : {}),
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
