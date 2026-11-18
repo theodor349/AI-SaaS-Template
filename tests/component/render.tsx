@@ -1,19 +1,32 @@
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach } from "vitest";
+import { afterEach, beforeEach, vi } from "vitest";
 
 // Renders components into happy-dom for tests in files that start with
-// `// @vitest-environment happy-dom`. Each test's render is unmounted after it.
+// `// @vitest-environment happy-dom`. Each test's render is unmounted after it,
+// and timers the test left pending are dropped, so none outlives it.
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const mounted: Array<{ root: Root; container: HTMLElement }> = [];
+
+beforeEach(() => {
+  // A fake clock that follows real time, so toasts and `waitFor` behave as with
+  // real timers, but the clock can drop what is still pending when the test ends.
+  // A test that needs to control time calls `vi.useFakeTimers()` itself.
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"], shouldAdvanceTime: true });
+});
 
 afterEach(() => {
   for (const { root, container } of mounted.splice(0)) {
     act(() => root.unmount());
     container.remove();
   }
+  // Unmounting doesn't cancel every timer. Sonner's toast removal keeps a 200 ms
+  // timer that sets state, and if it fires after happy-dom has removed `window`,
+  // React throws an unhandled "window is not defined".
+  vi.clearAllTimers();
+  vi.useRealTimers();
 });
 
 export function render(ui: ReactNode) {
