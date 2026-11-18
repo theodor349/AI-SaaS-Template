@@ -5,7 +5,7 @@ import { resolveLocalTestConfig } from "./local-test-config.mjs";
 try {
   const { config, env } = resolveLocalTestConfig();
   const credentials = developmentCredentials(env);
-  const args = ["exec", "polar", "trigger", "customer.created",
+  const args = ["exec", "polar", "webhook", "trigger", "customer.created",
     "--override", `data.metadata.worktree_id=${config.id}`,
     "--override", `data.name=Agent test ${config.id}`];
   if (credentials.POLAR_ORGANIZATION_ID) args.push("--org", credentials.POLAR_ORGANIZATION_ID);

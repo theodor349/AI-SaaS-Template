@@ -159,7 +159,7 @@ async function setEnvironmentBeforePush({ root, env, controller, log, healthUrl,
   }
 }
 
-// polar listen reconnects after its event stream drops, but exits when the
+// polar webhook listen reconnects after its event stream drops, but exits when the
 // reconnect gets an error response, such as a 503 while Polar's sandbox API
 // restarts. That exit restarts the forwarder instead of stopping the stack.
 // Polar does not resend webhooks a listener missed, so each gap goes to the log
@@ -218,7 +218,7 @@ async function runServices({ root, config, credentials, polar, browserEnv, env, 
     // Lockfile changes merged from main must reach this worktree; this is fast when current.
     await supervisor.run(["install", "--frozen-lockfile", "--prefer-offline"], { terminal: false });
     if (polar) {
-      const secret = (await supervisor.run(["listen", "--print-secret", ...orgArgs], { command: tool("polar"), capture: true })).trim();
+      const secret = (await supervisor.run(["webhook", "listen", "--print-secret", ...orgArgs], { command: tool("polar"), capture: true })).trim();
       if (!secret || /\s/.test(secret)) throw new Error("Polar did not return a webhook signing secret. Check the sandbox token and CLI installation.");
       env.POLAR_WEBHOOK_SECRET = fileEnv.POLAR_WEBHOOK_SECRET = secret;
     }
@@ -275,7 +275,7 @@ async function runServices({ root, config, credentials, polar, browserEnv, env, 
     saveWatchEnvironment();
     if (envApplied) await setBackendEnvironment(supervisor);
     if (polar) {
-      void forwardPolarWebhooks({ supervisor, args: ["listen", config.env.POLAR_WEBHOOK_URL, ...orgArgs], tool, say, onServices, onForwarding });
+      void forwardPolarWebhooks({ supervisor, args: ["webhook", "listen", config.env.POLAR_WEBHOOK_URL, ...orgArgs], tool, say, onServices, onForwarding });
       onServices(await supervisor.recordServiceGroups());
       say(`Polar sandbox webhooks: ${config.env.POLAR_WEBHOOK_URL}`);
     }

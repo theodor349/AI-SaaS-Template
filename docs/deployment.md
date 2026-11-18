@@ -236,7 +236,7 @@ The production app token's scopes match the calls in
 customer portal sessions, subscription changes, orders and refunds for
 withdrawals, and the products and organization that `syncCatalog` reads. The
 sandbox token adds what worktrees and CI use: `webhooks:read` and `webhooks:write`
-for bootstrap's `polar listen` and `pnpm polar:trigger`, `discounts:read` and
+for bootstrap's `polar webhook listen` and `pnpm polar:trigger`, `discounts:read` and
 `discounts:write` for the discount-code E2E test, which skips without them, and
 `products:write` to create the sandbox products through the API. When code starts calling another Polar endpoint, add its scope here.
 

@@ -8,7 +8,7 @@ import { api, components, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { withdrawalDeadline } from "./withdrawalPeriod";
 import schema from "../schema";
-import { modules } from "../test.setup";
+import { modules, serverTime } from "../test.setup";
 
 // These tests cover billing turned on, whatever app.config.ts sets.
 vi.mock("../../app.config", async (importOriginal) => {
@@ -129,14 +129,14 @@ test.each(["monthly", "yearly", "lifetime"] as const)("withdrawing %s refunds th
   // Repeating a received withdrawal records nothing new.
   await as(t, "alice").mutation(api.billing.withdrawals.request, { orderId: "order-a" });
   const [received] = await withdrawalsOf(t, userId);
-  expect(received).toMatchObject({ status: "pending", receivedAt: Date.now(), refundOrderIds: ["order-a"], nothingCharged: false });
+  expect(received).toMatchObject({ status: "pending", receivedAt: serverTime(Date.now()), refundOrderIds: ["order-a"], nothingCharged: false });
 
   await t.action(internal.billing.polar.withdraw, { withdrawalId: received._id });
   expect(provider.refunds.create).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
     order_id: "order-a", amount: 1000, reason: "customer_request",
   }));
   expect(provider.subscriptions.revoke).toHaveBeenCalledTimes(model === "lifetime" ? 0 : 1);
-  expect((await withdrawalsOf(t, userId))[0]).toMatchObject({ status: "refunded", refundedAt: Date.now() });
+  expect((await withdrawalsOf(t, userId))[0]).toMatchObject({ status: "refunded", refundedAt: serverTime(Date.now()) });
 
   await t.action(internal.billing.polar.reconcileCustomer, { customerId: "customer-a" });
   expect(await accountState(t)).toBe("ended");
@@ -171,7 +171,7 @@ test.each(["monthly", "yearly", "lifetime"] as const)("withdrawing a %s purchase
   await t.action(internal.billing.polar.withdraw, { withdrawalId: received._id });
   expect(provider.refunds.create).not.toHaveBeenCalled();
   expect(provider.subscriptions.revoke).toHaveBeenCalledTimes(model === "lifetime" ? 0 : 1);
-  expect((await withdrawalsOf(t, userId))[0]).toMatchObject({ status: "refunded", refundedAt: Date.now() });
+  expect((await withdrawalsOf(t, userId))[0]).toMatchObject({ status: "refunded", refundedAt: serverTime(Date.now()) });
 
   await t.action(internal.billing.polar.reconcileCustomer, { customerId: "customer-a" });
   expect(await accountState(t)).toBe("ended");
@@ -195,15 +195,19 @@ test("a withdrawn order stays refunded when Polar later reverses its refund", as
 });
 
 test("withdrawal is refused once the period has ended", async () => {
-  const t = setup();
-  const userId = await purchase(t, "monthly");
+  // A deployment's clock never runs backwards, so each side of the deadline gets its own.
+  const late = setup();
+  const lateUserId = await purchase(late, "monthly");
   vi.setSystemTime(withdrawalDeadline(purchasedAt));
-  await expect(as(t, "alice").mutation(api.billing.withdrawals.request, { orderId: "order-a" })).rejects.toThrow("WITHDRAWAL_PERIOD_ENDED");
-  expect(await withdrawalsOf(t, userId)).toEqual([]);
+  await expect(as(late, "alice").mutation(api.billing.withdrawals.request, { orderId: "order-a" })).rejects.toThrow("WITHDRAWAL_PERIOD_ENDED");
+  expect(await withdrawalsOf(late, lateUserId)).toEqual([]);
 
+  vi.setSystemTime(purchasedAt + 60_000);
+  const onTime = setup();
+  const onTimeUserId = await purchase(onTime, "monthly");
   vi.setSystemTime(withdrawalDeadline(purchasedAt) - 1);
-  await as(t, "alice").mutation(api.billing.withdrawals.request, { orderId: "order-a" });
-  expect(await withdrawalsOf(t, userId)).toHaveLength(1);
+  await as(onTime, "alice").mutation(api.billing.withdrawals.request, { orderId: "order-a" });
+  expect(await withdrawalsOf(onTime, onTimeUserId)).toHaveLength(1);
 });
 
 test("another user can neither see nor withdraw a purchase", async () => {
