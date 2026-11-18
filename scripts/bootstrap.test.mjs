@@ -8,6 +8,7 @@ import { createServer } from "node:net";
 import { createServer as createHttpServer } from "node:http";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 import { parseEnv } from "node:util";
 import * as bootstrap from "./bootstrap.mjs";
 import { billingEnabled } from "./bootstrap/config.mjs";
@@ -131,6 +132,21 @@ test("child processes cannot inherit a cloud deployment or production Polar envi
   for (const key of ["CONVEX_DEPLOY_KEY", "CONVEX_SELF_HOSTED_URL", "CONVEX_SELF_HOSTED_ADMIN_KEY", "CONVEX_DEPLOYMENT_TOKEN", "TAILSCALE_HOSTNAME"]) {
     assert.equal(env[key], undefined);
   }
+});
+
+test("Next started by bootstrap never runs its agent upgrade check", () => {
+  const env = childEnvironment(worktreeConfig("/tmp/feature"), developmentCredentials(credentials), {
+    PATH: process.env.PATH,
+    __NEXT_AGENT_UPGRADE: "security",
+  });
+  // Prints the policy next dev and next build act on, from this environment and the app's config.
+  const output = execFileSync(process.execPath, ["-e", `
+    const loadConfig = require("next/dist/server/config").default;
+    const { getUpgradeContext } = require("next/dist/lib/upgrade/nudge");
+    loadConfig("phase-development-server", process.cwd()).then((config) =>
+      console.log(JSON.stringify(getUpgradeContext(config).experimental.agentUpgrade)));
+  `], { cwd: fileURLToPath(new URL("../", import.meta.url)), env, encoding: "utf8" });
+  assert.equal(JSON.parse(output.trim().split("\n").at(-1)), false);
 });
 
 test("generated env files round-trip quoted secrets without expanding shell syntax", () => {

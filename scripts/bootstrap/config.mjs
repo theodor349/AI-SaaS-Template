@@ -137,7 +137,9 @@ export function childEnvironment(config, credentials, inherited = process.env) {
     CONVEX_AGENT_MODE: "anonymous",
     CONVEX_ALLOW_ANONYMOUS: "true",
   };
-  for (const key of ["CONVEX_DEPLOY_KEY", "CONVEX_DEPLOYMENT_TOKEN", "CONVEX_SELF_HOSTED_URL", "CONVEX_SELF_HOSTED_ADMIN_KEY", "TAILSCALE_HOSTNAME"]) {
+  // __NEXT_AGENT_UPGRADE would turn Next's agent upgrade check back on over the
+  // app's next.config.js, which turns it off for bootstrap stacks.
+  for (const key of ["CONVEX_DEPLOY_KEY", "CONVEX_DEPLOYMENT_TOKEN", "CONVEX_SELF_HOSTED_URL", "CONVEX_SELF_HOSTED_ADMIN_KEY", "TAILSCALE_HOSTNAME", "__NEXT_AGENT_UPGRADE"]) {
     delete env[key];
   }
   return env;
