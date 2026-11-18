@@ -7,7 +7,7 @@ import { api, internal } from "../_generated/api";
 import schema from "../schema";
 import { billingReturnUrl, externalCustomerId, externalIdTokenIdentifier, hasPaidPro } from "./lib";
 import { retryAfter } from "../lib/errors";
-import { modules } from "../test.setup";
+import { maxServerClockLead, modules, serverTime } from "../test.setup";
 
 // These tests cover billing turned on, whatever app.config.ts sets.
 vi.mock("../../app.config", async (importOriginal) => {
@@ -225,12 +225,12 @@ test("reconciling unchanged provider state leaves the published entitlement unto
   vi.advanceTimersByTime(60_000);
   await reconcile(t);
   expect(await state(t)).toEqual(published);
-  expect((await sync(t))?.reconciledAt).toBe(Date.now());
+  expect((await sync(t))?.reconciledAt).toEqual(serverTime(Date.now()));
 });
 
 test("timed checks follow paid access instead of polling every account", async () => {
   const t = setup(); await provision(t); await link(t); await reconcile(t);
-  expect((await sync(t))?.nextCheckAt).toBe(Date.now() + 24 * 60 * 60_000);
+  expect((await sync(t))?.nextCheckAt).toEqual(serverTime(Date.now() + 24 * 60 * 60_000));
   subscriptions[0].status = "canceled";
   subscriptions[0].modified_at = new Date(Date.now() + 10).toISOString();
   await reconcile(t);
@@ -1040,14 +1040,14 @@ test("batched erasure survives reconciliation without refilling history or repea
   await t.action(internal.account.lifecycle.process, { requestId: request._id });
   await t.action(internal.account.lifecycle.process, { requestId: request._id });
   const progress = await t.query(internal.account.lifecycle.context, { requestId: request._id });
-  expect(progress).toMatchObject({ erasing: true, attempts: 0, leaseUntil: 0, nextAttemptAt: Date.now() });
+  expect(progress).toMatchObject({ erasing: true, attempts: 0, leaseUntil: 0, nextAttemptAt: serverTime(Date.now()) });
   expect(progress?.failureCode).toBeUndefined();
   const remaining = await t.run(ctx => ctx.db.query("billingOrders").take(1000));
   await reconcile(t);
   expect(await t.run(ctx => ctx.db.query("billingOrders").take(1000))).toHaveLength(remaining.length);
   await t.action(internal.account.lifecycle.process, { requestId: request._id });
   const next = await t.query(internal.account.lifecycle.context, { requestId: request._id });
-  expect(next).toMatchObject({ attempts: 0, leaseUntil: 0, nextAttemptAt: Date.now() });
+  expect(next).toMatchObject({ attempts: 0, leaseUntil: 0, nextAttemptAt: serverTime(Date.now()) });
   expect(next?.failureCode).toBeUndefined();
   for (let i = 0; i < 2; i++) await t.action(internal.account.lifecycle.process, { requestId: request._id });
   expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -1102,7 +1102,8 @@ test("a user calling recover in a loop is rejected after a small burst, without 
 
   expect(retryAfter(rejected)).toBeGreaterThan(0);
   expect(providerCalls()).toBe(0);
-  vi.setSystemTime(Date.now() + retryAfter(rejected)!);
+  // retryAfter counts from the server's clock, which can lead the test's.
+  vi.setSystemTime(Date.now() + retryAfter(rejected)! + maxServerClockLead);
   await alice(t).action(api.billing.polar.recover, {});
   expect(provider.customers.get).toHaveBeenCalled();
 });

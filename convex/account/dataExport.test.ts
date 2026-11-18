@@ -215,7 +215,9 @@ test("an export file is deleted shortly after it is created", async () => {
     await download(t, "alice");
     const [file] = await exportFiles(t, userId);
 
-    vi.advanceTimersByTime(fileLifetime - 1);
+    // The save mutation's clock can lead the test's (see serverTime), so count from the file's creation.
+    const deleteAt = file._creationTime + fileLifetime;
+    vi.advanceTimersByTime(deleteAt - 1 - Date.now());
     await t.finishInProgressScheduledFunctions();
     expect(await storedFiles(t)).toEqual([expect.objectContaining({ _id: file.storageId })]);
 
