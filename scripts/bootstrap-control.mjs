@@ -8,12 +8,14 @@ import { reclaim } from "./bootstrap/reclaim.mjs";
 import { bootstrapPaths, describeForwarding, inspectState, isVerifiedSupervisor, liveStatuses, logTail, readCurrentState, readState, reclaimableStatuses } from "./bootstrap/state.mjs";
 
 const usage = `pnpm bootstrap:status [--json]   Show this worktree's bootstrap status, URLs, and log path.
-pnpm bootstrap:wait [--timeout <seconds>]   Wait until ready (default 300 seconds).
+pnpm bootstrap:wait [--timeout <seconds>]   Wait until ready (default 600 seconds).
 pnpm bootstrap:stop [--timeout <seconds>]   Stop this worktree's bootstrap and its services (default 30 seconds).
 
 Status comes from the state file bootstrap writes in this worktree's Git directory.
 A recorded PID whose process is gone or has a different start time is reported as stale.
-Stopping a stale or failed run reclaims the services and Tailscale routes it recorded.`;
+Stopping a stale or failed run reclaims the services and Tailscale routes it recorded.
+A starting run first waits for machine headroom, for up to 15 minutes; status and
+wait say so while it does.`;
 
 // A run that fails or stops while waiting is reported at once. A terminal state
 // that predates "wait" may belong to an earlier run, so a bootstrap started just
@@ -21,6 +23,14 @@ Stopping a stale or failed run reclaims the services and Tailscale routes it rec
 export const newRunGraceMs = 10000;
 
 const terminalStatuses = ["stopped", "failed", "stale", "absent"];
+
+// Explains a run that has not started its services because the machine is busy.
+export function describeHeadroomWait(state) {
+  if (state.status !== "starting" || !state.headroom) return undefined;
+  const { problem, since, giveUpAt } = state.headroom;
+  return `Waiting for machine headroom since ${since}: ${problem}. Bootstrap starts its services once the load ` +
+    `and memory allow, so parallel stacks and test runs don't starve each other, and fails at ${giveUpAt}.`;
+}
 
 export function waitDecision({ current, initial, startedAt, now, timeoutMs, graceMs = newRunGraceMs }) {
   if (current.status === "ready") return "ready";
@@ -52,6 +62,8 @@ function describe(state, paths) {
     `Worktree: ${state.worktreeId}  Mode: ${state.mode}  Polar: ${state.polar ? "on" : "off"}`,
     `App: ${state.urls.app}`, `Convex: ${state.urls.convex}`, `Site: ${state.urls.site}`,
   ];
+  const headroom = describeHeadroomWait(state);
+  if (headroom) lines.push(headroom);
   if (state.error) lines.push(`Error: ${state.error}`);
   if (state.proxyCleanupError) lines.push(state.proxyCleanupError, "Run pnpm bootstrap:stop to remove the routes it left behind.");
   lines.push(...describeForwarding(state.polarForwarding));
@@ -72,11 +84,17 @@ async function status(paths, options) {
 }
 
 async function wait(paths, options) {
-  const timeoutMs = (options.timeout ?? 300) * 1000;
+  const timeoutMs = (options.timeout ?? 600) * 1000;
   const startedAt = Date.now();
   const initial = readCurrentState(paths.state);
+  let reportedHeadroom;
   for (;;) {
     const current = readCurrentState(paths.state);
+    const headroom = describeHeadroomWait(current);
+    if (headroom && current.headroom.since !== reportedHeadroom) {
+      reportedHeadroom = current.headroom.since;
+      console.log(headroom);
+    }
     const decision = waitDecision({ current, initial, startedAt, now: Date.now(), timeoutMs });
     if (decision === "ready") {
       console.log(`Ready: ${current.urls.app}`);

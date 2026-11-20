@@ -19,7 +19,7 @@ const processTable = () => execFileSync("ps", ["-eo", "pid=,ppid=,pgid="], { enc
 
 // Prepares a fresh repository, or a linked worktree of one, where the real
 // bootstrap runs against stand-in pnpm and ps commands.
-async function prepareFixture(t, { linked = false, typecheckError = false, tailscale = false } = {}) {
+async function prepareFixture(t, { linked = false, typecheckError = false, tailscale = false, escapeOnStop = false } = {}) {
   const base = await mkdtemp(join(tmpdir(), "bootstrap lifecycle with spaces "));
   let fixture = base;
   if (linked) {
@@ -34,6 +34,7 @@ async function prepareFixture(t, { linked = false, typecheckError = false, tails
   await assertPortsAvailable(config.ports);
   await mkdir(join(fixture, "bin"));
   if (typecheckError) await writeFile(join(fixture, "typecheck-error"), "yes");
+  if (escapeOnStop) await writeFile(join(fixture, "escape-on-stop"), "yes");
   for (const name of ["bootstrap.mjs", "bootstrap-output-guard.mjs", "bootstrap-control.mjs", "doctor.mjs"]) await copyFile(script(`./${name}`), join(fixture, name));
   await cp(script("./bootstrap"), join(fixture, "bootstrap"), { recursive: true });
   // Bootstrap reads the billing switch from the checkout it runs in. These runs sell plans.
@@ -74,6 +75,13 @@ async function prepareFixture(t, { linked = false, typecheckError = false, tails
       setInterval(() => {}, 1000);
     } else if (args.includes("--until-success")) {
       console.log("Convex stand-in started");
+      // Like the command the real CLI starts detached after its first push, this
+      // leaves a process in its own session, whose parent is gone, when stopped.
+      if (args.includes("--codegen") && require("node:fs").existsSync("escape-on-stop")) process.on("SIGTERM", () => {
+        const escaped = spawn(process.execPath, ["-e", "setInterval(() => {}, 1e9)"], { detached: true, stdio: "ignore" });
+        writeFileSync("escaped.pid", String(escaped.pid));
+        process.exit(0);
+      });
       mkdirSync(".convex/local/default", { recursive: true });
       writeFileSync(".convex/local/default/config.json", JSON.stringify({ deploymentName: "anonymous-agent", adminKey: "example" }));
       createServer((req, res) => res.end("version")).listen(Number(process.env.PORT) + 1, "127.0.0.1");
@@ -131,7 +139,8 @@ async function prepareFixture(t, { linked = false, typecheckError = false, tails
       writeFileSync("tailscale-serve.json", JSON.stringify(serve));
     }
   `, { mode: 0o700 });
-  const env = { ...process.env, PATH: `${join(fixture, "bin")}:${process.env.PATH}` };
+  // The fixture's services are tiny, so a busy machine needn't delay them.
+  const env = { ...process.env, PATH: `${join(fixture, "bin")}:${process.env.PATH}`, SKIP_HEADROOM_CHECK: "1" };
   const gitPath = (name) => execFileSync("git", ["-C", root, "rev-parse", "--path-format=absolute", "--git-path", name], { encoding: "utf8" }).trim();
   // Starters add process groups to signal and teardown steps before the fixture is removed.
   const fixtureState = { fixture, root, config, env, groups: [], teardown: [],
@@ -458,5 +467,41 @@ test("a detached bootstrap stops its services when its worktree is removed", { t
   assert.ok(await exitedWithin(fixture.supervisorPid, 8000), "The supervisor noticed the removal and exited");
   assert.throws(() => process.kill(polarPid, 0), { code: "ESRCH" });
   assert.equal(signalProcessGroup(nextPid, 0), false);
+  await assertPortsAvailable(fixture.config.ports);
+});
+
+const scopesAvailable = process.platform === "linux" && userSystemdAvailable();
+
+async function startEscapingFixture(t) {
+  const fixture = await startDetachedFixture(t, { escapeOnStop: true });
+  const wait = await control(fixture, ["wait", "--timeout", "10"]);
+  assert.equal(wait.code, 0, wait.output);
+  const escaped = Number(await readFile(join(fixture.root, "escaped.pid"), "utf8"));
+  fixture.teardown.push(() => { try { process.kill(escaped, "SIGKILL"); } catch { /* already gone */ } });
+  // The setup backend's stop could not find it, so it outlives that backend.
+  assert.doesNotThrow(() => process.kill(escaped, 0));
+  const ready = JSON.parse(await readFile(fixture.statePath, "utf8"));
+  assert.equal(ready.scope.unit, fixture.launcherOutput().match(/systemd user scope (\S+\.scope)/)?.[1]);
+  fixture.groups.push(...ready.services.map(({ pgid }) => pgid));
+  return { fixture, escaped };
+}
+
+test("a detached run's shutdown stops a process a service left outside its process groups", { timeout: 20000, skip: !scopesAvailable }, async (t) => {
+  const { fixture, escaped } = await startEscapingFixture(t);
+  const stop = await control(fixture, ["stop", "--timeout", "10"]);
+  assert.equal(stop.code, 0, stop.output);
+  assert.ok(await exitedWithin(escaped, 2000), "The escaped process stopped with the run");
+  assert.match(await readFile(fixture.logPath, "utf8"), /\] Bootstrap: stopped 1 process\(es\) left in bootstrap-/);
+  assert.equal(JSON.parse(await readFile(fixture.statePath, "utf8")).status, "stopped");
+});
+
+test("reclaiming a killed detached run also stops what is left in its scope", { timeout: 20000, skip: !scopesAvailable }, async (t) => {
+  const { fixture, escaped } = await startEscapingFixture(t);
+  process.kill(fixture.supervisorPid, "SIGKILL");
+  assert.ok(await exitedWithin(fixture.supervisorPid, 2000));
+  const stop = await control(fixture, ["stop", "--timeout", "10"]);
+  assert.equal(stop.code, 0, stop.output);
+  assert.match(stop.output, /Stopped \d+ leftover process(es)? in bootstrap-/);
+  assert.ok(await exitedWithin(escaped, 2000), "The escaped process was reclaimed");
   await assertPortsAvailable(fixture.config.ports);
 });

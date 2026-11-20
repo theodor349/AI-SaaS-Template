@@ -99,8 +99,12 @@ export function describeForwarding(forwarding) {
   return lines;
 }
 
+// Starts a fresh log for each run and keeps the previous run's as <file>.1, so a
+// failed start can still be read after a restart.
 export function openLog(file) {
-  // Truncate at each start; an existing log may have been created with a wider mode.
+  try { renameSync(file, `${file}.1`); }
+  catch (error) { if (error.code !== "ENOENT") throw error; }
+  // An existing log may have been created with a wider mode.
   const descriptor = openSync(file, "w", 0o600);
   fchmodSync(descriptor, 0o600);
   return createWriteStream(file, { fd: descriptor });

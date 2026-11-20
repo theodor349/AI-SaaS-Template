@@ -1,5 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { processRows, processStart, processTable, signalProcessGroup } from "./processes.mjs";
+import { sweepScope } from "./scope.mjs";
 import { readState, writeState } from "./state.mjs";
 import { removeRecordedRoutes } from "./tailscale.mjs";
 
@@ -9,9 +10,12 @@ import { removeRecordedRoutes } from "./tailscale.mjs";
 // only while a recorded member is alive in it with its recorded start time; a
 // process group ID cannot be reused while any member is alive. A failed run gets
 // the same treatment, because its shutdown can fail partway, such as a Tailscale
-// command timing out on a loaded machine.
+// command timing out on a loaded machine. A detached run also recorded its own
+// systemd scope, whose cgroup holds only that run's processes, so whatever is
+// left there is stopped as well.
 export async function reclaimStaleRun(state, {
   table = processTable, startOf = processStart, signal = signalProcessGroup, removeRoutes = removeRecordedRoutes, graceMs = 5000,
+  sweep = sweepScope,
 } = {}) {
   const rows = processRows(await table());
   const owned = (state.services ?? []).filter(({ pgid, members }) => members.some(({ pid, start }) =>
@@ -23,6 +27,7 @@ export async function reclaimStaleRun(state, {
   for (const group of owned) if (running(group)) signal(group, "SIGKILL");
   deadline = Date.now() + 1000;
   while (Date.now() < deadline && owned.some(running)) await delay(50);
+  const scoped = state.scope ? await sweep(state.scope, { graceMs }) : { stopped: 0, survivors: [] };
   const survivors = owned.filter(running);
 
   // Routes go after the services, so their targets no longer count as listening.
@@ -32,7 +37,7 @@ export async function reclaimStaleRun(state, {
     try { routes = await removeRoutes(state.tailscale.hostname, created); }
     catch (error) { routes = { removed: [], kept: [], blocked: created, error: error.message }; }
   }
-  return { stopped: owned.filter((group) => !survivors.includes(group)), survivors, routes };
+  return { stopped: owned.filter((group) => !survivors.includes(group)), survivors, scoped, routes };
 }
 
 // Reclaims a stale or failed run, reports the result, and marks the state stopped
@@ -43,8 +48,10 @@ export async function reclaim(stateFile, recorded, { log = console.log, warn = c
   log(recorded.status === "failed"
     ? "Bootstrap is not running (failed); removing any services and routes it left behind."
     : `Bootstrap supervisor ${recorded.pid} exited without cleaning up; reclaiming the services and routes it recorded.`);
-  const { stopped, survivors, routes } = await reclaimStaleRun(recorded, options);
+  const { stopped, survivors, scoped, routes } = await reclaimStaleRun(recorded, options);
   if (stopped.length) log(`Stopped ${stopped.length} leftover service process group${stopped.length === 1 ? "" : "s"}.`);
+  if (scoped.stopped) log(`Stopped ${scoped.stopped} leftover process${scoped.stopped === 1 ? "" : "es"} in ${recorded.scope.unit}.`);
+  if (scoped.survivors.length) warn(`Processes ${scoped.survivors.join(", ")} in ${recorded.scope.unit} survived SIGKILL; inspect them before restarting.`);
   if (routes.removed.length) log(`Removed Tailscale routes on ports ${routes.removed.map(({ port }) => port).join(", ")}.`);
   if (survivors.length) warn(`Process groups ${survivors.join(", ")} survived SIGKILL; inspect them before restarting.`);
   if (routes.error) warn(`Tailscale route cleanup failed: ${routes.error}. Check tailscale serve status.`);
@@ -55,7 +62,7 @@ export async function reclaim(stateFile, recorded, { log = console.log, warn = c
     warn("The bootstrap state file changed during reclamation; check pnpm bootstrap:status.");
     return false;
   }
-  const ok = !survivors.length && !routes.error && !routes.blocked.length;
+  const ok = !survivors.length && !scoped.survivors.length && !routes.error && !routes.blocked.length;
   if (ok) writeState(stateFile, { ...current, status: "stopped", proxyCleanupError: undefined, reclaimedAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
   return ok;
 }

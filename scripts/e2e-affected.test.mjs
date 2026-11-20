@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { grepFor, selectSpecs } from "./e2e-affected.mjs";
 
@@ -105,4 +107,12 @@ test("the map names only existing specs and gives every spec an area", () => {
   const mapped = new Set(map.areas.flatMap((area) => area.specs));
   assert.deepEqual([...mapped].filter((spec) => !specs.includes(spec)), [], "the map names specs that do not exist");
   assert.deepEqual(specs.filter((spec) => !mapped.has(spec)), [], "specs without an area in tests/e2e/spec-map.json");
+});
+
+test("--list prints the selection without Playwright or a running stack", () => {
+  // Playwright's config refuses to load without this worktree's stack, and its
+  // own --list output would follow the selection.
+  const output = execFileSync(process.execPath, [fileURLToPath(new URL("./e2e-affected.mjs", import.meta.url)), "--list", "--base", "HEAD"], { encoding: "utf8" });
+  assert.match(output, /^Would run the @critical tests/m);
+  assert.doesNotMatch(output, /Listing tests|Local test configuration/);
 });

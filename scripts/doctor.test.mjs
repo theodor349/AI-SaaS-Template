@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { compareVersions, convexTemplateCheck, dependencyCheck, fail, formatResults, ghVersionCheck, nodeCheck, ok, pnpmCheck, polarProductProblem, preflight, skip, summarize, tailscaleChecks, warn } from "./doctor.mjs";
+import { compareVersions, convexTemplateCheck, dependencyCheck, fail, formatResults, ghVersionCheck, leftoverRouteChecks, nodeCheck, ok, pnpmCheck, polarProductProblem, preflight, skip, summarize, tailscaleChecks, warn } from "./doctor.mjs";
 
 test("versions compare numerically", () => {
   assert.equal(compareVersions("2.92.0", "2.99.0"), -1);
@@ -119,4 +119,28 @@ test("preflight reports missing shared settings without printing", (t) => {
 
   writeFileSync(join(main, ".env.bootstrap.local"), "");
   assert.deepEqual(preflight({ polar: false, root, mainRoot: main, env: {} }).errors, []);
+});
+
+test("Tailscale routes in bootstrap's range that proxy to a closed loopback port warn with the command that removes them", async () => {
+  const route = (target) => ({ Handlers: { "/": { Proxy: target } } });
+  const serve = {
+    TCP: { 443: { HTTPS: true }, 61003: { HTTPS: true }, 61004: { HTTPS: true }, 61005: { HTTPS: true }, 62000: { HTTPS: true } },
+    Web: {
+      // Outside bootstrap's range, so never bootstrap's.
+      "agent.example.ts.net:443": route("http://127.0.0.1:3773"),
+      // Something listens on its target.
+      "agent.example.ts.net:61003": route("http://127.0.0.1:20000"),
+      "agent.example.ts.net:61004": route("http://127.0.0.1:20001"),
+      // Not a plain loopback proxy.
+      "agent.example.ts.net:61005": { Handlers: { "/": { Proxy: "http://127.0.0.1:20002" }, "/api": { Proxy: "http://127.0.0.1:20003" } } },
+      "agent.example.ts.net:62000": route("http://10.0.0.2:20004"),
+    },
+  };
+  const listening = async (port) => port === 20000 || port === 3773;
+  const results = await leftoverRouteChecks(serve, { listening });
+  assert.equal(results.length, 1);
+  assert.equal(results[0].status, "warn");
+  assert.match(results[0].detail, /127\.0\.0\.1:20001, where nothing listens/);
+  assert.match(results[0].fix, /starting in another checkout.*`tailscale serve --https=61004 off`/);
+  assert.equal((await leftoverRouteChecks({ TCP: {}, Web: {} }, { listening }))[0].status, "ok");
 });

@@ -3,8 +3,8 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
-import { billingEnabled, worktreeConfig, worktreeCredentials } from "./bootstrap/config.mjs";
-import { assertPortsAvailable } from "./bootstrap/network.mjs";
+import { billingEnabled, tailscalePorts, worktreeConfig, worktreeCredentials } from "./bootstrap/config.mjs";
+import { assertPortsAvailable, portAcceptsConnections } from "./bootstrap/network.mjs";
 import { bootstrapPaths, inspectState, liveStatuses, readState } from "./bootstrap/state.mjs";
 
 const run = promisify(execFile);
@@ -84,6 +84,28 @@ export function tailscaleChecks(status) {
     return [warn(name, `${dnsName} has no HTTPS certificate domain`, `Enable HTTPS Certificates in the Tailscale admin console (DNS). ${fix}`)];
   }
   return [ok(name, `running with HTTPS at ${dnsName}`)];
+}
+
+// A bootstrap whose state file went with its worktree can't reclaim its routes,
+// and a leftover route makes a later worktree whose ports land on it fail to
+// start. Flags routes in bootstrap's port range that proxy only to a loopback
+// port where nothing listens. A stack still starting elsewhere looks the same
+// until its services listen, so this warns instead of removing anything.
+export async function leftoverRouteChecks(serve, { listening = portAcceptsConnections, ports = tailscalePorts } = {}) {
+  const name = "Tailscale routes";
+  const routes = Object.entries(serve?.Web ?? {}).flatMap(([authority, { Handlers: handlers = {} }]) => {
+    const port = Number(authority.split(":").at(-1));
+    const target = /^http:\/\/127\.0\.0\.1:(\d+)$/.exec(handlers["/"]?.Proxy ?? "");
+    const proxiesOnlyToLoopback = target && Object.keys(handlers).length === 1 && serve.TCP?.[port]?.HTTPS === true;
+    return proxiesOnlyToLoopback && port >= ports.first && port <= ports.last && !serve.AllowFunnel?.[authority]
+      ? [{ port, target: Number(target[1]) }] : [];
+  });
+  const closed = [];
+  for (const route of routes) if (!(await listening(route.target).catch(() => true))) closed.push(route);
+  if (!closed.length) return [ok(name, `no route in bootstrap's ports ${ports.first}-${ports.last} points at a closed loopback port`)];
+  return closed.map(({ port, target }) => warn(`Tailscale route ${port}`,
+    `proxies to 127.0.0.1:${target}, where nothing listens; a bootstrap that ended without cleanup may have left it`,
+    `If no bootstrap is starting in another checkout (its routes exist before its services listen), remove it with \`tailscale serve --https=${port} off\`.`));
 }
 
 // Mirrors the catalog rules in convex/billing/polar.ts validateProduct, which fail bootstrap's syncCatalog.
@@ -319,8 +341,13 @@ export async function doctor({ offline = false } = {}) {
     pnpmVersion(),
     credentials ? network(() => clerkChecks(credentials)) : [skip("Clerk API", "Clerk keys do not resolve")],
     billing ? network(() => polarChecks(credentials)) : [],
-    command("tailscale", ["status", "--json"]).then(output => {
-      try { return tailscaleChecks(JSON.parse(output)); } catch { return tailscaleChecks(); }
+    command("tailscale", ["status", "--json"]).then(async output => {
+      let checks;
+      try { checks = tailscaleChecks(JSON.parse(output)); } catch { return tailscaleChecks(); }
+      if (checks.some(check => check.status !== "ok")) return checks;
+      const serve = await command("tailscale", ["serve", "status", "--json"]);
+      try { return [...checks, ...await leftoverRouteChecks(JSON.parse(serve))]; }
+      catch { return [...checks, warn("Tailscale routes", "could not read `tailscale serve status --json`")]; }
     }),
     ghChecks(offline), playwrightCheck(), portChecks(config),
   ]);

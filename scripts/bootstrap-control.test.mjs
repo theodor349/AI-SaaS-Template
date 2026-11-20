@@ -3,10 +3,11 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, s
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { waitDecision } from "./bootstrap-control.mjs";
+import { describeHeadroomWait, waitDecision } from "./bootstrap-control.mjs";
 import { groupMembers, processStart } from "./bootstrap/processes.mjs";
 import { reclaim, reclaimStaleRun } from "./bootstrap/reclaim.mjs";
-import { createStateRecorder, inspectState, isVerifiedSupervisor, readCurrentState, readState, writeState } from "./bootstrap/state.mjs";
+import { isBootstrapScope, ownScope, sweepScope } from "./bootstrap/scope.mjs";
+import { createStateRecorder, inspectState, isVerifiedSupervisor, openLog, readCurrentState, readState, writeState } from "./bootstrap/state.mjs";
 import { resetTargets } from "./db-reset.mjs";
 
 const temporary = (t, name) => {
@@ -116,7 +117,7 @@ test("reclaiming a stale run signals only groups that still contain a recorded m
     removeRoutes: async (hostname, created) => ({ removed: created, kept: [], blocked: [] }),
   });
   assert.deepEqual(signals, [[200, "SIGTERM"]]);
-  assert.deepEqual(result, { stopped: [200], survivors: [], routes: { removed: routes, kept: [], blocked: [] } });
+  assert.deepEqual(result, { stopped: [200], survivors: [], scoped: { stopped: 0, survivors: [] }, routes: { removed: routes, kept: [], blocked: [] } });
   assert.deepEqual(groupMembers([200, 300], table, (pid) => starts[pid] ?? null), [
     { pgid: 200, members: [{ pid: 201, start: "start 201" }, { pid: 202, start: "start 202" }] },
     { pgid: 300, members: [{ pid: 301, start: "restarted" }] },
@@ -172,4 +173,63 @@ test("reclaiming a failed run keeps its error and clears a cleanup failure that 
   assert.equal(reclaimed.error, recorded.error);
   assert.equal(reclaimed.proxyCleanupError, undefined);
   assert.doesNotMatch(messages[0], /exited without cleaning up/);
+});
+
+const scopeUnit = "bootstrap-wt-0123456789ab-mwjhkigu.scope";
+const scopeCgroup = `/user.slice/user-1000.slice/user@1000.service/app.slice/${scopeUnit}`;
+
+test("a supervisor owns its cgroup only when it runs in the bootstrap scope its launcher named", () => {
+  assert.deepEqual(ownScope(scopeUnit, `0::${scopeCgroup}\n`), { unit: scopeUnit, cgroup: scopeCgroup });
+  // A foreground run shares the cgroup of the terminal or agent that started it.
+  assert.equal(ownScope(undefined, `0::${scopeCgroup}\n`), undefined);
+  assert.equal(ownScope(scopeUnit, "0::/user.slice/user-1000.slice/user@1000.service/app.slice/t3code-claude-81c887b0.scope\n"), undefined);
+  assert.equal(ownScope("t3code-claude-81c887b0.scope", "0::/user.slice/user@1000.service/app.slice/t3code-claude-81c887b0.scope\n"), undefined);
+  assert.equal(isBootstrapScope({ unit: scopeUnit, cgroup: "/elsewhere/other.scope" }), false);
+});
+
+test("sweeping a scope stops every process left in it except the supervisor, escalating to SIGKILL", async () => {
+  // 245594 ignores SIGTERM, like a process that outlived its service's group.
+  const live = new Set([4242, 245594, 245595]);
+  const signals = [];
+  const signal = (pid, name) => {
+    signals.push([pid, name]);
+    if (name === "SIGKILL" || pid !== 245594) live.delete(pid);
+  };
+  const result = await sweepScope({ unit: scopeUnit, cgroup: scopeCgroup }, { self: 4242, processes: () => [...live], signal, graceMs: 100 });
+  assert.deepEqual(result, { stopped: 2, survivors: [] });
+  assert.deepEqual(signals, [[245594, "SIGTERM"], [245595, "SIGTERM"], [245594, "SIGKILL"]]);
+  assert.ok(live.has(4242));
+  // An unrecognised cgroup is never swept.
+  const untouched = await sweepScope({ unit: "t3code-claude-81c887b0.scope", cgroup: "/x/t3code-claude-81c887b0.scope" }, {
+    processes: () => { throw new Error("read"); }, signal: () => { throw new Error("signal"); },
+  });
+  assert.deepEqual(untouched, { stopped: 0, survivors: [] });
+});
+
+test("reclaiming a detached run also sweeps the scope it recorded", async () => {
+  const swept = [];
+  const scope = { unit: scopeUnit, cgroup: scopeCgroup };
+  const result = await reclaimStaleRun({ services: [], scope }, {
+    table: async () => "1 0 1\n", graceMs: 10, sweep: async (recorded) => { swept.push(recorded); return { stopped: 1, survivors: [] }; },
+  });
+  assert.deepEqual(swept, [scope]);
+  assert.deepEqual(result.scoped, { stopped: 1, survivors: [] });
+});
+
+test("a starting run that waits for headroom says why and until when", () => {
+  const headroom = { problem: "load 20.0 is above 16 (twice the 8 CPUs)", since: "2026-11-20T10:00:00.000Z", giveUpAt: "2026-11-20T10:15:00.000Z" };
+  assert.match(describeHeadroomWait({ status: "starting", headroom }), /since 2026-11-20T10:00:00.000Z: load 20.0 is above 16.*fails at 2026-11-20T10:15:00.000Z/);
+  assert.equal(describeHeadroomWait({ status: "ready", headroom }), undefined);
+  assert.equal(describeHeadroomWait({ status: "starting" }), undefined);
+});
+
+test("each run starts a fresh log and keeps the previous run's", async (t) => {
+  const file = join(temporary(t, "bootstrap log "), "bootstrap.log");
+  for (const run of ["first", "second", "third"]) {
+    const log = openLog(file);
+    await new Promise((resolveWrite) => log.end(`${run} run\n`, resolveWrite));
+  }
+  assert.equal(readFileSync(file, "utf8"), "third run\n");
+  assert.equal(readFileSync(`${file}.1`, "utf8"), "second run\n");
+  assert.equal(statSync(file).mode & 0o777, 0o600);
 });

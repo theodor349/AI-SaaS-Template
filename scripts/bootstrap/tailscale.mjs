@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { tailscalePorts } from "./config.mjs";
 import { assertPortsAvailable, portAcceptsConnections } from "./network.mjs";
 
 const magicDnsName = /^[a-z0-9-]+\.[a-z0-9-]+\.ts\.net$/;
@@ -10,7 +11,7 @@ export function tailscaleConfig(config, dnsName) {
   if (!magicDnsName.test(hostname)) {
     throw new Error("Tailscale must provide this machine's MagicDNS .ts.net hostname.");
   }
-  const first = 61000 + config.portBlock.tailscale * 3;
+  const first = tailscalePorts.first + config.portBlock.tailscale * 3;
   const ports = { next: first, convex: first + 1, site: first + 2 };
   const url = key => `https://${hostname}:${ports[key]}`;
   return { hostname, ports, env: {
