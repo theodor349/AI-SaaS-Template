@@ -90,18 +90,20 @@ Use `pnpm bootstrap --no-polar` when billing is outside the task. It needs no Po
 
 An agent starts the stack with `pnpm bootstrap --detach` and waits with `pnpm bootstrap:wait`, because agent tools stop a background task after a time limit. A detached stack runs until `pnpm bootstrap:stop` or until the worktree is removed. On Linux with a systemd user manager it runs in its own scope, so it also survives the end of the agent's turn.
 
+Bootstrap and the E2E and integration test commands wait while the machine is busy: they start once the one minute load is at most twice the CPU count and 3 GB of memory is available, and fail after 15 minutes. CI skips the wait, and `SKIP_HEADROOM_CHECK=1` skips it on purpose.
+
 ## Commands
 
 ### Local environment
 
 | Command | What it does |
 | --- | --- |
-| `pnpm setup:check` | Checks prerequisites, credentials, the Clerk and Polar setup, Tailscale, the GitHub CLI, and this worktree's ports. `--offline` skips the network checks, and `--json` prints the results as JSON. |
+| `pnpm setup:check` | Checks prerequisites, credentials, the Clerk and Polar setup, Tailscale and leftover Tailscale routes, the GitHub CLI, and this worktree's ports. `--offline` skips the network checks, and `--json` prints the results as JSON. |
 | `pnpm bootstrap` | Runs an isolated local environment for this worktree. Takes `--local`, `--tailscale`, and `--no-polar`. |
 | `pnpm bootstrap --detach` | Starts the environment in the background, detached from the terminal. Output goes to the log file. |
 | `pnpm bootstrap --print` | Prints the ports, addresses, and network mode without starting anything. |
 | `pnpm bootstrap:status` | Shows this worktree's bootstrap state, addresses, and log file. |
-| `pnpm bootstrap:wait` | Waits until this worktree's bootstrap is ready. |
+| `pnpm bootstrap:wait` | Waits until this worktree's bootstrap is ready, for up to 600 seconds by default. |
 | `pnpm bootstrap:stop` | Stops this worktree's bootstrap and its services. |
 | `pnpm bootstrap:tailscale` | Same as `pnpm bootstrap --tailscale`. |
 | `pnpm db:reset --yes` | Clears this worktree's local Convex data. Bootstrap must be stopped. |
@@ -119,7 +121,7 @@ An agent starts the stack with `pnpm bootstrap --detach` and waits with `pnpm bo
 | `pnpm test:integration` | Checks the running worktree's local backend and frontend. Needs a running bootstrap. |
 | `pnpm test:e2e [spec...]` | Runs the browser suite, or the given specs, in Chromium against the running worktree. With `E2E_EVIDENCE=1` it also saves screenshots and videos in `.playwright/results`. |
 | `pnpm test:e2e:critical` | Runs only the browser tests tagged `@critical`. |
-| `pnpm test:e2e:affected` | Runs the `@critical` tests plus the specs that [`tests/e2e/spec-map.json`](tests/e2e/spec-map.json) maps to the files changed since `origin/main`. `--list` shows the selection without running it. |
+| `pnpm test:e2e:affected` | Runs the `@critical` tests plus the specs that [`tests/e2e/spec-map.json`](tests/e2e/spec-map.json) maps to the files changed since `origin/main`. `--list` shows the selection without running it or needing a running stack. |
 
 ### Pull request tools
 
@@ -129,7 +131,7 @@ An agent starts the stack with `pnpm bootstrap --detach` and waits with `pnpm bo
 | `pnpm capture <path...>` | Takes desktop and mobile screenshots of pages, and a video with `--video <seconds>`, as evidence for a pull request. It saves them outside the checkout. |
 | `pnpm review-link` | Prints a single-use, signed-in link to the running worktree for a reviewer. |
 | `pnpm clerk:sweep` | Deletes this worktree's leftover Clerk test users. Takes `--dry-run` and `--all-worktrees`. |
-| `pnpm pr:gate [PR]` | Summarizes what still blocks a pull request from merging: checks, mergeability, whether it contains `main`, and open review threads. |
+| `pnpm pr:gate [PR]` | Summarizes what still blocks a pull request from merging: checks, mergeability, whether it contains `main`, and open review threads. `--wait` blocks until the verdict is no longer waiting. |
 | `pnpm polar:trigger` | Sends a labeled sample event from the Polar sandbox to the organization's webhook listeners. |
 
 ### Build

@@ -20,6 +20,7 @@ import {
   developmentCredentials,
   descendantProcessGroups,
   environmentFile,
+  timestamped,
   worktreeConfig,
   worktreeCredentials,
 } from "./bootstrap.mjs";
@@ -808,4 +809,10 @@ test("stopping during a kept service's restart delay starts nothing more", { tim
   await stop();
   await kept;
   assert.equal(polar.runs().length, 1);
+});
+
+test("the supervisor's own log lines carry a timestamp on every line", () => {
+  const now = new Date("2026-11-20T10:00:00.000Z");
+  assert.equal(timestamped("Worktree: wt-1\nApp: http://127.0.0.1:3000", now),
+    "[2026-11-20T10:00:00.000Z] Worktree: wt-1\n[2026-11-20T10:00:00.000Z] App: http://127.0.0.1:3000\n");
 });

@@ -43,6 +43,7 @@
     ".github/workflows/e2e.yml",
     "scripts/bootstrap*.mjs",
     "scripts/bootstrap/**",
+    "scripts/heavy-command.mjs",
     "scripts/local-test-config.mjs",
     "scripts/billing-test-admin.ts",
     "scripts/billing-test-fixtures.mjs",

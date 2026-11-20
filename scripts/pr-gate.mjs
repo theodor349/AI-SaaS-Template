@@ -4,18 +4,34 @@ import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
-const USAGE = "Usage: pnpm pr:gate [PR number|URL] [--json]";
+const USAGE = `Usage: pnpm pr:gate [PR number|URL] [--json] [--wait [--timeout <seconds>]]
+
+--wait blocks while the verdict is WAITING and exits with the usual code once it
+is not, or with 1 (waiting) after --timeout seconds, default 540, which returns
+before a harness's 10 minute limit on a foreground command. Between full runs it
+polls one GraphQL query every 30 seconds and runs the full collection when that
+changes, or every 5 minutes, since every agent on the machine shares the API limit.`;
+const WAIT = { timeoutMs: 540_000, pollMs: 30_000, refreshMs: 5 * 60_000 };
 const NO_CHECKS_GRACE_MS = 5 * 60_000;
 const EXIT = { pass: 0, wait: 1, action: 2, error: 3 };
 
 export function parseArgs(argv) {
-  const options = { json: false, help: false, pr: undefined };
-  for (const arg of argv) {
+  const options = { json: false, help: false, pr: undefined, wait: false, timeoutMs: WAIT.timeoutMs };
+  let timeout = false;
+  for (let index = 0; index < argv.length; index++) {
+    const arg = argv[index];
     if (arg === "--json") options.json = true;
-    else if (arg === "-h" || arg === "--help") options.help = true;
+    else if (arg === "--wait") options.wait = true;
+    else if (arg === "--timeout") {
+      const seconds = Number(argv[++index]);
+      if (!Number.isFinite(seconds) || seconds <= 0) throw new Error(`--timeout needs a positive number of seconds.\n${USAGE}`);
+      options.timeoutMs = seconds * 1000;
+      timeout = true;
+    } else if (arg === "-h" || arg === "--help") options.help = true;
     else if (!arg.startsWith("-") && options.pr === undefined) options.pr = parsePrRef(arg);
     else throw new Error(USAGE);
   }
+  if (timeout && !options.wait) throw new Error(`--timeout needs --wait.\n${USAGE}`);
   return options;
 }
 
@@ -353,13 +369,66 @@ export async function collect(options) {
   return { pr, git: gitInfo, pushedAt, required, mergeMethods: methods, checkRuns, statuses, reviews, comments, reviewComments, threads };
 }
 
+const PULSE = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+    state headRefOid mergeable mergeStateStatus updatedAt
+    commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(first: 100) { totalCount nodes {
+      ... on CheckRun { name status conclusion } ... on StatusContext { context state } } } } } } }
+  } } }`;
+
+// One GraphQL query whose result changes when anything the gates read from GitHub
+// changes: a push, a check or status, mergeability, or a comment or review, which
+// update updatedAt. The local HEAD covers a push from this checkout.
+async function pulse(pr) {
+  const [owner, name] = pr.baseRepo.split("/");
+  const args = ["api", "graphql", "-f", `query=${PULSE}`, "-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `number=${pr.number}`];
+  const [response, head] = await Promise.all([ghJson(args), git(["rev-parse", "HEAD"])]);
+  return JSON.stringify([response.data, head]);
+}
+
+// Re-evaluates the gates while the verdict is WAITING. Between full collections it
+// compares pulse() every pollMs, and collects again when the pulse changes or
+// refreshMs has passed, which also catches time-based gates and a moved base.
+// Returns the last snapshot and result, still WAITING after timeoutMs.
+export async function waitForGates({
+  collect: collectSnapshot, evaluate: evaluateSnapshot = evaluate, pulse: readPulse, onWaiting = () => {},
+  timeoutMs = WAIT.timeoutMs, pollMs = WAIT.pollMs, refreshMs = WAIT.refreshMs,
+  now = Date.now, sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms)),
+}) {
+  const deadline = now() + timeoutMs;
+  let snapshot = await collectSnapshot();
+  let result = evaluateSnapshot(snapshot);
+  while (result.verdict.code === EXIT.wait && now() < deadline) {
+    onWaiting(result);
+    const collectedAt = now();
+    const before = await readPulse(snapshot.pr);
+    for (;;) {
+      await sleep(Math.max(0, Math.min(pollMs, deadline - now())));
+      if (now() >= deadline || now() - collectedAt >= refreshMs || await readPulse(snapshot.pr) !== before) break;
+    }
+    snapshot = await collectSnapshot();
+    result = evaluateSnapshot(snapshot);
+  }
+  return { snapshot, result };
+}
+
 async function main() {
   let options;
   try {
     options = parseArgs(process.argv.slice(2));
     if (options.help) { console.log(USAGE); return; }
-    const snapshot = await collect(options);
-    const result = evaluate(snapshot);
+    let reported;
+    const { snapshot, result } = options.wait
+      ? await waitForGates({
+        collect: () => collect(options), pulse, timeoutMs: options.timeoutMs,
+        // One line per change, so a long wait stays quiet.
+        onWaiting: ({ gates }) => {
+          const line = `Waiting: ${gates.filter((gate) => gate.gate === "wait").map((gate) => `${gate.name} (${gate.detail})`).join("; ")}`;
+          if (!options.json && line !== reported) console.log(line);
+          reported = line;
+        },
+      })
+      : await collect(options).then((collected) => ({ snapshot: collected, result: evaluate(collected) }));
     if (options.json) {
       const { reviews: _reviews, comments: _comments, reviewComments: _inline, checkRuns: _runs, statuses: _statuses, ...rest } = snapshot;
       console.log(JSON.stringify({ ...rest, ...result, checks: result.checks }, null, 2));

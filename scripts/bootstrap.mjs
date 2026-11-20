@@ -10,8 +10,10 @@ import {
 import { assertPortsAvailable, waitForServer } from "./bootstrap/network.mjs";
 import { preflight } from "./doctor.mjs";
 import { detachedLaunch } from "./bootstrap/detach.mjs";
+import { describeWait, waitForHeadroom } from "./bootstrap/headroom.mjs";
 import { createSupervisor, exitReason, superviseConvex, superviseNext, superviseWorktree, watchConvexPush } from "./bootstrap/processes.mjs";
 import { reclaim } from "./bootstrap/reclaim.mjs";
+import { ownScope, readOwnCgroup, sweepScope } from "./bootstrap/scope.mjs";
 import { bootstrapPaths, createStateRecorder, inspectState, liveStatuses, missedWebhooks, openLog, readState, reclaimableStatuses } from "./bootstrap/state.mjs";
 import { chooseNetwork, cleanupProxies, readTailscaleStatus, serveWorktree, tailscaleConfig } from "./bootstrap/tailscale.mjs";
 
@@ -40,9 +42,18 @@ and loopback URLs otherwise or when CI is set.
              stops when the worktree is removed.
 --print      Print the effective configuration without changing anything.
 
+Before it starts services, a run waits while the machine's one minute load is
+above twice its CPU count or under 3 GB of memory is available, and fails after
+15 minutes. A detached run waits in the background with status starting.
+CI=true or SKIP_HEADROOM_CHECK=1 skips the wait.
+
 BOOTSTRAP_PORT_BLOCK=<0-7499> in this worktree's .env.bootstrap.local (or the
 environment) moves the worktree to another port block when its ports collide.
 Use pnpm bootstrap:status, bootstrap:wait, and bootstrap:stop to control a run.`;
+
+export function timestamped(message, now = new Date()) {
+  return message.split("\n").map((line) => `[${now.toISOString()}] ${line}\n`).join("");
+}
 
 export function parseArguments(argv) {
   const known = ["--help", "--local", "--tailscale", "--no-polar", "--print", "--detach"];
@@ -94,7 +105,10 @@ async function startDetached({ root, id, argv, network, paths, claimTimeoutMs = 
   await reclaimPreviousRun(paths.state);
   const args = [...argv.filter((arg) => !["--detach", "--local", "--tailscale"].includes(arg)), `--${network.mode}`];
   const launch = detachedLaunch({ id, command: process.execPath, args: [fileURLToPath(import.meta.url), ...args] });
-  const child = spawn(launch.command, launch.args, { cwd: root, detached: true, stdio: "ignore" });
+  // The supervisor checks that it runs in the scope named here before it treats
+  // that scope's cgroup as its own.
+  const env = launch.unit ? { ...process.env, BOOTSTRAP_SCOPE: launch.unit } : process.env;
+  const child = spawn(launch.command, launch.args, { cwd: root, detached: true, stdio: "ignore", env });
   let exit;
   child.once("error", (error) => { exit = `could not start: ${error.message}`; });
   child.once("exit", (code, signal) => { exit = signal ? `signal ${signal}` : `exit ${code}`; });
@@ -328,17 +342,21 @@ export async function bootstrap({ argv = process.argv.slice(2) } = {}) {
     return;
   }
   await reclaimPreviousRun(paths.state);
+  // Recorded so a reclaim of this run can sweep the scope too, if it is killed.
+  const scope = ownScope(process.env.BOOTSTRAP_SCOPE, readOwnCgroup());
+  delete process.env.BOOTSTRAP_SCOPE;
   const remote = network.remote;
   const urls = (env) => ({ app: env.APP_URL, convex: env.NEXT_PUBLIC_CONVEX_URL, site: env.NEXT_PUBLIC_CONVEX_SITE_URL });
   const log = openLog(paths.log);
   const state = createStateRecorder(paths.state, {
     worktreeId: config.id, root, mode: network.mode, polar: options.polar, ports: config.ports,
-    urls: urls({ ...config.env, ...remote?.env }), log: paths.log,
+    urls: urls({ ...config.env, ...remote?.env }), log: paths.log, ...scope && { scope },
   });
   state.update({ status: "starting" });
+  // The supervisor's own lines carry a timestamp in the log, so a slow start can be timed.
   const say = (message, stream = process.stdout) => {
     if (!stream.destroyed && stream.writable) stream.write(`${message}\n`);
-    if (log.writable) log.write(`${message}\n`);
+    if (log.writable) log.write(timestamped(message));
   };
   if (network.note) say(network.note);
 
@@ -357,6 +375,14 @@ export async function bootstrap({ argv = process.argv.slice(2) } = {}) {
     say(message, process.stderr);
   };
   try {
+    await waitForHeadroom({
+      label: "Bootstrap", signal: controller.signal,
+      onWait: (problem, times) => {
+        state.update({ headroom: { problem, ...times } });
+        say(describeWait("Bootstrap", problem, times), process.stderr);
+      },
+    });
+    if (state.current.headroom) state.update({ headroom: undefined });
     const mainRoot = mainCheckoutRoot(root);
     const checks = preflight({ polar: options.polar, root, mainRoot });
     for (const warning of checks.warnings) say(`Warning: ${warning}`, process.stderr);
@@ -398,7 +424,12 @@ export async function bootstrap({ argv = process.argv.slice(2) } = {}) {
     controller.abort(new Error("Bootstrap stopped."));
     await watchingWorktree;
     if (cleanup && !cleanupProxies(cleanup, reportProxyCleanup)) failure ??= new Error("Tailscale proxy cleanup failed; check tailscale serve status.");
-    state.update({ status: failure ? "failed" : "stopped", error: failure?.message, proxyCleanupError });
+    if (scope) {
+      const { stopped, survivors } = await sweepScope(scope);
+      if (stopped) say(`Bootstrap: stopped ${stopped} process(es) left in ${scope.unit} after its services stopped.`);
+      if (survivors.length) failure ??= new Error(`Processes ${survivors.join(", ")} in ${scope.unit} survived SIGKILL.`);
+    }
+    state.update({ status: failure ? "failed" : "stopped", error: failure?.message, proxyCleanupError, headroom: undefined });
     if (failure) say(`Bootstrap: ${failure.message}`, process.stderr);
     await new Promise((resolveLog) => log.end(resolveLog));
     removeStopListeners();

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifyChecks, collectActivity, evaluate, parseArgs, repoFromRemoteUrl } from "./pr-gate.mjs";
+import { classifyChecks, collectActivity, evaluate, parseArgs, repoFromRemoteUrl, waitForGates } from "./pr-gate.mjs";
 
 const head = "dabd98847b44b3340cdfdb1ecb3e47f367aec099";
 const older = "9e320af12ae518ea0ce4c18bda8cbc9d6718e4b7";
@@ -14,7 +14,10 @@ const comment = (body, updatedAt = "2026-10-13T14:28:39Z", user = bot) => ({
 const pendingRun = { name: "Unit tests", status: "in_progress", conclusion: null, app: { slug: "github-actions" } };
 
 test("arguments accept PR numbers and URLs and reject anything else", () => {
-  assert.deepEqual(parseArgs(["#20", "--json"]), { json: true, help: false, pr: "20" });
+  assert.deepEqual(parseArgs(["#20", "--json"]), { json: true, help: false, pr: "20", wait: false, timeoutMs: 540_000 });
+  assert.deepEqual(parseArgs(["--wait", "--timeout", "120"]), { json: false, help: false, pr: undefined, wait: true, timeoutMs: 120_000 });
+  assert.throws(() => parseArgs(["--timeout", "120"]), /--timeout needs --wait/);
+  assert.throws(() => parseArgs(["--wait", "--timeout", "soon"]), /positive number/);
   assert.equal(parseArgs(["https://github.com/o/r/pull/7/"]).pr, "https://github.com/o/r/pull/7");
   assert.throws(() => parseArgs(["main"]), /PR number or GitHub PR URL/);
   assert.throws(() => parseArgs(["1", "2"]), /Usage/);
@@ -167,4 +170,46 @@ test("a merged PR reports its merge commit and any gate the merged head never me
   }), minutesAfterPush(60));
   assert.equal(merged.verdict.code, 0);
   assert.match(merged.verdict.detail, /8e84761.*not satisfied for the merged head: Checks/);
+});
+
+// A clock that advances only when the waiting loop sleeps.
+function waitHarness(verdicts, pulses) {
+  let clock = 0;
+  const calls = { collect: 0, pulse: 0 };
+  return {
+    calls,
+    options: {
+      collect: async () => ({ pr: {}, collectedAt: clock, index: calls.collect++ }),
+      evaluate: (snapshot) => ({ verdict: { code: verdicts[Math.min(snapshot.index, verdicts.length - 1)] } }),
+      pulse: async () => pulses[Math.min(calls.pulse++, pulses.length - 1)],
+      now: () => clock,
+      sleep: async (ms) => { clock += ms; },
+      pollMs: 30_000, refreshMs: 300_000,
+    },
+  };
+}
+
+test("--wait collects again only when the pulse changes, and returns once the verdict is not WAITING", async () => {
+  const { options, calls } = waitHarness([1, 2], ["a", "a", "a", "b"]);
+  const { snapshot, result } = await waitForGates({ ...options, timeoutMs: 600_000 });
+  assert.equal(result.verdict.code, 2);
+  assert.equal(calls.collect, 2);
+  // The pulse before sleeping, two unchanged polls, then the change.
+  assert.equal(calls.pulse, 4);
+  assert.equal(snapshot.collectedAt, 90_000);
+});
+
+test("--wait collects again after the refresh interval without a pulse change, and stops at the timeout", async () => {
+  const { options, calls } = waitHarness([1], ["same"]);
+  const { result, snapshot } = await waitForGates({ ...options, timeoutMs: 400_000 });
+  assert.equal(result.verdict.code, 1);
+  assert.equal(snapshot.collectedAt, 400_000);
+  // At start, after the 5 minute refresh, and at the timeout.
+  assert.equal(calls.collect, 3);
+});
+
+test("--wait returns at once when the first verdict is not WAITING", async () => {
+  const { options, calls } = waitHarness([0], ["a"]);
+  assert.equal((await waitForGates({ ...options, timeoutMs: 600_000 })).result.verdict.code, 0);
+  assert.deepEqual(calls, { collect: 1, pulse: 0 });
 });

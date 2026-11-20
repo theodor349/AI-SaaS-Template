@@ -1,6 +1,7 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { appendFileSync, readFileSync } from "node:fs";
 import { basename, matchesGlob } from "node:path";
+import { runHeavy } from "./heavy-command.mjs";
 
 const specMap = JSON.parse(readFileSync(new URL("../tests/e2e/spec-map.json", import.meta.url), "utf8"));
 const matchesAny = (file, patterns) => patterns.some((pattern) => matchesGlob(file, pattern));
@@ -54,13 +55,14 @@ export function grepFor(specs) {
 /**
  * @param {ReturnType<typeof selectSpecs>} selection
  * @param {boolean} runsFullSuite false for a local run, which leaves the full suite to CI
+ * @param {string} verb "Running", or "Would run" for --list
  */
-export function describeSelection({ fullSuiteReason, specs }, runsFullSuite) {
+export function describeSelection({ fullSuiteReason, specs }, runsFullSuite, verb = "Running") {
   const reason = `${fullSuiteReason} in tests/e2e/spec-map.json`;
-  if (fullSuiteReason && runsFullSuite) return `Running the full suite: ${reason}.`;
+  if (fullSuiteReason && runsFullSuite) return `${verb} the full suite: ${reason}.`;
   const lines = fullSuiteReason ? [`CI runs the full suite for this change: ${reason}. pnpm test:e2e runs it here.`] : [];
-  if (specs.length === 0) lines.push("Running the @critical tests only. No changed file maps to a spec.");
-  else lines.push(`Running the @critical tests plus ${specs.length} spec(s):`, ...specs.map(({ spec, file }) => `  ${spec} (${file})`));
+  if (specs.length === 0) lines.push(`${verb} the @critical tests only. No changed file maps to a spec.`);
+  else lines.push(`${verb} the @critical tests plus ${specs.length} spec(s):`, ...specs.map(({ spec, file }) => `  ${spec} (${file})`));
   return lines.join("\n");
 }
 
@@ -76,26 +78,32 @@ function changedFiles(base) {
   return [...new Set([...lines(git("diff", "--name-only", "--no-renames", base)), ...lines(git("ls-files", "--others", "--exclude-standard"))])];
 }
 
-const usage = `Usage: pnpm test:e2e:affected [--base <rev>] [--github-output] [playwright options]
+const usage = `Usage: pnpm test:e2e:affected [--base <rev>] [--list | --github-output] [playwright options]
 
 Runs the @critical E2E tests plus the specs tests/e2e/spec-map.json maps to the
 files changed since <rev>, including uncommitted and untracked files. <rev>
 defaults to the merge base with origin/main; fetch origin first. When a change
 needs the full suite, this says so and leaves it to CI. Other options go to
-playwright test, so --list shows the selection without running it.
+playwright test. Like pnpm test:e2e, the run waits for machine headroom and runs
+in its own systemd scope where available (see scripts/heavy-command.mjs).
+
+--list prints the selection and exits without running Playwright, so it needs
+no running stack.
 
 --github-output is for CI: it writes the --grep pattern to $GITHUB_OUTPUT as
 grep, empty when the change needs the full suite, instead of running Playwright.`;
 
-function main(args) {
+async function main(args) {
   let base;
   let githubOutput = false;
+  let list = false;
   const playwrightArgs = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--base") {
       base = args[++i];
       if (!base) throw new Error("--base needs a revision.");
     } else if (args[i] === "--github-output") githubOutput = true;
+    else if (args[i] === "--list") list = true;
     else if (args[i] === "--help" || args[i] === "-h") {
       console.log(usage);
       return 0;
@@ -104,7 +112,8 @@ function main(args) {
   base ??= git("merge-base", "origin/main", "HEAD").trim();
 
   const selection = selectSpecs(changedFiles(base));
-  console.log(describeSelection(selection, githubOutput));
+  console.log(describeSelection(selection, githubOutput, list ? "Would run" : "Running"));
+  if (list) return 0;
   const runsFullSuite = githubOutput && selection.fullSuiteReason !== undefined;
   const grep = runsFullSuite ? "" : grepFor(selection.specs.map(({ spec }) => spec));
 
@@ -115,16 +124,15 @@ function main(args) {
     return 0;
   }
   const grepArgs = grep ? ["--grep", grep] : [];
-  const result = spawnSync("pnpm", ["exec", "playwright", "test", ...grepArgs, ...playwrightArgs], { stdio: "inherit" });
-  if (result.error) throw result.error;
-  return result.status ?? 1;
+  return runHeavy({ label: "pnpm test:e2e:affected", command: "pnpm", args: ["exec", "playwright", "test", ...grepArgs, ...playwrightArgs] });
 }
 
 if (import.meta.main) {
-  try {
-    process.exitCode = main(process.argv.slice(2));
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : error);
-    process.exitCode = 1;
-  }
+  main(process.argv.slice(2)).then(
+    (code) => { process.exitCode = code; },
+    (error) => {
+      console.error(error instanceof Error ? error.message : error);
+      process.exitCode = 1;
+    },
+  );
 }
