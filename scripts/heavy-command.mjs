@@ -33,12 +33,12 @@ export function userManagerUnit(cgroupText, uid = process.getuid?.()) {
 // a harness stops an agent turn's scope, so the run never outlives its caller.
 export function scopedLaunch({
   name, command, args, env = process.env, platform = process.platform, systemdAvailable = userSystemdAvailable,
-  cgroup = () => readFileSync("/proc/self/cgroup", "utf8"), now = Date.now(),
+  cgroup = () => readFileSync("/proc/self/cgroup", "utf8"), uid = process.getuid?.(), now = Date.now(),
 }) {
   if (platform !== "linux" || ciSet(env) || !systemdAvailable()) return { command, args };
   const unit = `${name.replace(/[^A-Za-z0-9_.-]+/g, "-").replace(/^-+|-+$/g, "")}-${now.toString(36)}.scope`;
   let parent;
-  try { parent = userManagerUnit(cgroup()); } catch { parent = undefined; }
+  try { parent = userManagerUnit(cgroup(), uid); } catch { parent = undefined; }
   const binding = parent ? ["--property", `BindsTo=${parent}`, "--property", `After=${parent}`] : [];
   return { command: "systemd-run", args: ["--user", "--scope", "--quiet", "--collect", `--unit=${unit}`, ...binding, "--", command, ...args], unit };
 }

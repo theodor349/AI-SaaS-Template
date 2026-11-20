@@ -65,7 +65,7 @@ test("the caller's unit is found only inside this user's manager", () => {
 });
 
 test("heavy commands get their own scope on Linux with a user manager, bound to the caller's unit", () => {
-  const base = { name: "test:e2e", command: "playwright", args: ["test"], platform: "linux", systemdAvailable: () => true, now: 36 ** 3 };
+  const base = { name: "test:e2e", command: "playwright", args: ["test"], platform: "linux", systemdAvailable: () => true, uid: 1000, now: 36 ** 3 };
   const launch = scopedLaunch({ ...base, env: {}, cgroup: () => `0::${agentScope}\n` });
   assert.equal(launch.unit, "test-e2e-1000.scope");
   assert.deepEqual(launch.args, [
