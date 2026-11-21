@@ -56,6 +56,9 @@
     "zod": "^4.6.7"
   },
   "pnpm": {
+    "overrides": {
+      "@ts-morph/common>minimatch": "^11.0.1"
+    },
     "onlyBuiltDependencies": [
       "@polar-sh/cli",
       "esbuild",
