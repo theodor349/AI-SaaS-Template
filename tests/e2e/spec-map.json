@@ -153,7 +153,7 @@
     {
       "area": "Connection status",
       "specs": ["connection-status.spec.mts"],
-      "paths": ["components/layout/connection-status.*"]
+      "paths": ["components/layout/connection-status.*", "components/ConvexReconnectTelemetry.tsx", "lib/convex-reconnect.*"]
     },
     {
       "area": "Dialogs and history",

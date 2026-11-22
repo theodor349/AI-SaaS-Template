@@ -1,6 +1,7 @@
 import { clerk } from "@clerk/testing/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { appConfig } from "../../app.config";
+import { allChoices, CONSENT_COOKIE, consentCookieValue } from "../../lib/consent/cookie";
 import { seedPaidTestUser } from "../../scripts/billing-test-fixtures.mjs";
 import { createClerkTestUser } from "../../scripts/clerk-test-user.mjs";
 import { resolveLocalTestConfig } from "../../scripts/local-test-config.mjs";
@@ -164,4 +165,30 @@ test("an unreachable backend shows reconnecting while the browser is online, and
   await expect(indicator(page)).toHaveCount(0, { timeout: 60_000 });
   // The reconnected socket subscribes again and the backend delivers fresh results.
   await expect.poll(() => results.slice(resultsBefore)).toEqual(expect.arrayContaining(pagePaths));
+});
+
+test("a reconnect reports its duration and close reason to Sentry when analytics is granted", async ({ page, context }) => {
+  await context.addCookies([{ name: CONSENT_COOKIE, value: consentCookieValue(allChoices(true)), url: local.config.env.APP_URL }]);
+  // Bootstrap points browser Sentry at the app's fake ingest route (next.config.js).
+  const metricEnvelopes: string[] = [];
+  page.on("request", (request) => {
+    const body = request.url().includes("/e2e/sentry/api/1/envelope") ? request.postData() ?? "" : "";
+    if (body.includes("convex.reconnect.duration")) metricEnvelopes.push(body);
+  });
+  const backendHost = new URL(local.config.env.NEXT_PUBLIC_CONVEX_URL).host;
+  const open = new Set<{ close: (options?: { code?: number; reason?: string }) => Promise<void> }>();
+  await page.routeWebSocket((url) => url.host === backendHost && url.pathname.endsWith("/sync"), (socket) => {
+    const server = socket.connectToServer();
+    open.add(socket);
+    socket.onClose(() => {
+      open.delete(socket);
+      void server.close();
+    });
+  });
+  await openConnected(page);
+
+  await Promise.all([...open].map((socket) => socket.close({ code: 1011, reason: "e2e cut" })));
+  // The report waits for the reconnect to stay live, then Sentry flushes its buffer.
+  await expect.poll(() => metricEnvelopes.length, { timeout: 30_000 }).toBeGreaterThan(0);
+  expect(metricEnvelopes[0]).toContain("e2e cut");
 });
