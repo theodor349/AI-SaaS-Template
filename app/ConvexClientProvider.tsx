@@ -4,11 +4,13 @@ import { ReactNode, useState } from "react";
 import { ConvexReactClient } from "convex/react";
 import { ConvexProviderWithClerk } from "convex/react-clerk";
 import { useAuth } from "@clerk/nextjs";
+import { ConvexReconnectTelemetry } from "@/components/ConvexReconnectTelemetry";
 import { UserProvisioning } from "@/components/UserProvisioning";
 import { retryWhileOffline } from "@/lib/clerk-token";
+import { convexLogger } from "@/lib/convex-reconnect";
 import { maintenanceMode } from "@/lib/maintenance";
 
-const convex = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+const convex = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL!, { logger: convexLogger });
 
 // Convex reads any getToken error as a sign-out, which replaces the page, so a token
 // request that fails while offline waits for the network instead. Convex keeps the
@@ -39,6 +41,7 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
     <ConvexProviderWithClerk key={key} client={convex} useAuth={useAuthRetryingOffline}>
       {/* Provisioning writes to Convex, which refuses writes during maintenance. */}
       {!maintenanceMode && <UserProvisioning />}
+      <ConvexReconnectTelemetry />
       {children}
     </ConvexProviderWithClerk>
   );

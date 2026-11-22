@@ -5,6 +5,7 @@ import {
   getActiveSpan,
   getCurrentScope,
   init,
+  metrics,
 } from "@sentry/nextjs";
 import { setActiveBrowserSentry } from "./active";
 import { sentryOptions } from "./options";
@@ -23,6 +24,7 @@ export function startBrowserSentry() {
     captureException: (error) => { captureException(error); },
     traceId: () => getActiveSpan()?.spanContext().traceId ?? getCurrentScope().getPropagationContext().traceId,
     routerTransitionStart: captureRouterTransitionStart,
+    distribution: (name, valueMs, attributes) => metrics.distribution(name, valueMs, { unit: "millisecond", attributes }),
   });
 }
 

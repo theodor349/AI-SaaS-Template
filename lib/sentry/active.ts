@@ -5,6 +5,7 @@ type BrowserSentry = {
   captureException: (error: unknown) => void;
   traceId: () => string;
   routerTransitionStart: (href: string, navigationType: string) => void;
+  distribution: (name: string, valueMs: number, attributes: Record<string, string | number | boolean>) => void;
 };
 
 let active: BrowserSentry | undefined;
